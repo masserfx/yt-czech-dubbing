@@ -103,35 +103,67 @@ class CaptionExtractor {
   /**
    * Download and parse captions from a track URL.
    * If targetLang is specified, uses YouTube's built-in translation.
+   * Retries on 429 (rate limit) with exponential backoff.
    */
   async downloadCaptions(trackUrl, targetLang = null) {
-    try {
-      const url = new URL(trackUrl);
-      url.searchParams.set('fmt', 'json3');
+    const url = new URL(trackUrl);
+    url.searchParams.set('fmt', 'json3');
 
-      if (targetLang) {
-        url.searchParams.set('tlang', targetLang);
-      }
-
-      console.log(`[CzechDub] Downloading captions (tlang=${targetLang || 'none'})...`);
-
-      const resp = await fetch(url.toString());
-      const data = await resp.json();
-
-      if (!data.events) return [];
-
-      return data.events
-        .filter(event => event.segs && event.segs.length > 0)
-        .map(event => ({
-          start: (event.tStartMs || 0) / 1000,
-          duration: (event.dDurationMs || 0) / 1000,
-          text: event.segs.map(s => s.utf8 || '').join('').trim()
-        }))
-        .filter(caption => caption.text.length > 0);
-    } catch (err) {
-      console.error('[CzechDub] Failed to download captions:', err);
-      return [];
+    if (targetLang) {
+      url.searchParams.set('tlang', targetLang);
     }
+
+    const maxRetries = 4;
+    const delays = [1000, 2000, 4000, 8000];
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = delays[attempt - 1] || 8000;
+          console.log(`[CzechDub] Retry ${attempt}/${maxRetries} after ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+
+        console.log(`[CzechDub] Downloading captions (tlang=${targetLang || 'none'}, attempt ${attempt + 1})...`);
+
+        const resp = await fetch(url.toString());
+
+        if (resp.status === 429) {
+          console.warn(`[CzechDub] Rate limited (429), will retry...`);
+          if (attempt === maxRetries) {
+            console.error('[CzechDub] Max retries reached on 429');
+            return [];
+          }
+          continue;
+        }
+
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+
+        const text = await resp.text();
+        if (!text || text.trim().length === 0) {
+          console.warn('[CzechDub] Empty response body');
+          return [];
+        }
+
+        const data = JSON.parse(text);
+        if (!data.events) return [];
+
+        return data.events
+          .filter(event => event.segs && event.segs.length > 0)
+          .map(event => ({
+            start: (event.tStartMs || 0) / 1000,
+            duration: (event.dDurationMs || 0) / 1000,
+            text: event.segs.map(s => s.utf8 || '').join('').trim()
+          }))
+          .filter(caption => caption.text.length > 0);
+      } catch (err) {
+        console.error(`[CzechDub] Caption download error (attempt ${attempt + 1}):`, err.message);
+        if (attempt === maxRetries) return [];
+      }
+    }
+    return [];
   }
 
   /**
