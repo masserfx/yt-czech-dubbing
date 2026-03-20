@@ -1,0 +1,130 @@
+/* Czech Dubbing - Activation Button */
+.czech-dub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  margin: 8px 0;
+  background: linear-gradient(135deg, #11457e 0%, #d7141a 100%);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Roboto', Arial, sans-serif;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.czech-dub-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  filter: brightness(1.1);
+}
+
+.czech-dub-btn.active {
+  background: linear-gradient(135deg, #1a7a2e 0%, #2da844 100%);
+}
+
+.czech-dub-btn.loading {
+  opacity: 0.8;
+  cursor: wait;
+}
+
+.czech-dub-btn.loading .czech-dub-btn-icon {
+  animation: czech-dub-spin 1s linear infinite;
+}
+
+.czech-dub-btn-icon {
+  font-size: 18px;
+}
+
+.czech-dub-btn-text {
+  white-space: nowrap;
+}
+
+@keyframes czech-dub-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Subtitle Overlay */
+#czech-dub-subtitle {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  text-align: center;
+  max-width: 80%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  display: none;
+}
+
+#czech-dub-subtitle.czech-dub-visible {
+  opacity: 1;
+  display: block;
+}
+
+.czech-dub-text-main {
+  display: inline-block;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  font-family: 'Roboto', Arial, sans-serif;
+  border-left: 3px solid #d7141a;
+}
+
+.czech-dub-text-original {
+  display: block;
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #aaa;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.3;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+/* Status indicator */
+.czech-dub-status {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  z-index: 99999;
+  transition: opacity 0.3s;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+/* Fullscreen adjustments */
+:fullscreen #czech-dub-subtitle,
+:-webkit-full-screen #czech-dub-subtitle {
+  bottom: 100px;
+}
+
+:fullscreen .czech-dub-text-main,
+:-webkit-full-screen .czech-dub-text-main {
+  font-size: 28px;
+  padding: 12px 24px;
+}
+
+:fullscreen .czech-dub-text-original,
+:-webkit-full-screen .czech-dub-text-original {
+  font-size: 16px;
+}
