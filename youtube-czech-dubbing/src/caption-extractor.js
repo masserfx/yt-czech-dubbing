@@ -1,11 +1,7 @@
 /**
  * CaptionExtractor - Extracts captions/subtitles from YouTube videos.
- * Uses YouTube's internal player data and TimedText API.
- * Supports YouTube's built-in translation via &tlang parameter.
- *
- * Note: Content scripts run in an isolated world and cannot directly access
- * page JavaScript variables. We inject a script into the page's MAIN world
- * to extract player response data.
+ * Communicates with page-script.js (running in MAIN world) via postMessage
+ * to access YouTube's internal player data.
  */
 class CaptionExtractor {
   constructor() {
@@ -22,23 +18,22 @@ class CaptionExtractor {
   }
 
   /**
-   * Extract caption tracks from YouTube's internal player response.
-   * Injects a script into the page context to access YouTube's JS variables.
+   * Extract caption tracks by requesting them from the MAIN world page-script.
    */
   async getCaptionTracks() {
     const videoId = this.getVideoId();
     if (!videoId) return [];
 
     try {
-      // Primary method: inject into page context to get player response
-      const tracks = await this._getTracksViaPageInjection();
+      // Request tracks from page-script.js running in MAIN world
+      const tracks = await this._requestTracksFromPageScript();
       if (tracks && tracks.length > 0) {
-        console.log(`[CzechDub] Found ${tracks.length} caption tracks via page injection`);
+        console.log(`[CzechDub] Found ${tracks.length} caption tracks via page script`);
         return tracks;
       }
 
       // Fallback: re-fetch page HTML and parse caption data
-      console.log('[CzechDub] Page injection returned no tracks, trying page fetch fallback...');
+      console.log('[CzechDub] Page script returned no tracks, trying page fetch fallback...');
       return await this._fetchCaptionTracksFromPage(videoId);
     } catch (err) {
       console.warn('[CzechDub] Failed to get caption tracks:', err);
@@ -47,100 +42,33 @@ class CaptionExtractor {
   }
 
   /**
-   * Inject a script into the page's MAIN world to access YouTube's
-   * player response data. Communication happens via postMessage.
+   * Request caption tracks from page-script.js via postMessage.
    */
-  _getTracksViaPageInjection() {
+  _requestTracksFromPageScript() {
     return new Promise((resolve) => {
       const requestId = 'czechdub_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
-      // Listen for the response from the injected script
       const handler = (event) => {
         if (event.source !== window) return;
         if (event.data?.type !== 'CZECH_DUB_CAPTION_TRACKS') return;
         if (event.data?.requestId !== requestId) return;
 
         window.removeEventListener('message', handler);
+        clearTimeout(timeout);
         resolve(event.data.tracks || []);
       };
       window.addEventListener('message', handler);
 
-      // Inject script into the page's main world
-      const script = document.createElement('script');
-      script.textContent = `
-        (function() {
-          var tracks = null;
-
-          // Method 1: Try the player API
-          try {
-            var player = document.querySelector('#movie_player');
-            if (player && typeof player.getPlayerResponse === 'function') {
-              var resp = player.getPlayerResponse();
-              if (resp && resp.captions && resp.captions.playerCaptionsTracklistRenderer) {
-                tracks = resp.captions.playerCaptionsTracklistRenderer.captionTracks || null;
-              }
-            }
-          } catch(e) {}
-
-          // Method 2: Try ytInitialPlayerResponse
-          if (!tracks || tracks.length === 0) {
-            try {
-              if (window.ytInitialPlayerResponse &&
-                  window.ytInitialPlayerResponse.captions &&
-                  window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer) {
-                tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer.captionTracks || null;
-              }
-            } catch(e) {}
-          }
-
-          // Method 3: Try ytplayer.config
-          if (!tracks || tracks.length === 0) {
-            try {
-              if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args) {
-                var playerResponse = JSON.parse(window.ytplayer.config.args.raw_player_response || '{}');
-                if (playerResponse.captions && playerResponse.captions.playerCaptionsTracklistRenderer) {
-                  tracks = playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks || null;
-                }
-              }
-            } catch(e) {}
-          }
-
-          // Method 4: Search through script tags for ytInitialPlayerResponse
-          if (!tracks || tracks.length === 0) {
-            try {
-              var scripts = document.querySelectorAll('script');
-              for (var i = 0; i < scripts.length; i++) {
-                var text = scripts[i].textContent;
-                if (text && text.indexOf('ytInitialPlayerResponse') !== -1) {
-                  var match = text.match(/ytInitialPlayerResponse\\s*=\\s*(\\{.+?\\});\\s*var/s);
-                  if (!match) {
-                    match = text.match(/ytInitialPlayerResponse\\s*=\\s*(\\{.+?\\});/s);
-                  }
-                  if (match) {
-                    var parsed = JSON.parse(match[1]);
-                    if (parsed.captions && parsed.captions.playerCaptionsTracklistRenderer) {
-                      tracks = parsed.captions.playerCaptionsTracklistRenderer.captionTracks || null;
-                      break;
-                    }
-                  }
-                }
-              }
-            } catch(e) {}
-          }
-
-          window.postMessage({
-            type: 'CZECH_DUB_CAPTION_TRACKS',
-            requestId: '${requestId}',
-            tracks: tracks || []
-          }, '*');
-        })();
-      `;
-      document.documentElement.appendChild(script);
-      script.remove();
+      // Send request to page-script.js
+      window.postMessage({
+        type: 'CZECH_DUB_REQUEST_TRACKS',
+        requestId: requestId
+      }, '*');
 
       // Timeout after 3 seconds
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
+        console.warn('[CzechDub] Page script request timed out');
         resolve([]);
       }, 3000);
     });
@@ -175,20 +103,17 @@ class CaptionExtractor {
   /**
    * Download and parse captions from a track URL.
    * If targetLang is specified, uses YouTube's built-in translation.
-   * Returns array of {start, duration, text} objects.
    */
   async downloadCaptions(trackUrl, targetLang = null) {
     try {
-      // Request JSON3 format for structured data
       const url = new URL(trackUrl);
       url.searchParams.set('fmt', 'json3');
 
-      // Use YouTube's built-in translation if target language specified
       if (targetLang) {
         url.searchParams.set('tlang', targetLang);
       }
 
-      console.log(`[CzechDub] Downloading captions from: ${url.toString().substring(0, 100)}...`);
+      console.log(`[CzechDub] Downloading captions (tlang=${targetLang || 'none'})...`);
 
       const resp = await fetch(url.toString());
       const data = await resp.json();
@@ -210,23 +135,21 @@ class CaptionExtractor {
   }
 
   /**
-   * Get the best available caption track and download captions translated to Czech.
-   * Uses YouTube's built-in &tlang=cs translation for non-Czech tracks.
-   * Prefers: English source > any source (for best translation quality).
+   * Get the best available caption track, translated to Czech.
+   * Uses YouTube's built-in &tlang=cs for server-side translation.
    */
   async getBestCaptions() {
     const tracks = await this.getCaptionTracks();
     if (tracks.length === 0) return null;
 
-    console.log(`[CzechDub] Found ${tracks.length} caption tracks:`,
+    console.log(`[CzechDub] Available tracks:`,
       tracks.map(t => `${t.languageCode} (${t.kind || 'manual'})`).join(', '));
 
-    // Check if Czech manual captions already exist
+    // Check if Czech manual captions exist
     const czechManual = tracks.find(t =>
       t.languageCode === 'cs' && t.kind !== 'asr'
     );
 
-    // If we have Czech manual captions, use them directly (no translation needed)
     if (czechManual) {
       console.log('[CzechDub] Using Czech manual captions directly');
       const captions = await this.downloadCaptions(czechManual.baseUrl);
@@ -239,41 +162,26 @@ class CaptionExtractor {
       };
     }
 
-    // For all other tracks, we'll use YouTube's &tlang=cs to auto-translate to Czech
-    // Select the best SOURCE track for translation quality
-
-    // Prefer English manual captions
-    const enManual = tracks.find(t =>
-      t.languageCode === 'en' && t.kind !== 'asr'
-    );
-
-    // Then English auto-generated
-    const enAuto = tracks.find(t =>
-      t.languageCode === 'en' && t.kind === 'asr'
-    );
-
-    // Then any manual captions
+    // Select best source track for translation
+    const enManual = tracks.find(t => t.languageCode === 'en' && t.kind !== 'asr');
+    const enAuto = tracks.find(t => t.languageCode === 'en' && t.kind === 'asr');
     const anyManual = tracks.find(t => t.kind !== 'asr');
-
-    // Then any auto-generated
     const anyAuto = tracks.find(t => t.kind === 'asr');
-
     const selectedTrack = enManual || enAuto || anyManual || anyAuto || tracks[0];
 
-    console.log(`[CzechDub] Selected source track: ${selectedTrack.languageCode} (${selectedTrack.kind || 'manual'}), will translate to Czech via YouTube`);
+    console.log(`[CzechDub] Source track: ${selectedTrack.languageCode} (${selectedTrack.kind || 'manual'}), translating to Czech via YouTube...`);
 
-    // Download captions with YouTube's built-in Czech translation
+    // Download with YouTube's built-in Czech translation
     const captions = await this.downloadCaptions(selectedTrack.baseUrl, 'cs');
 
-    // If YouTube translation returned no results, try without translation
     if (captions.length === 0) {
-      console.log('[CzechDub] YouTube translation returned empty, trying raw captions...');
+      console.log('[CzechDub] YouTube translation empty, trying raw captions...');
       const rawCaptions = await this.downloadCaptions(selectedTrack.baseUrl);
       return {
         captions: rawCaptions,
         language: selectedTrack.languageCode,
         isAutoGenerated: selectedTrack.kind === 'asr',
-        isCzech: false, // Not translated, will need external translation
+        isCzech: false,
         trackName: selectedTrack.name?.simpleText || selectedTrack.languageCode
       };
     }
@@ -282,11 +190,10 @@ class CaptionExtractor {
       captions,
       language: selectedTrack.languageCode,
       isAutoGenerated: selectedTrack.kind === 'asr',
-      isCzech: true, // Translated to Czech by YouTube
+      isCzech: true,
       trackName: selectedTrack.name?.simpleText || selectedTrack.languageCode
     };
   }
 }
 
-// Export for use in other scripts
 window.CaptionExtractor = CaptionExtractor;

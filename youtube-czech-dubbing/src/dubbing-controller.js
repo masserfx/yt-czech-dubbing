@@ -62,6 +62,17 @@ class DubbingController {
       // Load settings
       await this._loadSettings();
 
+      // Wait for TTS voices to load
+      await this.tts.waitForVoice();
+
+      // Log voice info
+      const voiceInfo = this.tts.getVoiceInfo();
+      console.log(`[CzechDub] TTS Voice: ${voiceInfo.name || 'none'} (${voiceInfo.lang}), isCzech: ${voiceInfo.isCzech}`);
+      if (!voiceInfo.available || !voiceInfo.isCzech) {
+        console.warn('[CzechDub] WARNING: No Czech TTS voice found! Audio will sound English.');
+        console.warn('[CzechDub] On macOS: System Settings > Accessibility > Spoken Content > Manage Voices > Czech (Zuzana)');
+      }
+
       // Apply TTS settings
       this.tts.setRate(this._settings.ttsRate);
       this.tts.setVolume(this._settings.ttsVolume);
