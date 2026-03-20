@@ -83,17 +83,36 @@ class CaptionExtractor {
         credentials: 'include'
       });
       const html = await resp.text();
+      console.log(`[CzechDub] Fetched page HTML: ${html.length} chars`);
 
-      // Try multiple regex patterns
-      let match = html.match(/"captions":\s*(\{.+?"playerCaptionsTracklistRenderer".+?\})\s*,\s*"/s);
-      if (!match) {
-        match = html.match(/"captions":\s*(\{.+?"playerCaptionsTracklistRenderer".+?\})\s*,/s);
+      // Try to find ytInitialPlayerResponse JSON
+      const playerRespMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*(?:var|const|let|<\/script)/s);
+      if (playerRespMatch) {
+        try {
+          const playerResp = JSON.parse(playerRespMatch[1]);
+          const tracks = playerResp?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+          if (tracks && tracks.length > 0) {
+            console.log(`[CzechDub] Found ${tracks.length} tracks from ytInitialPlayerResponse`);
+            return tracks;
+          }
+        } catch (e) {
+          console.warn('[CzechDub] Failed to parse ytInitialPlayerResponse:', e.message);
+        }
       }
 
-      if (match) {
-        const captionsData = JSON.parse(match[1]);
-        return captionsData.playerCaptionsTracklistRenderer?.captionTracks || [];
+      // Fallback: narrower regex for captions block
+      const captionsMatch = html.match(/"captionTracks":\s*(\[.+?\])/s);
+      if (captionsMatch) {
+        try {
+          const tracks = JSON.parse(captionsMatch[1]);
+          console.log(`[CzechDub] Found ${tracks.length} tracks from captionTracks regex`);
+          return tracks;
+        } catch (e) {
+          console.warn('[CzechDub] Failed to parse captionTracks:', e.message);
+        }
       }
+
+      console.warn('[CzechDub] No caption data found in page HTML');
     } catch (e) {
       console.warn('[CzechDub] Fallback caption fetch failed:', e);
     }
@@ -113,8 +132,10 @@ class CaptionExtractor {
       url.searchParams.set('tlang', targetLang);
     }
 
-    const maxRetries = 4;
-    const delays = [1000, 2000, 4000, 8000];
+    console.log(`[CzechDub] Caption URL: ${url.toString().substring(0, 120)}...`);
+
+    const maxRetries = 3;
+    const delays = [2000, 4000, 8000];
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -126,7 +147,14 @@ class CaptionExtractor {
 
         console.log(`[CzechDub] Downloading captions (tlang=${targetLang || 'none'}, attempt ${attempt + 1})...`);
 
-        const resp = await fetch(url.toString());
+        const resp = await fetch(url.toString(), {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+
+        console.log(`[CzechDub] Response: status=${resp.status}, type=${resp.headers.get('content-type')}`);
 
         if (resp.status === 429) {
           console.warn(`[CzechDub] Rate limited (429), will retry...`);
@@ -142,13 +170,28 @@ class CaptionExtractor {
         }
 
         const text = await resp.text();
+        console.log(`[CzechDub] Response body length: ${text.length}, first 200 chars: ${text.substring(0, 200)}`);
+
         if (!text || text.trim().length === 0) {
           console.warn('[CzechDub] Empty response body');
+          if (attempt < maxRetries) continue;
+          return [];
+        }
+
+        // Check if response is HTML (error page) instead of JSON
+        if (text.trim().startsWith('<!') || text.trim().startsWith('<html')) {
+          console.warn('[CzechDub] Got HTML instead of JSON - URL may be expired');
+          if (attempt < maxRetries) continue;
           return [];
         }
 
         const data = JSON.parse(text);
-        if (!data.events) return [];
+        if (!data.events) {
+          console.warn('[CzechDub] JSON parsed but no events found. Keys:', Object.keys(data).join(', '));
+          return [];
+        }
+
+        console.log(`[CzechDub] Got ${data.events.length} caption events`);
 
         return data.events
           .filter(event => event.segs && event.segs.length > 0)
