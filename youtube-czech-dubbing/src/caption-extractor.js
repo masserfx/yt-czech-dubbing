@@ -295,7 +295,7 @@ class CaptionExtractor {
       const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve(null);
-      }, 15000); // longer timeout — page-script needs to call /get_transcript
+      }, 5000); // fast timeout — quick XHR test, fall back to DOM mode
     });
   }
 

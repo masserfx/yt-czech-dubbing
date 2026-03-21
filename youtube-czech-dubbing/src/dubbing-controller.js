@@ -173,18 +173,18 @@ class DubbingController {
       clearTimeout(this._sentenceFlushTimer);
     }
 
-    // Check if buffer contains a sentence boundary
-    const endsWithSentence = /[.!?;:][""]?\s*$/.test(this._sentenceBuffer);
-    // Also flush if buffer is getting long (over ~120 chars)
-    const bufferLong = this._sentenceBuffer.length > 120;
+    // Check if buffer ends with a sentence boundary
+    const endsWithSentence = /[.!?][""]?\s*$/.test(this._sentenceBuffer);
+    // Flush if buffer is getting long (over ~200 chars) for better translation context
+    const bufferLong = this._sentenceBuffer.length > 200;
 
     if (endsWithSentence || bufferLong) {
       this._flushSentenceBuffer();
     } else {
-      // Flush after a short delay if no more lines arrive
+      // Wait longer for more text to accumulate (better translation quality)
       this._sentenceFlushTimer = setTimeout(() => {
         this._flushSentenceBuffer();
-      }, 1500);
+      }, 2500);
     }
   }
 
