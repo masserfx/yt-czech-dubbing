@@ -59,74 +59,131 @@
    * No network call needed — data is already on the page.
    */
   function handleGetTranscriptParams(requestId) {
-    console.log('[CzechDub:PageScript] Extracting transcript params from page data...');
+    console.log('[CzechDub:PageScript] Extracting transcript params and fetching transcript...');
 
     var params = null;
 
-    // Try ytInitialData engagement panels
+    // Extract params from ytInitialData engagement panels
     try {
       var panels = window.ytInitialData?.engagementPanels;
       if (panels) {
-        console.log('[CzechDub:PageScript] Found ' + panels.length + ' engagement panels');
         for (var i = 0; i < panels.length; i++) {
-          var panel = panels[i];
-          var panelId = panel?.engagementPanelSectionListRenderer?.panelIdentifier;
-          console.log('[CzechDub:PageScript]   Panel: ' + panelId);
-
+          var panelId = panels[i]?.engagementPanelSectionListRenderer?.panelIdentifier;
           if (panelId === 'engagement-panel-searchable-transcript') {
-            // Deep search for getTranscriptEndpoint.params
-            var found = _findDeepKey(panel, 'serializedShareEntity');
-            // Try multiple possible locations for params
-            params = _findDeepValue(panel, 'getTranscriptEndpoint', 'params');
+            params = _findDeepValue(panels[i], 'getTranscriptEndpoint', 'params');
             if (params) {
-              console.log('[CzechDub:PageScript] Found transcript params in engagement panel');
+              console.log('[CzechDub:PageScript] Found transcript params');
               break;
             }
           }
         }
-      } else {
-        console.log('[CzechDub:PageScript] No engagementPanels in ytInitialData');
       }
     } catch (e) {
       console.warn('[CzechDub:PageScript] Error searching ytInitialData:', e);
     }
 
-    // Also try to get caption tracks baseUrl for fallback
-    var captionTracks = null;
+    if (!params) {
+      console.log('[CzechDub:PageScript] No transcript params found');
+      window.postMessage({
+        type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+        requestId: requestId,
+        success: false
+      }, '*');
+      return;
+    }
+
+    // Call /get_transcript directly from page context (has YouTube cookies!)
+    var clientVersion = '2.20250320.01.00';
     try {
-      var player = document.querySelector('#movie_player');
-      if (player && typeof player.getPlayerResponse === 'function') {
-        var resp = player.getPlayerResponse();
-        captionTracks = resp?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-      }
+      clientVersion = window.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION') || clientVersion;
     } catch (e) {}
 
-    if (!captionTracks) {
-      try {
-        captionTracks = window.ytInitialPlayerResponse
-          ?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-      } catch (e) {}
-    }
+    console.log('[CzechDub:PageScript] Calling /get_transcript from page context...');
 
-    // Extract useful track info
-    var trackInfo = null;
-    if (captionTracks && captionTracks.length > 0) {
-      var track = captionTracks.find(function(t) { return t.languageCode === 'en' && t.kind !== 'asr'; })
-        || captionTracks.find(function(t) { return t.languageCode === 'en'; })
-        || captionTracks[0];
-      trackInfo = {
-        baseUrl: track.baseUrl,
-        lang: track.languageCode,
-        kind: track.kind
-      };
-    }
+    _originalFetch('https://www.youtube.com/youtubei/v1/get_transcript?prettyPrint=false', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: clientVersion
+          }
+        },
+        params: params
+      })
+    })
+      .then(function(resp) {
+        console.log('[CzechDub:PageScript] /get_transcript status:', resp.status);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.json();
+      })
+      .then(function(data) {
+        console.log('[CzechDub:PageScript] /get_transcript keys:', Object.keys(data).join(', '));
+        var segments = _parseTranscriptResponse(data);
+        console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' transcript segments');
 
-    window.postMessage({
-      type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
-      requestId: requestId,
-      params: params,
-      trackInfo: trackInfo
-    }, '*');
+        window.postMessage({
+          type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+          requestId: requestId,
+          success: segments.length > 0,
+          segments: segments
+        }, '*');
+      })
+      .catch(function(err) {
+        console.error('[CzechDub:PageScript] /get_transcript error:', err);
+        window.postMessage({
+          type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+          requestId: requestId,
+          success: false,
+          error: err.message
+        }, '*');
+      });
+  }
+
+  /**
+   * Parse /get_transcript response into segments.
+   */
+  function _parseTranscriptResponse(data) {
+    var segments = [];
+    // Find cueGroups anywhere in the response
+    var cueGroups = _findDeepArray(data, 'cueGroups');
+    if (!cueGroups) return segments;
+
+    for (var i = 0; i < cueGroups.length; i++) {
+      var cues = cueGroups[i]?.transcriptCueGroupRenderer?.cues || [];
+      for (var j = 0; j < cues.length; j++) {
+        var cue = cues[j]?.transcriptCueRenderer;
+        if (cue) {
+          var text = cue.cue?.simpleText || '';
+          var startMs = parseInt(cue.startOffsetMs || '0', 10);
+          var durMs = parseInt(cue.durationMs || '0', 10);
+          if (text.trim()) {
+            segments.push({
+              start: startMs / 1000,
+              duration: durMs / 1000,
+              text: text.trim()
+            });
+          }
+        }
+      }
+    }
+    return segments;
+  }
+
+  function _findDeepArray(obj, key, maxDepth) {
+    if (maxDepth === undefined) maxDepth = 15;
+    if (!obj || typeof obj !== 'object' || maxDepth <= 0) return null;
+    if (Array.isArray(obj[key])) return obj[key];
+    var keys = Object.keys(obj);
+    for (var i = 0; i < keys.length; i++) {
+      var result = _findDeepArray(obj[keys[i]], key, maxDepth - 1);
+      if (result) return result;
+    }
+    return null;
   }
 
   function _findDeepValue(obj, key, subKey, maxDepth) {
@@ -141,18 +198,6 @@
     for (var i = 0; i < keys.length; i++) {
       var result = _findDeepValue(obj[keys[i]], key, subKey, maxDepth - 1);
       if (result !== null && result !== undefined) return result;
-    }
-    return null;
-  }
-
-  function _findDeepKey(obj, key, maxDepth) {
-    if (maxDepth === undefined) maxDepth = 15;
-    if (!obj || typeof obj !== 'object' || maxDepth <= 0) return null;
-    if (obj[key] !== undefined) return obj;
-    var keys = Object.keys(obj);
-    for (var i = 0; i < keys.length; i++) {
-      var result = _findDeepKey(obj[keys[i]], key, maxDepth - 1);
-      if (result) return result;
     }
     return null;
   }

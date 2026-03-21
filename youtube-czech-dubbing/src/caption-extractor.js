@@ -253,58 +253,26 @@ class CaptionExtractor {
 
     console.log(`[CzechDub] Fetching transcript for video: ${videoId}`);
 
-    // Step 1: Get transcript params from page-script (MAIN world, has ytInitialData)
-    const pageData = await this._getTranscriptParamsFromPage();
+    // Ask page-script to extract params from ytInitialData and call /get_transcript
+    // This runs in MAIN world (page context) with full YouTube cookies
+    const result = await this._getTranscriptFromPage();
 
-    if (pageData?.params) {
-      // Step 2a: We have params — call /get_transcript via background.js
-      console.log('[CzechDub] Got transcript params from page, calling /get_transcript...');
-      try {
-        const response = await chrome.runtime.sendMessage({
-          type: 'fetch-transcript-with-params',
-          params: pageData.params
-        });
-
-        if (response?.success && response.segments?.length > 0) {
-          console.log(`[CzechDub] Got ${response.segments.length} transcript segments via params`);
-          return {
-            segments: response.segments,
-            sourceLang: 'en'
-          };
-        }
-        console.warn('[CzechDub] /get_transcript failed:', response?.error);
-      } catch (e) {
-        console.error('[CzechDub] Transcript params fetch error:', e);
-      }
+    if (result?.success && result.segments?.length > 0) {
+      console.log(`[CzechDub] Got ${result.segments.length} transcript segments from page`);
+      return {
+        segments: result.segments,
+        sourceLang: 'en'
+      };
     }
 
-    // Step 2b: No params — try full background.js extraction
-    console.log('[CzechDub] Trying background.js full extraction...');
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'fetch-transcript',
-        videoId: videoId
-      });
-
-      if (response?.success && response.segments?.length > 0) {
-        console.log(`[CzechDub] Got ${response.segments.length} transcript segments via background`);
-        return {
-          segments: response.segments,
-          sourceLang: 'en'
-        };
-      }
-      console.warn('[CzechDub] Background transcript fetch failed:', response?.error);
-    } catch (e) {
-      console.error('[CzechDub] Background transcript error:', e);
-    }
-
+    console.warn('[CzechDub] Transcript from page failed:', result?.error || 'no segments');
     return null;
   }
 
   /**
-   * Get transcript params from page-script via postMessage.
+   * Ask page-script to fetch transcript directly from YouTube (has cookies).
    */
-  _getTranscriptParamsFromPage() {
+  _getTranscriptFromPage() {
     return new Promise((resolve) => {
       const requestId = 'czechdub_params_' + Date.now();
 
@@ -327,7 +295,7 @@ class CaptionExtractor {
       const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve(null);
-      }, 5000);
+      }, 15000); // longer timeout — page-script needs to call /get_transcript
     });
   }
 
