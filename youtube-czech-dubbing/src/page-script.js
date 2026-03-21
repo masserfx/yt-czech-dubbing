@@ -55,91 +55,85 @@
   });
 
   /**
-   * Extract transcript params from ytInitialData (available in MAIN world).
-   * No network call needed — data is already on the page.
+   * Fetch full transcript by downloading timedtext directly from caption track baseUrl.
+   * This works because we're in MAIN world with YouTube's cookies.
    */
   function handleGetTranscriptParams(requestId) {
-    console.log('[CzechDub:PageScript] Extracting transcript params and fetching transcript...');
+    console.log('[CzechDub:PageScript] Fetching transcript via timedtext...');
 
-    var params = null;
-
-    // Extract params from ytInitialData engagement panels
+    // Get caption tracks from player API
+    var tracks = null;
     try {
-      var panels = window.ytInitialData?.engagementPanels;
-      if (panels) {
-        for (var i = 0; i < panels.length; i++) {
-          var panelId = panels[i]?.engagementPanelSectionListRenderer?.panelIdentifier;
-          if (panelId === 'engagement-panel-searchable-transcript') {
-            params = _findDeepValue(panels[i], 'getTranscriptEndpoint', 'params');
-            if (params) {
-              console.log('[CzechDub:PageScript] Found transcript params');
-              break;
-            }
-          }
+      var player = document.querySelector('#movie_player');
+      if (player && typeof player.getPlayerResponse === 'function') {
+        var resp = player.getPlayerResponse();
+        if (resp?.captions?.playerCaptionsTracklistRenderer) {
+          tracks = resp.captions.playerCaptionsTracklistRenderer.captionTracks;
         }
       }
-    } catch (e) {
-      console.warn('[CzechDub:PageScript] Error searching ytInitialData:', e);
-    }
-
-    if (!params) {
-      console.log('[CzechDub:PageScript] No transcript params found');
-      window.postMessage({
-        type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
-        requestId: requestId,
-        success: false
-      }, '*');
-      return;
-    }
-
-    // Get the FULL innertube context from ytcfg (same as YouTube uses internally)
-    var innertubeContext = null;
-    var apiKey = '';
-    try {
-      innertubeContext = window.ytcfg?.get?.('INNERTUBE_CONTEXT');
-      apiKey = window.ytcfg?.get?.('INNERTUBE_API_KEY') || '';
     } catch (e) {}
 
-    if (!innertubeContext) {
-      console.warn('[CzechDub:PageScript] No INNERTUBE_CONTEXT available');
+    if (!tracks) {
+      try {
+        if (window.ytInitialPlayerResponse?.captions?.playerCaptionsTracklistRenderer) {
+          tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer.captionTracks;
+        }
+      } catch (e) {}
+    }
+
+    if (!tracks || tracks.length === 0) {
+      console.log('[CzechDub:PageScript] No caption tracks found');
       window.postMessage({
         type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
         requestId: requestId,
         success: false,
-        error: 'No innertube context'
+        error: 'No caption tracks'
       }, '*');
       return;
     }
 
-    var url = 'https://www.youtube.com/youtubei/v1/get_transcript';
-    if (apiKey) url += '?key=' + apiKey + '&prettyPrint=false';
-    else url += '?prettyPrint=false';
+    console.log('[CzechDub:PageScript] Caption tracks:', tracks.length);
 
-    console.log('[CzechDub:PageScript] Calling /get_transcript with full innertube context');
+    // Find best English track (prefer manual over ASR)
+    var track = tracks.find(function(t) { return t.languageCode === 'en' && t.kind !== 'asr'; })
+             || tracks.find(function(t) { return t.languageCode === 'en'; })
+             || tracks[0];
+
+    if (!track || !track.baseUrl) {
+      console.log('[CzechDub:PageScript] No usable track with baseUrl');
+      window.postMessage({
+        type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+        requestId: requestId,
+        success: false,
+        error: 'No track baseUrl'
+      }, '*');
+      return;
+    }
+
+    // Add fmt=json3 for JSON output with timestamps
+    var url = track.baseUrl;
+    if (url.indexOf('fmt=') === -1) {
+      url += '&fmt=json3';
+    }
+
+    console.log('[CzechDub:PageScript] Fetching timedtext from:', url.substring(0, 120));
 
     _originalFetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        context: innertubeContext,
-        params: params
-      })
+      credentials: 'include'
     })
       .then(function(resp) {
-        console.log('[CzechDub:PageScript] /get_transcript status:', resp.status);
-        if (!resp.ok) {
-          return resp.text().then(function(body) {
-            console.error('[CzechDub:PageScript] Error body:', body.substring(0, 500));
-            throw new Error('HTTP ' + resp.status);
-          });
-        }
+        console.log('[CzechDub:PageScript] Timedtext status:', resp.status);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return resp.json();
       })
       .then(function(data) {
-        console.log('[CzechDub:PageScript] /get_transcript keys:', Object.keys(data).join(', '));
-        var segments = _parseTranscriptResponse(data);
-        console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' transcript segments');
+        var segments = _parseTimedTextJson3(data);
+        console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' timedtext segments');
+
+        if (segments.length > 0) {
+          console.log('[CzechDub:PageScript] First: "' + segments[0].text + '" at ' + segments[0].start.toFixed(1) + 's');
+          console.log('[CzechDub:PageScript] Last: "' + segments[segments.length - 1].text + '" at ' + segments[segments.length - 1].start.toFixed(1) + 's');
+        }
 
         window.postMessage({
           type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
@@ -149,7 +143,7 @@
         }, '*');
       })
       .catch(function(err) {
-        console.error('[CzechDub:PageScript] /get_transcript error:', err);
+        console.error('[CzechDub:PageScript] Timedtext fetch error:', err);
         window.postMessage({
           type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
           requestId: requestId,
@@ -157,6 +151,40 @@
           error: err.message
         }, '*');
       });
+  }
+
+  /**
+   * Parse YouTube's json3 timedtext format into segments.
+   */
+  function _parseTimedTextJson3(data) {
+    var segments = [];
+    if (!data || !data.events) return segments;
+
+    for (var i = 0; i < data.events.length; i++) {
+      var event = data.events[i];
+      // Skip events without text segments (e.g. line breaks, formatting)
+      if (!event.segs) continue;
+
+      var text = '';
+      for (var j = 0; j < event.segs.length; j++) {
+        var seg = event.segs[j];
+        if (seg.utf8) text += seg.utf8;
+      }
+
+      text = text.trim();
+      if (!text || text === '\n') continue;
+
+      var startMs = event.tStartMs || 0;
+      var durMs = event.dDurationMs || 0;
+
+      segments.push({
+        start: startMs / 1000,
+        duration: durMs / 1000,
+        text: text
+      });
+    }
+
+    return segments;
   }
 
   /**
