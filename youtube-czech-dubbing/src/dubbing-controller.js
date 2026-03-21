@@ -28,6 +28,10 @@ class DubbingController {
     this._lastSpokenIndex = -1;
     this._transcriptTimer = null;
 
+    // Sentence buffer for DOM caption mode — accumulates lines until sentence boundary
+    this._sentenceBuffer = '';
+    this._sentenceFlushTimer = null;
+
     this._settings = {
       ttsRate: 1.1,
       ttsVolume: 0.95,
@@ -146,9 +150,9 @@ class DubbingController {
 
   /**
    * Called when a caption line disappears from the DOM (complete line).
-   * Translates to Czech if needed, then queues for TTS.
+   * Buffers lines and translates complete sentences for better quality.
    */
-  async _onCaptionAppeared(text) {
+  _onCaptionAppeared(text) {
     if (!this.isActive) return;
     if (this.videoElement?.paused) return;
     if (!text || text.trim().length < 3) return;
@@ -156,17 +160,58 @@ class DubbingController {
     // Skip YouTube UI text
     if (text === 'Angličtina' || text === 'Čeština' || text.length < 5) return;
 
-    // Check if text is already in Czech (contains Czech-specific chars)
-    const isCzech = /[ěščřžýáíéúůďťň]/i.test(text);
+    // Add to sentence buffer with space
+    if (this._sentenceBuffer) {
+      this._sentenceBuffer += ' ' + text;
+    } else {
+      this._sentenceBuffer = text;
+    }
 
-    let czechText = text;
+    // Clear any pending flush timer
+    if (this._sentenceFlushTimer) {
+      clearTimeout(this._sentenceFlushTimer);
+    }
+
+    // Check if buffer contains a sentence boundary
+    const endsWithSentence = /[.!?;:][""]?\s*$/.test(this._sentenceBuffer);
+    // Also flush if buffer is getting long (over ~120 chars)
+    const bufferLong = this._sentenceBuffer.length > 120;
+
+    if (endsWithSentence || bufferLong) {
+      this._flushSentenceBuffer();
+    } else {
+      // Flush after a short delay if no more lines arrive
+      this._sentenceFlushTimer = setTimeout(() => {
+        this._flushSentenceBuffer();
+      }, 1500);
+    }
+  }
+
+  /**
+   * Flush the sentence buffer — translate the accumulated text and queue for TTS.
+   */
+  async _flushSentenceBuffer() {
+    if (this._sentenceFlushTimer) {
+      clearTimeout(this._sentenceFlushTimer);
+      this._sentenceFlushTimer = null;
+    }
+
+    const fullText = this._sentenceBuffer.trim();
+    this._sentenceBuffer = '';
+
+    if (!fullText || fullText.length < 3) return;
+    if (!this.isActive) return;
+
+    // Check if text is already in Czech
+    const isCzech = /[ěščřžýáíéúůďťň]/i.test(fullText);
+
+    let czechText = fullText;
     if (!isCzech) {
-      // Translate English to Czech via Google Translate
       try {
-        const translated = await this.translator.translate(text, 'en');
+        const translated = await this.translator.translate(fullText, 'en');
         if (translated && translated.length > 2) {
           czechText = translated;
-          console.log(`[CzechDub] Translated: "${text.substring(0, 40)}" → "${czechText.substring(0, 40)}"`);
+          console.log(`[CzechDub] Translated: "${fullText.substring(0, 80)}" → "${czechText.substring(0, 80)}"`);
         }
       } catch (e) {
         console.warn('[CzechDub] Translation failed, using original:', e.message);
@@ -324,6 +369,13 @@ class DubbingController {
       this._transcriptTimer = null;
     }
 
+    // Clear sentence buffer
+    this._sentenceBuffer = '';
+    if (this._sentenceFlushTimer) {
+      clearTimeout(this._sentenceFlushTimer);
+      this._sentenceFlushTimer = null;
+    }
+
     // Restore original volume
     if (this.videoElement) {
       this.videoElement.volume = this.originalVolume;
@@ -409,6 +461,12 @@ class DubbingController {
         console.log(`[CzechDub] Seeked to ${currentTime.toFixed(1)}s, resuming from segment ${this._lastSpokenIndex + 1}`);
       } else {
         this.extractor.onSeek();
+        // Clear sentence buffer on seek
+        this._sentenceBuffer = '';
+        if (this._sentenceFlushTimer) {
+          clearTimeout(this._sentenceFlushTimer);
+          this._sentenceFlushTimer = null;
+        }
       }
     }
   };

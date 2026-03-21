@@ -285,9 +285,15 @@ async function fetchTranscriptInnertube(videoId) {
   const html = await pageResp.text();
   console.log(`[CzechDub:BG] Fetched page HTML: ${html.length} chars`);
 
+  // Check if we got a real YouTube page
+  if (html.length < 1000 || !html.includes('ytInitialPlayerResponse')) {
+    console.warn('[CzechDub:BG] Page HTML too short or missing player data, trying /next directly...');
+    return fetchTranscriptViaNext(videoId);
+  }
+
   // Extract captionTracks from ytInitialPlayerResponse
   let captionTracks = null;
-  const playerRespMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*(?:var|const|let|<\/script)/s);
+  const playerRespMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;/s);
   if (playerRespMatch) {
     try {
       const playerResp = JSON.parse(playerRespMatch[1]);
@@ -340,55 +346,73 @@ async function fetchTranscriptInnertube(videoId) {
       const text = await resp.text();
       console.log(`[CzechDub:BG] Transcript baseUrl response: ${resp.status}, ${text.length} chars`);
 
-      if (text && text.length > 20) {
-        const data = JSON.parse(text);
-        if (data.events) {
-          const segments = data.events
-            .filter(event => event.segs && event.segs.length > 0)
-            .map(event => ({
-              start: (event.tStartMs || 0) / 1000,
-              duration: (event.dDurationMs || 0) / 1000,
-              text: event.segs.map(s => s.utf8 || '').join('').trim()
-            }))
-            .filter(seg => seg.text.length > 0 && seg.text !== '\n');
+      if (text && text.length > 20 && !text.trimStart().startsWith('<')) {
+        try {
+          const data = JSON.parse(text);
+          if (data.events) {
+            const segments = data.events
+              .filter(event => event.segs && event.segs.length > 0)
+              .map(event => ({
+                start: (event.tStartMs || 0) / 1000,
+                duration: (event.dDurationMs || 0) / 1000,
+                text: event.segs.map(s => s.utf8 || '').join('').trim()
+              }))
+              .filter(seg => seg.text.length > 0 && seg.text !== '\n');
 
-          console.log(`[CzechDub:BG] Got ${segments.length} transcript segments via baseUrl`);
-          if (segments.length > 0) return segments;
+            console.log(`[CzechDub:BG] Got ${segments.length} transcript segments via baseUrl`);
+            if (segments.length > 0) return segments;
+          }
+        } catch (e) {
+          console.warn(`[CzechDub:BG] baseUrl response not JSON: ${text.substring(0, 100)}`);
         }
       }
-      console.log('[CzechDub:BG] baseUrl fetch returned empty, trying innertube /get_transcript...');
+      console.log('[CzechDub:BG] baseUrl fetch failed, trying innertube /get_transcript...');
     }
   }
 
-  // Fallback: innertube /get_transcript
-  // Extract transcript params from ytInitialData in page HTML
-  let transcriptParams = null;
-  const initDataMatch = html.match(/ytInitialData\s*=\s*(\{.+?\});\s*(?:var|const|let|<\/script)/s);
-  if (initDataMatch) {
-    try {
-      const initData = JSON.parse(initDataMatch[1]);
-      transcriptParams = findDeepValue(initData, 'getTranscriptEndpoint', 'params');
-    } catch (e) {
-      console.warn('[CzechDub:BG] Failed to parse ytInitialData:', e.message);
+  // Fallback: innertube /get_transcript via /next
+  return fetchTranscriptViaNext(videoId);
+}
+
+/**
+ * Fetch transcript via /youtubei/v1/next → /get_transcript chain.
+ */
+async function fetchTranscriptViaNext(videoId) {
+  console.log('[CzechDub:BG] Fetching transcript via /next → /get_transcript...');
+
+  const nextResp = await fetch('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+    },
+    body: JSON.stringify({
+      context: { client: { clientName: 'WEB', clientVersion: '2.20250320.01.00' } },
+      videoId: videoId
+    })
+  });
+
+  if (!nextResp.ok) {
+    throw new Error(`/next returned HTTP ${nextResp.status}`);
+  }
+
+  const nextData = await nextResp.json();
+  console.log('[CzechDub:BG] /next response keys:', Object.keys(nextData).join(', '));
+
+  const transcriptParams = findDeepValue(nextData, 'getTranscriptEndpoint', 'params');
+
+  if (!transcriptParams) {
+    // Log what engagement panels we found
+    const panels = nextData?.engagementPanels;
+    if (panels) {
+      console.log(`[CzechDub:BG] Found ${panels.length} engagement panels:`);
+      panels.forEach((p, i) => {
+        const id = p?.engagementPanelSectionListRenderer?.panelIdentifier || 'unknown';
+        console.log(`[CzechDub:BG]   Panel ${i}: ${id}`);
+      });
+    } else {
+      console.log('[CzechDub:BG] No engagement panels in /next response');
     }
-  }
-
-  if (!transcriptParams) {
-    // Try /next endpoint
-    console.log('[CzechDub:BG] No params in page, calling /youtubei/v1/next...');
-    const nextResp = await fetch('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        context: { client: { clientName: 'WEB', clientVersion: '2.20250320.01.00' } },
-        videoId: videoId
-      })
-    });
-    const nextData = await nextResp.json();
-    transcriptParams = findDeepValue(nextData, 'getTranscriptEndpoint', 'params');
-  }
-
-  if (!transcriptParams) {
     throw new Error('No transcript params found — video may not have a transcript');
   }
 
@@ -402,6 +426,11 @@ async function fetchTranscriptInnertube(videoId) {
       params: transcriptParams
     })
   });
+
+  if (!transcriptResp.ok) {
+    throw new Error(`/get_transcript returned HTTP ${transcriptResp.status}`);
+  }
+
   const transcriptData = await transcriptResp.json();
   console.log('[CzechDub:BG] /get_transcript response keys:', Object.keys(transcriptData).join(', '));
 
