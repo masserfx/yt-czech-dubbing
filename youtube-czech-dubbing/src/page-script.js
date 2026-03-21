@@ -110,13 +110,19 @@
       return;
     }
 
-    // Add fmt=json3 for JSON output with timestamps
+    // Build URL with required params
     var url = track.baseUrl;
+    // Ensure lang parameter is present
+    if (url.indexOf('lang=') === -1) {
+      url += '&lang=' + encodeURIComponent(track.languageCode || 'en');
+    }
+    // Add fmt=json3 for JSON output with timestamps
     if (url.indexOf('fmt=') === -1) {
       url += '&fmt=json3';
     }
 
-    // Quick XHR test — if empty (uBlock blocks timedtext), fail fast
+    console.log('[CzechDub:PageScript] Track:', track.languageCode, 'kind:', track.kind || 'manual');
+    console.log('[CzechDub:PageScript] Full URL:', url);
     console.log('[CzechDub:PageScript] Trying timedtext XHR...');
     try {
       var xhr = new XMLHttpRequest();
@@ -124,12 +130,29 @@
       xhr.withCredentials = true;
       xhr.timeout = 3000;
       xhr.onload = function() {
+        console.log('[CzechDub:PageScript] XHR status:', xhr.status, 'length:', xhr.responseText.length);
         if (xhr.status === 200 && xhr.responseText.length > 0) {
-          console.log('[CzechDub:PageScript] Timedtext received, length:', xhr.responseText.length);
+          console.log('[CzechDub:PageScript] Timedtext received via XHR');
           _processTimedtextResponse(xhr.responseText, requestId);
         } else {
-          console.log('[CzechDub:PageScript] Timedtext blocked (empty), falling back');
-          _sendTranscriptFailure(requestId, 'Timedtext blocked by ad blocker');
+          // XHR empty — try fetch as fallback
+          console.log('[CzechDub:PageScript] XHR empty, trying fetch...');
+          _originalFetch(url, { credentials: 'include' })
+            .then(function(resp) {
+              console.log('[CzechDub:PageScript] Fetch status:', resp.status);
+              return resp.text();
+            })
+            .then(function(text) {
+              console.log('[CzechDub:PageScript] Fetch response length:', text.length, 'preview:', text.substring(0, 100));
+              if (text.length > 0) {
+                _processTimedtextResponse(text, requestId);
+              } else {
+                _sendTranscriptFailure(requestId, 'Timedtext empty (ad blocker?)');
+              }
+            })
+            .catch(function(err) {
+              _sendTranscriptFailure(requestId, 'Fetch error: ' + err.message);
+            });
         }
       };
       xhr.onerror = function() {
