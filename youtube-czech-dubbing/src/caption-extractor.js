@@ -1,28 +1,24 @@
 /**
- * CaptionExtractor - Extracts captions from YouTube videos.
+ * CaptionExtractor - Reads captions from YouTube's Transcript panel.
  *
- * Strategy: Instead of downloading caption files (blocked by uBlock Origin),
- * we enable YouTube's built-in captions/translation via the player API
- * and read caption text directly from the DOM using MutationObserver.
+ * Strategy: Instead of reading rollup captions from the video player DOM
+ * (which causes duplication), we read the Transcript panel which has clean,
+ * complete, timestamped segments. We then translate them and synchronize
+ * playback with the video's currentTime.
  *
- * Deduplication: YouTube shows captions in "rollup" mode — multiple visual
- * lines are visible simultaneously. New lines appear at the bottom, old ones
- * scroll up and disappear. We track individual visual lines and only emit
- * each unique line ONCE, when it first appears as a new bottom line.
+ * Transcript DOM structure:
+ *   ytd-transcript-segment-renderer
+ *     .segment-start-offset  → timestamp text like "40:11"
+ *     .segment-text          → segment text
  */
 class CaptionExtractor {
   constructor() {
     this.currentVideoId = null;
-    this.captionObserver = null;
     this.onCaption = null; // callback: (text) => void
-    // Track emitted lines to avoid duplicates
-    this._emittedLines = new Set();
-    // Track the last few raw line snapshots to detect stability
-    this._lastSnapshot = '';
-    this._stableCount = 0;
-    this._pendingLine = null;    // line waiting to be emitted after stabilizing
-    this._debounceTimer = null;
-    this._maxWaitTimer = null;
+    this._segments = [];        // [{start: seconds, text: string, translated: string}]
+    this._currentIndex = -1;    // index of last spoken segment
+    this._syncInterval = null;  // polling interval for time sync
+    this._videoElement = null;
   }
 
   getVideoId() {
@@ -39,8 +35,157 @@ class CaptionExtractor {
   }
 
   /**
+   * Open YouTube's Transcript panel and read all segments.
+   * Returns array of {start: seconds, text: string}.
+   */
+  async openAndReadTranscript() {
+    console.log('[CzechDub] Opening transcript panel...');
+
+    // First check if transcript is already open
+    let segments = this._readTranscriptDOM();
+    if (segments.length > 0) {
+      console.log(`[CzechDub] Transcript already open, found ${segments.length} segments`);
+      return segments;
+    }
+
+    // Try to open transcript panel via page-script (MAIN world)
+    const opened = await this._requestOpenTranscript();
+    if (!opened) {
+      console.warn('[CzechDub] Could not open transcript panel');
+      return [];
+    }
+
+    // Wait for transcript segments to render
+    for (let i = 0; i < 20; i++) {
+      await this._sleep(300);
+      segments = this._readTranscriptDOM();
+      if (segments.length > 0) {
+        console.log(`[CzechDub] Transcript loaded: ${segments.length} segments`);
+        return segments;
+      }
+    }
+
+    console.warn('[CzechDub] Transcript panel opened but no segments found');
+    return [];
+  }
+
+  /**
+   * Read transcript segments from the DOM.
+   */
+  _readTranscriptDOM() {
+    const renderers = document.querySelectorAll('ytd-transcript-segment-renderer');
+    if (renderers.length === 0) return [];
+
+    const segments = [];
+    renderers.forEach(renderer => {
+      const timestampEl = renderer.querySelector('.segment-timestamp');
+      const textEl = renderer.querySelector('.segment-text');
+
+      if (!timestampEl || !textEl) return;
+
+      const timestampText = timestampEl.textContent.trim();
+      const text = textEl.textContent.trim();
+
+      if (!text || text.length < 1) return;
+
+      const startSeconds = this._parseTimestamp(timestampText);
+      segments.push({
+        start: startSeconds,
+        text: text,
+        translated: null
+      });
+    });
+
+    return segments;
+  }
+
+  /**
+   * Parse timestamp like "40:11" or "1:02:30" to seconds.
+   */
+  _parseTimestamp(ts) {
+    const parts = ts.split(':').map(p => parseInt(p.trim(), 10));
+    if (parts.length === 3) {
+      return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    } else if (parts.length === 2) {
+      return parts[0] * 60 + parts[1];
+    }
+    return parseInt(ts, 10) || 0;
+  }
+
+  /**
+   * Store translated segments and start time-synced playback.
+   * Calls onCaption(text) when video reaches each segment's timestamp.
+   */
+  startSyncedPlayback(segments, videoElement, callback) {
+    this.stopObserving();
+
+    this._segments = segments;
+    this._videoElement = videoElement;
+    this.onCaption = callback;
+    this._currentIndex = -1;
+
+    // Find starting index based on current video time
+    const currentTime = videoElement.currentTime || 0;
+    this._currentIndex = this._findSegmentIndex(currentTime) - 1;
+
+    console.log(`[CzechDub] Starting synced playback: ${segments.length} segments, starting near index ${this._currentIndex + 1}`);
+
+    // Poll video time every 250ms
+    this._syncInterval = setInterval(() => {
+      this._syncWithVideo();
+    }, 250);
+  }
+
+  /**
+   * Find the segment index for a given time.
+   */
+  _findSegmentIndex(time) {
+    for (let i = 0; i < this._segments.length; i++) {
+      if (this._segments[i].start > time) {
+        return Math.max(0, i - 1);
+      }
+    }
+    return this._segments.length - 1;
+  }
+
+  /**
+   * Check video time and emit the appropriate segment.
+   */
+  _syncWithVideo() {
+    if (!this._videoElement || !this.onCaption) return;
+    if (this._videoElement.paused) return;
+
+    const currentTime = this._videoElement.currentTime;
+    const targetIndex = this._findSegmentIndex(currentTime);
+
+    // Only emit if we've moved to a new segment
+    if (targetIndex > this._currentIndex) {
+      this._currentIndex = targetIndex;
+      const segment = this._segments[targetIndex];
+      if (segment) {
+        const textToSpeak = segment.translated || segment.text;
+        if (textToSpeak && textToSpeak.length >= 2) {
+          console.log(`[CzechDub] Segment ${targetIndex}: "${textToSpeak.substring(0, 80)}" @ ${segment.start}s`);
+          this.onCaption(textToSpeak);
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle video seek — reset current index.
+   */
+  onSeek() {
+    if (this._videoElement) {
+      const currentTime = this._videoElement.currentTime;
+      this._currentIndex = this._findSegmentIndex(currentTime) - 1;
+      console.log(`[CzechDub] Seeked to ${currentTime}s, reset to index ${this._currentIndex + 1}`);
+    }
+  }
+
+  /**
    * Enable YouTube captions with Czech translation via player API.
-   * Returns true if captions were enabled successfully.
+   * (Kept for compatibility, but we now prefer transcript-based approach)
    */
   async enableCzechCaptions() {
     console.log('[CzechDub] Enabling Czech captions via player API...');
@@ -75,250 +220,53 @@ class CaptionExtractor {
     });
   }
 
-  /**
-   * Start observing YouTube's caption DOM for text changes.
-   * Calls onCaption(text) whenever a new caption appears.
-   */
+  // Legacy method kept for compatibility
   startObserving(callback) {
-    // Stop any existing observer first (but don't clear the new callback)
-    this.stopObserving();
-
     this.onCaption = callback;
-    this._lastSnapshot = '';
-
-    // YouTube renders captions in .ytp-caption-window-container
-    // The actual text is in .ytp-caption-segment elements
-    const findCaptionContainer = () => {
-      // Try multiple possible selectors
-      const container = document.querySelector('.ytp-caption-window-container')
-        || document.querySelector('.caption-window')
-        || document.querySelector('#movie_player .captions-text');
-
-      if (container) {
-        console.log('[CzechDub] Found caption container:', container.className);
-        this._setupObserver(container);
-        return true;
-      }
-      return false;
-    };
-
-    // Caption container might not exist yet — watch for it
-    if (!findCaptionContainer()) {
-      console.log('[CzechDub] Caption container not found yet, watching for it...');
-
-      const playerContainer = document.querySelector('#movie_player')
-        || document.querySelector('.html5-video-player')
-        || document.body;
-
-      this.captionObserver = new MutationObserver((mutations) => {
-        if (findCaptionContainer()) {
-          // Found it — the _setupObserver call above replaces this observer
-        }
-      });
-
-      this.captionObserver.observe(playerContainer, {
-        childList: true,
-        subtree: true
-      });
-
-      // Also set up a polling fallback
-      this._pollInterval = setInterval(() => {
-        this._checkCaptionText();
-      }, 200);
-    }
   }
 
   /**
-   * Set up MutationObserver on the caption container.
-   */
-  _setupObserver(container) {
-    // Disconnect any existing observer
-    if (this.captionObserver) {
-      this.captionObserver.disconnect();
-    }
-
-    this.captionObserver = new MutationObserver(() => {
-      this._checkCaptionText();
-    });
-
-    this.captionObserver.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ['style']
-    });
-
-    // Also poll as backup (some caption changes might not trigger mutations)
-    if (this._pollInterval) clearInterval(this._pollInterval);
-    this._pollInterval = setInterval(() => {
-      this._checkCaptionText();
-    }, 200);
-
-    console.log('[CzechDub] Caption observer started');
-  }
-
-  /**
-   * Check for new caption text in the DOM.
-   *
-   * YouTube caption DOM structure:
-   *   .ytp-caption-window-container
-   *     .caption-window
-   *       .captions-text
-   *         .caption-visual-line   ← Line 1 (older, scrolling up)
-   *           .ytp-caption-segment
-   *         .caption-visual-line   ← Line 2 (newest, just appeared)
-   *           .ytp-caption-segment
-   *
-   * Strategy: Read individual visual lines. Only emit NEW lines that
-   * haven't been spoken yet. Each line grows word-by-word (rollup),
-   * so we wait for a line to stabilize before emitting.
-   */
-  _checkCaptionText() {
-    // Read individual visual lines, not all segments combined
-    const visualLines = document.querySelectorAll('.caption-visual-line');
-
-    // Fallback: if no visual lines found, try reading segments directly
-    let lines = [];
-    if (visualLines.length > 0) {
-      visualLines.forEach(line => {
-        const segments = line.querySelectorAll('.ytp-caption-segment');
-        let lineText = '';
-        segments.forEach(seg => {
-          const t = seg.textContent.trim();
-          if (t) lineText += (lineText ? ' ' : '') + t;
-        });
-        lineText = this._cleanText(lineText);
-        if (lineText && lineText.length >= 3) {
-          lines.push(lineText);
-        }
-      });
-    } else {
-      // Fallback: read all segments as one line
-      const segments = document.querySelectorAll('.ytp-caption-segment');
-      let lineText = '';
-      segments.forEach(seg => {
-        const t = seg.textContent.trim();
-        if (t) lineText += (lineText ? ' ' : '') + t;
-      });
-      lineText = this._cleanText(lineText);
-      if (lineText && lineText.length >= 3) {
-        lines.push(lineText);
-      }
-    }
-
-    if (lines.length === 0) return;
-
-    // Create a snapshot of current state to detect changes
-    const snapshot = lines.join('|||');
-    if (snapshot === this._lastSnapshot) {
-      this._stableCount++;
-      // After 3 stable checks (~600ms), emit pending line
-      if (this._stableCount === 3 && this._pendingLine) {
-        this._emitNewLine(this._pendingLine);
-        this._pendingLine = null;
-      }
-      return;
-    }
-
-    this._lastSnapshot = snapshot;
-    this._stableCount = 0;
-
-    // Find the LAST (bottom/newest) visual line — that's the one growing
-    const bottomLine = lines[lines.length - 1];
-
-    // Check if this bottom line is new (not yet emitted)
-    if (bottomLine && !this._isAlreadyEmitted(bottomLine)) {
-      // Set as pending — will emit after it stabilizes
-      this._pendingLine = bottomLine;
-
-      // Max wait: emit after 4s even if still growing
-      clearTimeout(this._maxWaitTimer);
-      this._maxWaitTimer = setTimeout(() => {
-        if (this._pendingLine) {
-          this._emitNewLine(this._pendingLine);
-          this._pendingLine = null;
-        }
-      }, 4000);
-    }
-  }
-
-  /**
-   * Clean caption text — remove YouTube UI artifacts.
-   */
-  _cleanText(text) {
-    if (!text) return '';
-    text = text.replace(/\s*(Angličtina|Čeština|English)\s*\(.*?\)\s*>>\s*\S+/g, '').trim();
-    text = text.replace(/\s*Nastavení\s+můž.*/g, '').trim();
-    return text;
-  }
-
-  /**
-   * Check if a line has already been emitted (or is very similar to one).
-   */
-  _isAlreadyEmitted(lineText) {
-    // Exact match
-    if (this._emittedLines.has(lineText)) return true;
-
-    // Check if this line is a substring of, or contains, an already emitted line
-    // This handles word-by-word growth: "Hello" → "Hello world" → "Hello world today"
-    for (const emitted of this._emittedLines) {
-      // If the emitted line starts with this text (this is a shorter version)
-      if (emitted.startsWith(lineText)) return true;
-      // If this text starts with emitted (emitted was a prefix — this grew)
-      // Don't mark as emitted, we want to emit the longer version
-    }
-
-    return false;
-  }
-
-  /**
-   * Emit a new unique line to the callback.
-   */
-  _emitNewLine(lineText) {
-    if (!lineText || lineText.length < 3) return;
-    if (this._isAlreadyEmitted(lineText)) return;
-
-    // Add to emitted set (keep last 20 to prevent memory growth)
-    this._emittedLines.add(lineText);
-    if (this._emittedLines.size > 20) {
-      const first = this._emittedLines.values().next().value;
-      this._emittedLines.delete(first);
-    }
-
-    this._emitCaption(lineText);
-  }
-
-  /**
-   * Emit a finalized caption to the callback.
-   */
-  _emitCaption(text) {
-    if (!text || text.length < 3) return;
-    console.log(`[CzechDub] Caption: "${text.substring(0, 100)}"`);
-    if (this.onCaption) {
-      this.onCaption(text);
-    }
-  }
-
-  /**
-   * Stop observing captions.
+   * Stop everything.
    */
   stopObserving() {
-    if (this.captionObserver) {
-      this.captionObserver.disconnect();
-      this.captionObserver = null;
-    }
-    if (this._pollInterval) {
-      clearInterval(this._pollInterval);
-      this._pollInterval = null;
+    if (this._syncInterval) {
+      clearInterval(this._syncInterval);
+      this._syncInterval = null;
     }
     this.onCaption = null;
-    this._emittedLines.clear();
-    this._lastSnapshot = '';
-    this._stableCount = 0;
-    this._pendingLine = null;
-    clearTimeout(this._debounceTimer);
-    clearTimeout(this._maxWaitTimer);
+    this._segments = [];
+    this._currentIndex = -1;
+    this._videoElement = null;
+  }
+
+  /**
+   * Request transcript panel to be opened via page-script (MAIN world).
+   */
+  _requestOpenTranscript() {
+    return new Promise((resolve) => {
+      const requestId = 'czechdub_transcript_' + Date.now();
+
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data?.type !== 'CZECH_DUB_TRANSCRIPT_RESULT') return;
+        if (event.data?.requestId !== requestId) return;
+
+        window.removeEventListener('message', handler);
+        clearTimeout(timeout);
+        resolve(event.data.success);
+      };
+      window.addEventListener('message', handler);
+
+      window.postMessage({
+        type: 'CZECH_DUB_OPEN_TRANSCRIPT',
+        requestId: requestId
+      }, '*');
+
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(false);
+      }, 5000);
+    });
   }
 
   /**
@@ -349,6 +297,10 @@ class CaptionExtractor {
         resolve([]);
       }, 3000);
     });
+  }
+
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 

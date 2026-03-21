@@ -1,20 +1,52 @@
 /**
  * Page Script - Runs in YouTube's MAIN world (has access to page JS variables).
  * Communicates with the content script via window.postMessage.
- * Declared with "world": "MAIN" in manifest.json to bypass CSP restrictions.
+ * Declared with "world": "MAIN" in manifest.json.
+ *
+ * Handles:
+ * 1. Extracting caption track info from YouTube player
+ * 2. Enabling captions and setting translation language via player API
+ * 3. Reading captions from DOM (bypasses uBlock/CSP network blocking)
  */
 (function () {
   'use strict';
 
-  // Listen for caption track requests from the content script
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
-    if (event.data?.type !== 'CZECH_DUB_REQUEST_TRACKS') return;
 
-    var requestId = event.data.requestId;
+    if (event.data?.type === 'CZECH_DUB_REQUEST_TRACKS') {
+      handleTrackRequest(event.data.requestId);
+    }
+
+    if (event.data?.type === 'CZECH_DUB_ENABLE_CAPTIONS') {
+      handleEnableCaptions(event.data.requestId, event.data.targetLang);
+    }
+
+    if (event.data?.type === 'CZECH_DUB_GET_PLAYER_TIME') {
+      var player = document.querySelector('#movie_player');
+      var time = player && typeof player.getCurrentTime === 'function' ? player.getCurrentTime() : -1;
+      window.postMessage({
+        type: 'CZECH_DUB_PLAYER_TIME',
+        requestId: event.data.requestId,
+        time: time
+      }, '*');
+    }
+
+    if (event.data?.type === 'CZECH_DUB_OPEN_TRANSCRIPT') {
+      handleOpenTranscript(event.data.requestId);
+    }
+
+    if (event.data?.type === 'CZECH_DUB_DISABLE_CAPTIONS') {
+      handleDisableCaptions();
+    }
+  });
+
+  /**
+   * Handle caption track list request.
+   */
+  function handleTrackRequest(requestId) {
     var tracks = null;
 
-    // Method 1: Try the player API
     try {
       var player = document.querySelector('#movie_player');
       if (player && typeof player.getPlayerResponse === 'function') {
@@ -27,7 +59,6 @@
       console.warn('[CzechDub:PageScript] Player API failed:', e);
     }
 
-    // Method 2: Try ytInitialPlayerResponse
     if (!tracks || tracks.length === 0) {
       try {
         if (window.ytInitialPlayerResponse &&
@@ -38,35 +69,16 @@
       } catch (e) {}
     }
 
-    // Method 3: Try ytplayer.config
-    if (!tracks || tracks.length === 0) {
-      try {
-        if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args) {
-          var playerResponse = JSON.parse(window.ytplayer.config.args.raw_player_response || '{}');
-          if (playerResponse.captions && playerResponse.captions.playerCaptionsTracklistRenderer) {
-            tracks = playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks || null;
-          }
-        }
-      } catch (e) {}
-    }
-
-    // Method 4: Parse script tags
     if (!tracks || tracks.length === 0) {
       try {
         var scripts = document.querySelectorAll('script');
         for (var i = 0; i < scripts.length; i++) {
           var text = scripts[i].textContent;
-          if (text && text.indexOf('ytInitialPlayerResponse') !== -1) {
-            var match = text.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*var/s);
-            if (!match) {
-              match = text.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/s);
-            }
+          if (text && text.indexOf('captionTracks') !== -1) {
+            var match = text.match(/"captionTracks":\s*(\[.+?\])/s);
             if (match) {
-              var parsed = JSON.parse(match[1]);
-              if (parsed.captions && parsed.captions.playerCaptionsTracklistRenderer) {
-                tracks = parsed.captions.playerCaptionsTracklistRenderer.captionTracks || null;
-                break;
-              }
+              tracks = JSON.parse(match[1]);
+              break;
             }
           }
         }
@@ -80,7 +92,219 @@
       requestId: requestId,
       tracks: tracks || []
     }, '*');
-  });
+  }
+
+  /**
+   * Enable captions on the YouTube player and optionally set translation language.
+   * This makes YouTube render captions in the DOM which we can then read.
+   */
+  function handleEnableCaptions(requestId, targetLang) {
+    console.log('[CzechDub:PageScript] Enabling captions, targetLang:', targetLang);
+
+    try {
+      var player = document.querySelector('#movie_player');
+      if (!player) {
+        sendResponse(requestId, false, 'No player found');
+        return;
+      }
+
+      // Enable captions if not already on
+      if (typeof player.getOption === 'function' && typeof player.setOption === 'function') {
+        // Get current caption track list
+        var trackList = player.getOption('captions', 'tracklist');
+        console.log('[CzechDub:PageScript] Track list:', JSON.stringify(trackList)?.substring(0, 300));
+
+        // Find a good source track (prefer English manual)
+        var sourceTrack = null;
+        if (trackList && trackList.length > 0) {
+          sourceTrack = trackList.find(function(t) { return t.languageCode === 'cs' && t.kind !== 'asr'; })
+            || trackList.find(function(t) { return t.languageCode === 'en' && t.kind !== 'asr'; })
+            || trackList.find(function(t) { return t.languageCode === 'en'; })
+            || trackList[0];
+        }
+
+        if (sourceTrack) {
+          console.log('[CzechDub:PageScript] Setting caption track:', sourceTrack.languageCode);
+
+          // Set the active caption track
+          player.setOption('captions', 'track', {
+            languageCode: sourceTrack.languageCode,
+            kind: sourceTrack.kind || ''
+          });
+
+          // If source is not Czech, set translation to Czech
+          if (targetLang && sourceTrack.languageCode !== targetLang) {
+            console.log('[CzechDub:PageScript] Setting translation to:', targetLang);
+            player.setOption('captions', 'translationLanguage', {
+              languageCode: targetLang
+            });
+          }
+        }
+
+        // Make sure captions are visible
+        if (typeof player.toggleSubtitles === 'function') {
+          // Check if subtitles are currently on
+          var isCaptionOn = player.getOption('captions', 'track');
+          if (!isCaptionOn || !isCaptionOn.languageCode) {
+            player.toggleSubtitles();
+          }
+        }
+
+        // Alternatively, try unloadModule/loadModule for captions
+        if (typeof player.loadModule === 'function') {
+          player.loadModule('captions');
+        }
+
+        sendResponse(requestId, true, 'Captions enabled');
+      } else {
+        // Fallback: click the CC button
+        var ccButton = document.querySelector('.ytp-subtitles-button');
+        if (ccButton) {
+          var isOn = ccButton.getAttribute('aria-pressed') === 'true';
+          if (!isOn) {
+            ccButton.click();
+            console.log('[CzechDub:PageScript] Clicked CC button');
+          }
+          sendResponse(requestId, true, 'Captions enabled via CC button');
+        } else {
+          sendResponse(requestId, false, 'No caption controls found');
+        }
+      }
+    } catch (e) {
+      console.error('[CzechDub:PageScript] Enable captions error:', e);
+      sendResponse(requestId, false, e.message);
+    }
+  }
+
+  function sendResponse(requestId, success, message) {
+    window.postMessage({
+      type: 'CZECH_DUB_ENABLE_RESULT',
+      requestId: requestId,
+      success: success,
+      message: message
+    }, '*');
+  }
+
+  /**
+   * Open the Transcript panel programmatically.
+   * Clicks the "Show transcript" button in the video description area.
+   */
+  function handleOpenTranscript(requestId) {
+    console.log('[CzechDub:PageScript] Opening transcript panel...');
+
+    try {
+      // Check if transcript panel is already open
+      var existingPanel = document.querySelector('ytd-transcript-renderer');
+      if (existingPanel) {
+        console.log('[CzechDub:PageScript] Transcript panel already open');
+        window.postMessage({
+          type: 'CZECH_DUB_TRANSCRIPT_RESULT',
+          requestId: requestId,
+          success: true
+        }, '*');
+        return;
+      }
+
+      // Method 1: Click the "Show transcript" button in the engagement panels
+      var transcriptButton = null;
+
+      // Look for the transcript button in the description/engagement area
+      var buttons = document.querySelectorAll('button, ytd-button-renderer');
+      for (var i = 0; i < buttons.length; i++) {
+        var btnText = buttons[i].textContent.toLowerCase().trim();
+        if (btnText.includes('transcript') || btnText.includes('přepis') || btnText.includes('zobrazit přepis')) {
+          transcriptButton = buttons[i];
+          break;
+        }
+      }
+
+      // Method 2: Try the three-dot menu → "Show transcript"
+      if (!transcriptButton) {
+        // Click the "..." menu button under the video
+        var menuButton = document.querySelector('#button-shape > button[aria-label]') ||
+                         document.querySelector('ytd-menu-renderer yt-icon-button') ||
+                         document.querySelector('#top-level-buttons-computed + ytd-menu-renderer button');
+
+        if (menuButton) {
+          menuButton.click();
+          console.log('[CzechDub:PageScript] Clicked menu button, waiting for transcript option...');
+
+          // Wait for menu to render then click "Show transcript"
+          setTimeout(function() {
+            var menuItems = document.querySelectorAll('ytd-menu-service-item-renderer, tp-yt-paper-item');
+            for (var j = 0; j < menuItems.length; j++) {
+              var itemText = menuItems[j].textContent.toLowerCase().trim();
+              if (itemText.includes('transcript') || itemText.includes('přepis')) {
+                menuItems[j].click();
+                console.log('[CzechDub:PageScript] Clicked transcript menu item');
+
+                window.postMessage({
+                  type: 'CZECH_DUB_TRANSCRIPT_RESULT',
+                  requestId: requestId,
+                  success: true
+                }, '*');
+                return;
+              }
+            }
+
+            // Close menu if transcript not found
+            document.body.click();
+            console.warn('[CzechDub:PageScript] Transcript option not found in menu');
+            window.postMessage({
+              type: 'CZECH_DUB_TRANSCRIPT_RESULT',
+              requestId: requestId,
+              success: false
+            }, '*');
+          }, 800);
+          return;
+        }
+      }
+
+      if (transcriptButton) {
+        transcriptButton.click();
+        console.log('[CzechDub:PageScript] Clicked transcript button');
+        window.postMessage({
+          type: 'CZECH_DUB_TRANSCRIPT_RESULT',
+          requestId: requestId,
+          success: true
+        }, '*');
+      } else {
+        console.warn('[CzechDub:PageScript] No transcript button found');
+        window.postMessage({
+          type: 'CZECH_DUB_TRANSCRIPT_RESULT',
+          requestId: requestId,
+          success: false
+        }, '*');
+      }
+    } catch (e) {
+      console.error('[CzechDub:PageScript] Open transcript error:', e);
+      window.postMessage({
+        type: 'CZECH_DUB_TRANSCRIPT_RESULT',
+        requestId: requestId,
+        success: false
+      }, '*');
+    }
+  }
+
+  /**
+   * Disable YouTube's visual captions (we use TTS instead).
+   */
+  function handleDisableCaptions() {
+    try {
+      var player = document.querySelector('#movie_player');
+      if (player && typeof player.getOption === 'function') {
+        var isCaptionOn = player.getOption('captions', 'track');
+        if (isCaptionOn && isCaptionOn.languageCode) {
+          if (typeof player.toggleSubtitles === 'function') {
+            player.toggleSubtitles();
+            console.log('[CzechDub:PageScript] Disabled visual captions');
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[CzechDub:PageScript] Could not disable captions:', e);
+    }
+  }
 
   console.log('[CzechDub:PageScript] MAIN world script loaded');
 })();
