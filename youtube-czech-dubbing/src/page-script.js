@@ -110,19 +110,12 @@
       return;
     }
 
-    // Build URL with required params
+    // Use baseUrl EXACTLY as provided — it has a signature that covers specific params.
+    // Adding extra params (lang=, fmt=) invalidates the signature → empty response.
     var url = track.baseUrl;
-    // Ensure lang parameter is present
-    if (url.indexOf('lang=') === -1) {
-      url += '&lang=' + encodeURIComponent(track.languageCode || 'en');
-    }
-    // Add fmt=json3 for JSON output with timestamps
-    if (url.indexOf('fmt=') === -1) {
-      url += '&fmt=json3';
-    }
 
     console.log('[CzechDub:PageScript] Track:', track.languageCode, 'kind:', track.kind || 'manual');
-    console.log('[CzechDub:PageScript] Full URL:', url);
+    console.log('[CzechDub:PageScript] BaseUrl (unmodified):', url.substring(0, 150));
     console.log('[CzechDub:PageScript] Trying timedtext XHR...');
     try {
       var xhr = new XMLHttpRequest();
