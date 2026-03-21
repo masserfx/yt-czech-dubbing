@@ -110,12 +110,16 @@
       return;
     }
 
-    // Use baseUrl EXACTLY as provided — it has a signature that covers specific params.
-    // Adding extra params (lang=, fmt=) invalidates the signature → empty response.
+    // baseUrl has a signature covering params in sparams= (ip,ipbits,expire,v,ei,caps,opi,exp,xoaf).
+    // lang= is NOT in sparams, so adding it won't break the signature.
+    // fmt= might break things, so we only add lang= and accept default XML format.
     var url = track.baseUrl;
+    if (url.indexOf('lang=') === -1) {
+      url += '&lang=' + (track.languageCode || 'en');
+    }
 
     console.log('[CzechDub:PageScript] Track:', track.languageCode, 'kind:', track.kind || 'manual');
-    console.log('[CzechDub:PageScript] BaseUrl (unmodified):', url.substring(0, 150));
+    console.log('[CzechDub:PageScript] URL (with lang):', url.substring(0, 180));
     console.log('[CzechDub:PageScript] Trying timedtext XHR...');
     try {
       var xhr = new XMLHttpRequest();
