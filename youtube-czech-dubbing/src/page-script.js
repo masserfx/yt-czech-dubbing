@@ -92,33 +92,60 @@
       return;
     }
 
-    // Call /get_transcript directly from page context (has YouTube cookies!)
+    console.log('[CzechDub:PageScript] Params type:', typeof params, 'value:', String(params).substring(0, 100));
+
+    // Get YouTube config values from page context
     var clientVersion = '2.20250320.01.00';
+    var apiKey = '';
+    var visitorData = '';
     try {
       clientVersion = window.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION') || clientVersion;
+      apiKey = window.ytcfg?.get?.('INNERTUBE_API_KEY') || '';
+      visitorData = window.ytcfg?.get?.('VISITOR_DATA') || '';
     } catch (e) {}
 
-    console.log('[CzechDub:PageScript] Calling /get_transcript from page context...');
+    var url = 'https://www.youtube.com/youtubei/v1/get_transcript';
+    if (apiKey) {
+      url += '?key=' + apiKey + '&prettyPrint=false';
+    } else {
+      url += '?prettyPrint=false';
+    }
 
-    _originalFetch('https://www.youtube.com/youtubei/v1/get_transcript?prettyPrint=false', {
+    console.log('[CzechDub:PageScript] Calling /get_transcript, apiKey:', apiKey ? 'yes' : 'no', 'visitorData:', visitorData ? 'yes' : 'no');
+
+    var requestBody = {
+      context: {
+        client: {
+          clientName: 'WEB',
+          clientVersion: clientVersion,
+          hl: document.documentElement.lang || 'en',
+          gl: 'US',
+          visitorData: visitorData
+        }
+      },
+      params: params
+    };
+
+    console.log('[CzechDub:PageScript] Request body keys:', Object.keys(requestBody).join(', '));
+
+    _originalFetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-Youtube-Client-Name': '1',
+        'X-Youtube-Client-Version': clientVersion
       },
       credentials: 'include',
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'WEB',
-            clientVersion: clientVersion
-          }
-        },
-        params: params
-      })
+      body: JSON.stringify(requestBody)
     })
       .then(function(resp) {
         console.log('[CzechDub:PageScript] /get_transcript status:', resp.status);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        if (!resp.ok) {
+          return resp.text().then(function(body) {
+            console.error('[CzechDub:PageScript] Error body:', body.substring(0, 500));
+            throw new Error('HTTP ' + resp.status);
+          });
+        }
         return resp.json();
       })
       .then(function(data) {
