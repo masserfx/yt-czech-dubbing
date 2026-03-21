@@ -61,35 +61,173 @@ class CaptionExtractor {
 
     console.log(`[CzechDub] Using track: ${track.languageCode} (${track.kind || 'manual'})`);
 
-    // Add JSON3 format parameter to the URL
+    // Build JSON3 URL — replace existing fmt or add fmt=json3
     let url = track.baseUrl;
-    if (!url.includes('fmt=')) {
+    if (url.includes('fmt=')) {
+      url = url.replace(/fmt=[^&]+/, 'fmt=json3');
+    } else {
       url += (url.includes('?') ? '&' : '?') + 'fmt=json3';
     }
 
-    // Fetch via background worker (bypasses uBlock)
+    // Try multiple fetch methods
+
+    // Method 1: Fetch directly from content script (ISOLATED world)
+    // Content script's fetch is NOT intercepted by uBlock Origin
+    // (uBlock only patches window.fetch in MAIN world)
+    let segments = await this._fetchCaptionsDirectly(url);
+    if (segments.length > 0) return segments;
+
+    // Method 2: Fetch via background service worker
+    segments = await this._fetchCaptionsViaBackground(url);
+    if (segments.length > 0) return segments;
+
+    // Method 3: Try fetching without fmt=json3 (XML format)
+    const xmlUrl = track.baseUrl;
+    segments = await this._fetchCaptionsXML(xmlUrl);
+    if (segments.length > 0) return segments;
+
+    console.warn('[CzechDub] All caption fetch methods failed');
+    return [];
+  }
+
+  /**
+   * Fetch captions directly from content script (ISOLATED world).
+   * uBlock can't intercept this because it only patches MAIN world's fetch.
+   */
+  async _fetchCaptionsDirectly(url) {
     try {
+      console.log(`[CzechDub] Direct fetch: ${url.substring(0, 120)}...`);
+      const resp = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' }
+      });
+
+      console.log(`[CzechDub] Direct fetch response: ${resp.status} ${resp.statusText}`);
+
+      if (!resp.ok) return [];
+
+      const text = await resp.text();
+      console.log(`[CzechDub] Direct fetch body: ${text.length} chars, starts: ${text.substring(0, 100)}`);
+
+      if (!text || text.length < 10) return [];
+
+      // JSON3 format
+      if (text.trim().startsWith('{')) {
+        return this._parseJSON3(text);
+      }
+
+      // XML format (srv3)
+      if (text.trim().startsWith('<?xml') || text.trim().startsWith('<transcript') || text.trim().startsWith('<timedtext')) {
+        return this._parseXML(text);
+      }
+
+      return [];
+    } catch (e) {
+      console.warn('[CzechDub] Direct fetch failed:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch captions via background service worker.
+   */
+  async _fetchCaptionsViaBackground(url) {
+    try {
+      console.log('[CzechDub] Background worker fetch...');
       const response = await chrome.runtime.sendMessage({
         type: 'fetch-captions',
         url: url
       });
 
-      if (response?.success && response.data) {
-        const segments = response.data;
-        console.log(`[CzechDub] Downloaded ${segments.length} caption segments`);
-        if (segments.length > 0) {
-          console.log(`[CzechDub] First: "${segments[0].text}" @ ${segments[0].start}s`);
-          console.log(`[CzechDub] Last: "${segments[segments.length - 1].text}" @ ${segments[segments.length - 1].start}s`);
-        }
-        return segments;
-      } else {
-        console.warn('[CzechDub] Caption fetch failed:', response?.error);
+      if (response?.success && response.data && response.data.length > 0) {
+        console.log(`[CzechDub] Background worker returned ${response.data.length} segments`);
+        return response.data;
       }
+      console.warn('[CzechDub] Background worker: no data -', response?.error || 'empty');
     } catch (e) {
-      console.error('[CzechDub] Caption fetch error:', e);
+      console.warn('[CzechDub] Background worker fetch failed:', e.message);
     }
-
     return [];
+  }
+
+  /**
+   * Fetch captions in XML format (default YouTube format without fmt param).
+   */
+  async _fetchCaptionsXML(url) {
+    try {
+      console.log('[CzechDub] XML fetch...');
+      const resp = await fetch(url, { credentials: 'include' });
+      if (!resp.ok) return [];
+
+      const text = await resp.text();
+      if (!text || text.length < 10) return [];
+
+      return this._parseXML(text);
+    } catch (e) {
+      console.warn('[CzechDub] XML fetch failed:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Parse JSON3 caption format.
+   */
+  _parseJSON3(text) {
+    try {
+      const data = JSON.parse(text);
+      if (!data.events) {
+        console.warn('[CzechDub] JSON3: no events. Keys:', Object.keys(data).join(', '));
+        return [];
+      }
+
+      const segments = data.events
+        .filter(event => event.segs && event.segs.length > 0)
+        .map(event => ({
+          start: (event.tStartMs || 0) / 1000,
+          duration: (event.dDurationMs || 0) / 1000,
+          text: event.segs.map(s => s.utf8 || '').join('').trim()
+        }))
+        .filter(seg => seg.text.length > 0);
+
+      console.log(`[CzechDub] Parsed ${segments.length} JSON3 segments`);
+      return segments;
+    } catch (e) {
+      console.warn('[CzechDub] JSON3 parse error:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Parse XML caption format (srv3 / timedtext).
+   */
+  _parseXML(text) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'text/xml');
+      const textElements = doc.querySelectorAll('text');
+
+      const segments = [];
+      textElements.forEach(el => {
+        const start = parseFloat(el.getAttribute('start') || '0');
+        const dur = parseFloat(el.getAttribute('dur') || '0');
+        const content = el.textContent.trim()
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&#39;/g, "'")
+          .replace(/&quot;/g, '"');
+
+        if (content.length > 0) {
+          segments.push({ start, duration: dur, text: content });
+        }
+      });
+
+      console.log(`[CzechDub] Parsed ${segments.length} XML segments`);
+      return segments;
+    } catch (e) {
+      console.warn('[CzechDub] XML parse error:', e.message);
+      return [];
+    }
   }
 
   /**
