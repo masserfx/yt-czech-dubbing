@@ -116,97 +116,187 @@
       url += '&fmt=json3';
     }
 
-    console.log('[CzechDub:PageScript] Fetching timedtext from:', url.substring(0, 120));
-
-    // Try multiple methods — uBlock may block fetch but not XHR, or vice versa
-    _fetchTimedtext(url, requestId);
+    // Timedtext URLs are blocked by uBlock — use transcript panel DOM instead
+    console.log('[CzechDub:PageScript] Timedtext blocked, opening transcript panel to read from DOM...');
+    _openTranscriptAndRead(requestId);
   }
 
   /**
-   * Try fetching timedtext via XHR (uBlock may only block fetch, not XHR).
-   * Falls back to fetch, then tries without fmt param.
+   * Open YouTube's transcript panel and read segments from the DOM.
+   * This bypasses uBlock because YouTube loads the data itself.
    */
-  function _fetchTimedtext(url, requestId) {
-    // Method 1: XMLHttpRequest (may bypass uBlock's fetch interception)
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', url, true);
-      xhr.withCredentials = true;
-      xhr.onload = function() {
-        console.log('[CzechDub:PageScript] XHR timedtext status:', xhr.status, 'length:', xhr.responseText.length);
-        if (xhr.status === 200 && xhr.responseText.length > 0) {
-          _processTimedtextResponse(xhr.responseText, requestId);
-          return;
-        }
-        console.log('[CzechDub:PageScript] XHR empty, trying fetch without fmt...');
-        // Method 2: try without fmt=json3 (plain XML, different URL pattern may bypass block)
-        var xmlUrl = url.replace(/&fmt=json3/, '');
-        _originalFetch(xmlUrl, { credentials: 'include' })
-          .then(function(resp) { return resp.text(); })
-          .then(function(text) {
-            console.log('[CzechDub:PageScript] Fetch XML timedtext length:', text.length);
-            if (text.length > 0) {
-              _processTimedtextResponse(text, requestId);
-            } else {
-              _sendTranscriptFailure(requestId, 'All timedtext methods blocked by ad blocker');
-            }
-          })
-          .catch(function(err) {
-            _sendTranscriptFailure(requestId, err.message);
-          });
-      };
-      xhr.onerror = function() {
-        console.log('[CzechDub:PageScript] XHR failed, trying fetch...');
-        _originalFetch(url, { credentials: 'include' })
-          .then(function(resp) { return resp.text(); })
-          .then(function(text) {
-            if (text.length > 0) {
-              _processTimedtextResponse(text, requestId);
-            } else {
-              _sendTranscriptFailure(requestId, 'Timedtext blocked');
-            }
-          })
-          .catch(function(err) {
-            _sendTranscriptFailure(requestId, err.message);
-          });
-      };
-      xhr.send();
-    } catch (e) {
-      console.error('[CzechDub:PageScript] XHR error:', e);
-      _sendTranscriptFailure(requestId, e.message);
+  function _openTranscriptAndRead(requestId) {
+    // Check if transcript panel already open
+    var panel = document.querySelector('ytd-transcript-renderer');
+    if (panel) {
+      console.log('[CzechDub:PageScript] Transcript panel already open');
+      _waitAndReadTranscript(requestId, 0);
+      return;
     }
+
+    // Find and click the "Show transcript" button
+    // Method 1: Direct transcript button in description
+    var buttons = document.querySelectorAll('button, ytd-button-renderer');
+    var transcriptButton = null;
+    for (var i = 0; i < buttons.length; i++) {
+      var btnText = buttons[i].textContent.toLowerCase().trim();
+      if (btnText.includes('transcript') || btnText.includes('přepis') || btnText.includes('zobrazit přepis') || btnText === 'show transcript') {
+        transcriptButton = buttons[i];
+        break;
+      }
+    }
+
+    if (transcriptButton) {
+      console.log('[CzechDub:PageScript] Clicking transcript button');
+      transcriptButton.click();
+      _waitAndReadTranscript(requestId, 0);
+      return;
+    }
+
+    // Method 2: Open via three-dot menu
+    var menuButton = document.querySelector('ytd-video-primary-info-renderer ytd-menu-renderer yt-icon-button') ||
+                     document.querySelector('#actions ytd-menu-renderer button') ||
+                     document.querySelector('#top-level-buttons-computed + ytd-menu-renderer button') ||
+                     document.querySelector('#info #menu button');
+
+    // Try finding the "..." button more broadly
+    if (!menuButton) {
+      var allMenuBtns = document.querySelectorAll('ytd-menu-renderer button[aria-label]');
+      for (var k = 0; k < allMenuBtns.length; k++) {
+        var label = allMenuBtns[k].getAttribute('aria-label') || '';
+        if (label.toLowerCase().includes('action') || label.toLowerCase().includes('more') || label.toLowerCase().includes('další') || label === '...') {
+          menuButton = allMenuBtns[k];
+          break;
+        }
+      }
+    }
+
+    if (menuButton) {
+      console.log('[CzechDub:PageScript] Clicking menu button to find transcript...');
+      menuButton.click();
+
+      setTimeout(function() {
+        var menuItems = document.querySelectorAll('ytd-menu-service-item-renderer, tp-yt-paper-item');
+        var found = false;
+        for (var j = 0; j < menuItems.length; j++) {
+          var itemText = menuItems[j].textContent.toLowerCase().trim();
+          if (itemText.includes('transcript') || itemText.includes('přepis')) {
+            menuItems[j].click();
+            console.log('[CzechDub:PageScript] Clicked transcript in menu');
+            found = true;
+            _waitAndReadTranscript(requestId, 0);
+            break;
+          }
+        }
+        if (!found) {
+          document.body.click(); // close menu
+          console.warn('[CzechDub:PageScript] Transcript option not found in menu');
+          _sendTranscriptFailure(requestId, 'Transcript option not found');
+        }
+      }, 1000);
+      return;
+    }
+
+    console.warn('[CzechDub:PageScript] No transcript button/menu found');
+    _sendTranscriptFailure(requestId, 'No transcript button found');
   }
 
-  function _processTimedtextResponse(text, requestId) {
-    try {
-      var segments;
-      if (text.charAt(0) === '{') {
-        var data = JSON.parse(text);
-        segments = _parseTimedTextJson3(data);
-      } else if (text.charAt(0) === '<' || text.indexOf('<?xml') !== -1) {
-        segments = _parseTimedTextXml(text);
-      } else {
-        throw new Error('Unknown format: ' + text.substring(0, 50));
-      }
-
-      console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' timedtext segments');
-      if (segments.length > 0) {
-        console.log('[CzechDub:PageScript] First: "' + segments[0].text + '" at ' + segments[0].start.toFixed(1) + 's');
-      }
-
-      window.postMessage({
-        type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
-        requestId: requestId,
-        success: segments.length > 0,
-        segments: segments
-      }, '*');
-    } catch (err) {
-      _sendTranscriptFailure(requestId, err.message);
+  /**
+   * Wait for transcript segments to appear in DOM, then read them.
+   */
+  function _waitAndReadTranscript(requestId, attempt) {
+    if (attempt > 20) { // 20 * 500ms = 10s max wait
+      _sendTranscriptFailure(requestId, 'Transcript panel did not load');
+      return;
     }
+
+    setTimeout(function() {
+      var segments = _readTranscriptFromDOM();
+      if (segments && segments.length > 0) {
+        console.log('[CzechDub:PageScript] Read ' + segments.length + ' segments from transcript panel');
+        console.log('[CzechDub:PageScript] First: "' + segments[0].text + '" at ' + segments[0].start.toFixed(1) + 's');
+
+        // Close transcript panel to clean up UI
+        var closeBtn = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"] #visibility-button button');
+        if (closeBtn) closeBtn.click();
+
+        window.postMessage({
+          type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+          requestId: requestId,
+          success: true,
+          segments: segments
+        }, '*');
+      } else {
+        _waitAndReadTranscript(requestId, attempt + 1);
+      }
+    }, 500);
+  }
+
+  /**
+   * Read transcript segments from the open transcript panel DOM.
+   */
+  function _readTranscriptFromDOM() {
+    var segments = [];
+
+    // YouTube transcript panel segment selectors
+    var segmentEls = document.querySelectorAll(
+      'ytd-transcript-segment-renderer, ' +
+      'yt-transcript-segment-renderer, ' +
+      '[target-id="engagement-panel-searchable-transcript"] .segment'
+    );
+
+    for (var i = 0; i < segmentEls.length; i++) {
+      var el = segmentEls[i];
+
+      // Extract timestamp
+      var timeEl = el.querySelector('.segment-timestamp, [class*="timestamp"], .ytd-transcript-segment-renderer[class*="time"]');
+      var textEl = el.querySelector('.segment-text, [class*="segment-text"], yt-formatted-string');
+
+      if (!timeEl && !textEl) {
+        // Try reading directly from the element's children
+        var children = el.children;
+        if (children.length >= 2) {
+          timeEl = children[0];
+          textEl = children[1];
+        }
+      }
+
+      var timeStr = timeEl ? timeEl.textContent.trim() : '';
+      var text = textEl ? textEl.textContent.trim() : el.textContent.trim();
+
+      // Parse timestamp "0:00" or "1:23:45" to seconds
+      var startSeconds = _parseTimestamp(timeStr);
+
+      if (text && text.length > 0) {
+        segments.push({
+          start: startSeconds,
+          duration: 0, // will be calculated from next segment
+          text: text
+        });
+      }
+    }
+
+    // Calculate durations from gaps between segments
+    for (var j = 0; j < segments.length - 1; j++) {
+      segments[j].duration = segments[j + 1].start - segments[j].start;
+    }
+    if (segments.length > 0) {
+      segments[segments.length - 1].duration = 5; // default for last segment
+    }
+
+    return segments;
+  }
+
+  function _parseTimestamp(str) {
+    if (!str) return 0;
+    var parts = str.split(':').map(function(p) { return parseInt(p, 10) || 0; });
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    return parts[0] || 0;
   }
 
   function _sendTranscriptFailure(requestId, error) {
-    console.error('[CzechDub:PageScript] Timedtext error:', error);
+    console.error('[CzechDub:PageScript] Transcript error:', error);
     window.postMessage({
       type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
       requestId: requestId,
