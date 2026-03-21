@@ -76,17 +76,31 @@ class DubbingController {
       this.tts.setVolume(this._settings.ttsVolume);
       this.tts.setPitch(this._settings.ttsPitch);
 
-      // Try transcript-based mode first (better quality)
+      // Step 1: Check if we already have captured timedtext
       this._setStatus('loading', 'Načítám přepis videa...');
-      const transcriptData = await this.extractor.fetchFullTranscript();
+      let transcriptData = await this.extractor.fetchFullTranscript();
+
+      // Step 2: If no transcript yet, enable captions first (triggers player to load timedtext)
+      if (!transcriptData) {
+        this._setStatus('loading', 'Zapínám titulky...');
+        const hasCaptions = await this.extractor.hasCaptions();
+        if (hasCaptions) {
+          await this.extractor.enableCzechCaptions();
+          // Wait for player to load timedtext (our XHR hook captures it)
+          this._setStatus('loading', 'Čekám na přepis...');
+          await this._sleep(3000);
+          // Try again — timedtext should now be captured
+          transcriptData = await this.extractor.fetchFullTranscript();
+        }
+      }
+
+      this.isActive = true;
+      this.originalVolume = this.videoElement.volume;
 
       if (transcriptData && transcriptData.segments.length > 0) {
         // Transcript mode — translate all segments, then play synchronized
         console.log(`[CzechDub] Got ${transcriptData.segments.length} transcript segments, translating...`);
         this._setStatus('translating', `Překládám přepis (${transcriptData.segments.length} segmentů)...`);
-
-        this.isActive = true;
-        this.originalVolume = this.videoElement.volume;
 
         const translated = await this.translator.translateCaptions(
           transcriptData.segments,
@@ -100,12 +114,10 @@ class DubbingController {
         this._transcriptMode = true;
         this._lastSpokenIndex = -1;
 
-        // Listen for video events
         this.videoElement.addEventListener('pause', this._onVideoPause);
         this.videoElement.addEventListener('play', this._onVideoPlay);
         this.videoElement.addEventListener('seeked', this._onVideoSeeked);
 
-        // Start transcript playback timer
         this._startTranscriptPlayback();
 
         this._setStatus('playing', 'Český dabing aktivní (přepis)');
@@ -114,22 +126,17 @@ class DubbingController {
       }
 
       // Fallback: DOM-based caption mode
-      console.log('[CzechDub] Transcript not available, falling back to caption DOM mode');
-      this._setStatus('loading', 'Hledám titulky...');
-      const hasCaptions = await this.extractor.hasCaptions();
+      console.log('[CzechDub] Transcript not available, using DOM caption mode');
+      this._transcriptMode = false;
 
+      // Enable captions if not already enabled
+      const hasCaptions = await this.extractor.hasCaptions();
       if (!hasCaptions) {
         this._setStatus('error', 'Titulky nejsou k dispozici pro toto video');
         return false;
       }
 
-      this._setStatus('loading', 'Zapínám české titulky...');
-      await this.extractor.enableCzechCaptions();
-
-      this.isActive = true;
-      this.originalVolume = this.videoElement.volume;
-      this._transcriptMode = false;
-
+      // Captions may already be enabled from step 2
       this.extractor.startObserving((text) => {
         this._onCaptionAppeared(text);
       });
@@ -502,6 +509,10 @@ class DubbingController {
     try {
       await chrome.storage.local.set({ czechDubSettings: this._settings });
     } catch (e) {}
+  }
+
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   _setStatus(status, message) {

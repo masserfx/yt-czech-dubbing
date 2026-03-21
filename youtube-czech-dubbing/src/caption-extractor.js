@@ -173,7 +173,7 @@ class CaptionExtractor {
     for (const [el, oldText] of this._visibleLines) {
       if (!currentSet.has(el)) {
         // This line disappeared — emit its last known text
-        if (oldText && oldText.length >= 3 && !this._emittedTexts.has(oldText)) {
+        if (oldText && oldText.length >= 3 && !this._isDuplicate(oldText)) {
           this._emittedTexts.add(oldText);
           this._emitCaption(oldText);
 
@@ -189,6 +189,28 @@ class CaptionExtractor {
     // Update visible lines with current state
     // Always update text for existing lines (they grow word-by-word)
     this._visibleLines = currentTexts;
+  }
+
+  /**
+   * Check if text is a duplicate or prefix of recently emitted text.
+   * Handles ASR captions where lines grow word-by-word.
+   */
+  _isDuplicate(text) {
+    if (this._emittedTexts.has(text)) return true;
+
+    // Check if this text is a prefix of a recently emitted line
+    // or if a recently emitted line is a prefix of this text
+    for (const emitted of this._emittedTexts) {
+      // Skip if text is a short prefix of something we already emitted
+      if (emitted.startsWith(text) && text.length < emitted.length) return true;
+      // Skip if we already emitted a prefix and this is the full version
+      // (emit the full version, remove the prefix)
+      if (text.startsWith(emitted) && emitted.length < text.length) {
+        this._emittedTexts.delete(emitted);
+        return false; // Not a duplicate — it's the extended version
+      }
+    }
+    return false;
   }
 
   /**
