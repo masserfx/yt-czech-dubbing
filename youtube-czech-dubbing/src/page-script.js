@@ -122,12 +122,28 @@
       credentials: 'include'
     })
       .then(function(resp) {
-        console.log('[CzechDub:PageScript] Timedtext status:', resp.status);
+        console.log('[CzechDub:PageScript] Timedtext status:', resp.status, 'type:', resp.headers.get('content-type'));
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        return resp.json();
+        return resp.text();
       })
-      .then(function(data) {
-        var segments = _parseTimedTextJson3(data);
+      .then(function(text) {
+        console.log('[CzechDub:PageScript] Timedtext body length:', text.length, 'preview:', text.substring(0, 200));
+
+        if (!text || text.length === 0) {
+          throw new Error('Empty response (likely blocked by ad blocker)');
+        }
+
+        // Try JSON first (fmt=json3), fall back to XML parsing
+        var segments;
+        if (text.charAt(0) === '{') {
+          var data = JSON.parse(text);
+          segments = _parseTimedTextJson3(data);
+        } else if (text.charAt(0) === '<' || text.indexOf('<?xml') !== -1) {
+          segments = _parseTimedTextXml(text);
+        } else {
+          throw new Error('Unknown timedtext format: ' + text.substring(0, 50));
+        }
+
         console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' timedtext segments');
 
         if (segments.length > 0) {
@@ -212,6 +228,27 @@
             });
           }
         }
+      }
+    }
+    return segments;
+  }
+
+  /**
+   * Parse YouTube's XML timedtext format (default without fmt param).
+   */
+  function _parseTimedTextXml(xmlText) {
+    var segments = [];
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(xmlText, 'text/xml');
+    var textNodes = doc.querySelectorAll('text');
+
+    for (var i = 0; i < textNodes.length; i++) {
+      var node = textNodes[i];
+      var start = parseFloat(node.getAttribute('start')) || 0;
+      var dur = parseFloat(node.getAttribute('dur')) || 0;
+      var text = node.textContent.trim();
+      if (text) {
+        segments.push({ start: start, duration: dur, text: text });
       }
     }
     return segments;
