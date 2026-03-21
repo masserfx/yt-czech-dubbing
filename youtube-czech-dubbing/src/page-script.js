@@ -48,9 +48,6 @@
       handleFetchCaptions(event.data.requestId, event.data.url);
     }
 
-    if (event.data?.type === 'CZECH_DUB_FETCH_TRANSCRIPT') {
-      handleFetchTranscript(event.data.requestId, event.data.videoId);
-    }
   });
 
   /**
@@ -360,102 +357,6 @@
           error: err.message
         }, '*');
       });
-  }
-
-  /**
-   * Fetch full transcript data using innertube API or captionTracks baseUrl.
-   * This runs in MAIN world so we have access to ytInitialPlayerResponse and original fetch.
-   */
-  function handleFetchTranscript(requestId, videoId) {
-    console.log('[CzechDub:PageScript] Fetching transcript tracks for:', videoId);
-
-    // Get captionTracks from player response — just extract info, don't fetch
-    var captionTracks = null;
-
-    try {
-      var player = document.querySelector('#movie_player');
-      if (player && typeof player.getPlayerResponse === 'function') {
-        var resp = player.getPlayerResponse();
-        captionTracks = resp?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-      }
-    } catch (e) {}
-
-    if (!captionTracks) {
-      try {
-        captionTracks = window.ytInitialPlayerResponse
-          ?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-      } catch (e) {}
-    }
-
-    if (captionTracks && captionTracks.length > 0) {
-      console.log('[CzechDub:PageScript] Found ' + captionTracks.length + ' caption tracks');
-
-      // Prefer English manual > English ASR > first track
-      var track = captionTracks.find(function(t) { return t.languageCode === 'en' && t.kind !== 'asr'; })
-        || captionTracks.find(function(t) { return t.languageCode === 'en'; })
-        || captionTracks[0];
-
-      var baseUrl = track.baseUrl;
-
-      // Ensure lang parameter is present
-      if (baseUrl.indexOf('&lang=') === -1) {
-        baseUrl += '&lang=' + track.languageCode;
-      }
-      // Ensure name parameter is present (needed for non-ASR tracks)
-      if (track.name && track.name.simpleText && baseUrl.indexOf('&name=') === -1) {
-        baseUrl += '&name=' + encodeURIComponent(track.name.simpleText);
-      }
-      // Request JSON3 format
-      if (baseUrl.indexOf('fmt=') === -1) {
-        baseUrl += '&fmt=json3';
-      } else {
-        baseUrl = baseUrl.replace(/fmt=[^&]+/, 'fmt=json3');
-      }
-
-      console.log('[CzechDub:PageScript] Track baseUrl:', baseUrl.substring(0, 250));
-
-      // Send tracks info back to content script — it will fetch via background.js
-      window.postMessage({
-        type: 'CZECH_DUB_TRANSCRIPT_DATA',
-        requestId: requestId,
-        success: false,
-        fetchViaBackground: true,
-        baseUrl: baseUrl,
-        sourceLang: track.languageCode,
-        videoId: videoId
-      }, '*');
-    } else {
-      console.log('[CzechDub:PageScript] No captionTracks found');
-      sendTranscriptError(requestId, 'No caption tracks available');
-    }
-  }
-
-  /**
-   * Parse JSON3 format transcript into segments with timestamps.
-   */
-  function parseJson3Transcript(data, lang) {
-    if (!data.events) return [];
-
-    return data.events
-      .filter(function(event) { return event.segs && event.segs.length > 0; })
-      .map(function(event) {
-        var text = event.segs.map(function(s) { return s.utf8 || ''; }).join('').trim();
-        return {
-          start: (event.tStartMs || 0) / 1000,
-          duration: (event.dDurationMs || 0) / 1000,
-          text: text
-        };
-      })
-      .filter(function(seg) { return seg.text.length > 0 && seg.text !== '\n'; });
-  }
-
-  function sendTranscriptError(requestId, error) {
-    window.postMessage({
-      type: 'CZECH_DUB_TRANSCRIPT_DATA',
-      requestId: requestId,
-      success: false,
-      error: error
-    }, '*');
   }
 
   console.log('[CzechDub:PageScript] MAIN world script loaded (original fetch saved)');
