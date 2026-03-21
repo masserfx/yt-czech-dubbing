@@ -54,45 +54,143 @@ class Translator {
   }
 
   /**
-   * Translate an array of caption segments in context-aware batches.
-   * Keeps original segment structure (timestamps) for synchronized playback,
-   * but translates in larger batches joined by ||| for better context.
+   * Translate caption segments: clean ASR errors, merge into sentences,
+   * translate with full context, then split back for synchronized playback.
    */
   async translateCaptions(captions, sourceLang = 'en', onProgress = null) {
-    const translated = [];
-    const maxCharsPerBatch = 3000;
+    // Step 1: Clean ASR errors in original text
+    const cleaned = captions.map(c => ({
+      ...c,
+      text: this._cleanASR(c.text)
+    }));
+
+    // Step 2: Merge into sentence groups for better translation
+    const groups = this._groupIntoSentences(cleaned);
+    console.log(`[CzechDub] ${captions.length} segments → ${groups.length} sentence groups`);
+
+    // Step 3: Translate groups in batches
+    const maxCharsPerBatch = 4000;
+    const translatedGroups = [];
     let i = 0;
 
-    while (i < captions.length) {
-      // Build batch up to maxCharsPerBatch
+    while (i < groups.length) {
       const batch = [];
       let charCount = 0;
-      while (i < captions.length && (charCount + captions[i].text.length < maxCharsPerBatch || batch.length === 0)) {
-        batch.push(captions[i]);
-        charCount += captions[i].text.length + 5;
+      while (i < groups.length && (charCount + groups[i].text.length < maxCharsPerBatch || batch.length === 0)) {
+        batch.push(groups[i]);
+        charCount += groups[i].text.length + 5;
         i++;
       }
 
-      // Translate batch as single text with ||| separators
-      const combinedText = batch.map(c => c.text).join(' ||| ');
+      const combinedText = batch.map(g => g.text).join(' ||| ');
       const translatedCombined = await this.translate(combinedText, sourceLang);
       const translatedParts = translatedCombined.split(/\s*\|\|\|\s*/);
 
       for (let j = 0; j < batch.length; j++) {
-        translated.push({
+        translatedGroups.push({
           ...batch[j],
-          originalText: batch[j].text,
-          text: translatedParts[j] || batch[j].text
+          translatedText: translatedParts[j] || batch[j].text
         });
       }
 
       if (onProgress) {
-        onProgress(Math.min(i, captions.length), captions.length);
+        onProgress(Math.min(i, groups.length), groups.length);
       }
     }
 
-    console.log(`[CzechDub] Translated ${captions.length} segments in ${Math.ceil(captions.length * 20 / maxCharsPerBatch)} batches`);
-    return translated;
+    // Step 4: Split translated groups back into timed segments
+    const result = [];
+    for (const group of translatedGroups) {
+      const segments = group.segments;
+      const translatedText = group.translatedText;
+
+      if (segments.length === 1) {
+        result.push({ ...segments[0], originalText: segments[0].text, text: translatedText });
+      } else {
+        // Split translation proportionally by original text length
+        const words = translatedText.split(/\s+/);
+        const totalOrigLen = segments.reduce((s, seg) => s + seg.text.length, 0);
+        let wordIndex = 0;
+
+        for (let k = 0; k < segments.length; k++) {
+          const seg = segments[k];
+          const ratio = seg.text.length / totalOrigLen;
+          const wordCount = Math.max(1, Math.round(words.length * ratio));
+          const segWords = words.slice(wordIndex, wordIndex + wordCount);
+          wordIndex += wordCount;
+
+          // Last segment gets remaining words
+          if (k === segments.length - 1) {
+            segWords.push(...words.slice(wordIndex));
+          }
+
+          result.push({
+            ...seg,
+            originalText: seg.text,
+            text: segWords.join(' ')
+          });
+        }
+      }
+    }
+
+    console.log(`[CzechDub] Translated ${result.length} segments via ${translatedGroups.length} groups`);
+    return result;
+  }
+
+  /**
+   * Clean common ASR (auto-generated subtitle) errors.
+   */
+  _cleanASR(text) {
+    return text
+      // Fix common misrecognitions
+      .replace(/\bclawed?\s*code\b/gi, 'Claude Code')
+      .replace(/\bcloud\s*code\b/gi, 'Claude Code')
+      .replace(/\bclaud\s*code\b/gi, 'Claude Code')
+      .replace(/\bopen\s*claw\b/gi, 'OpenClaw')
+      .replace(/\benropic\b/gi, 'Anthropic')
+      .replace(/\benthropic\b/gi, 'Anthropic')
+      .replace(/\bentropic\b/gi, 'Anthropic')
+      .replace(/\banthropic\b/gi, 'Anthropic')
+      // Remove filler words
+      .replace(/\b(uh|um|er|ah)\b/gi, '')
+      // Clean up double spaces
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Group segments into sentences (combine until sentence boundary).
+   * Each group has: text (combined), segments (original with timestamps).
+   */
+  _groupIntoSentences(segments) {
+    const groups = [];
+    let buffer = '';
+    let groupSegs = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg.text) continue;
+
+      groupSegs.push(seg);
+      buffer += (buffer ? ' ' : '') + seg.text;
+
+      const isSentenceEnd = /[.!?][""]?\s*$/.test(buffer);
+      const isLong = buffer.length > 150;
+      const isLast = i === segments.length - 1;
+
+      if (isSentenceEnd || isLong || isLast) {
+        groups.push({
+          text: buffer.trim(),
+          segments: [...groupSegs],
+          start: groupSegs[0].start,
+          duration: (seg.start + (seg.duration || 2)) - groupSegs[0].start
+        });
+        buffer = '';
+        groupSegs = [];
+      }
+    }
+
+    return groups;
   }
 
   /**
