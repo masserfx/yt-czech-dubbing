@@ -118,55 +118,101 @@
 
     console.log('[CzechDub:PageScript] Fetching timedtext from:', url.substring(0, 120));
 
-    _originalFetch(url, {
-      credentials: 'include'
-    })
-      .then(function(resp) {
-        console.log('[CzechDub:PageScript] Timedtext status:', resp.status, 'type:', resp.headers.get('content-type'));
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        return resp.text();
-      })
-      .then(function(text) {
-        console.log('[CzechDub:PageScript] Timedtext body length:', text.length, 'preview:', text.substring(0, 200));
+    // Try multiple methods — uBlock may block fetch but not XHR, or vice versa
+    _fetchTimedtext(url, requestId);
+  }
 
-        if (!text || text.length === 0) {
-          throw new Error('Empty response (likely blocked by ad blocker)');
+  /**
+   * Try fetching timedtext via XHR (uBlock may only block fetch, not XHR).
+   * Falls back to fetch, then tries without fmt param.
+   */
+  function _fetchTimedtext(url, requestId) {
+    // Method 1: XMLHttpRequest (may bypass uBlock's fetch interception)
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.withCredentials = true;
+      xhr.onload = function() {
+        console.log('[CzechDub:PageScript] XHR timedtext status:', xhr.status, 'length:', xhr.responseText.length);
+        if (xhr.status === 200 && xhr.responseText.length > 0) {
+          _processTimedtextResponse(xhr.responseText, requestId);
+          return;
         }
+        console.log('[CzechDub:PageScript] XHR empty, trying fetch without fmt...');
+        // Method 2: try without fmt=json3 (plain XML, different URL pattern may bypass block)
+        var xmlUrl = url.replace(/&fmt=json3/, '');
+        _originalFetch(xmlUrl, { credentials: 'include' })
+          .then(function(resp) { return resp.text(); })
+          .then(function(text) {
+            console.log('[CzechDub:PageScript] Fetch XML timedtext length:', text.length);
+            if (text.length > 0) {
+              _processTimedtextResponse(text, requestId);
+            } else {
+              _sendTranscriptFailure(requestId, 'All timedtext methods blocked by ad blocker');
+            }
+          })
+          .catch(function(err) {
+            _sendTranscriptFailure(requestId, err.message);
+          });
+      };
+      xhr.onerror = function() {
+        console.log('[CzechDub:PageScript] XHR failed, trying fetch...');
+        _originalFetch(url, { credentials: 'include' })
+          .then(function(resp) { return resp.text(); })
+          .then(function(text) {
+            if (text.length > 0) {
+              _processTimedtextResponse(text, requestId);
+            } else {
+              _sendTranscriptFailure(requestId, 'Timedtext blocked');
+            }
+          })
+          .catch(function(err) {
+            _sendTranscriptFailure(requestId, err.message);
+          });
+      };
+      xhr.send();
+    } catch (e) {
+      console.error('[CzechDub:PageScript] XHR error:', e);
+      _sendTranscriptFailure(requestId, e.message);
+    }
+  }
 
-        // Try JSON first (fmt=json3), fall back to XML parsing
-        var segments;
-        if (text.charAt(0) === '{') {
-          var data = JSON.parse(text);
-          segments = _parseTimedTextJson3(data);
-        } else if (text.charAt(0) === '<' || text.indexOf('<?xml') !== -1) {
-          segments = _parseTimedTextXml(text);
-        } else {
-          throw new Error('Unknown timedtext format: ' + text.substring(0, 50));
-        }
+  function _processTimedtextResponse(text, requestId) {
+    try {
+      var segments;
+      if (text.charAt(0) === '{') {
+        var data = JSON.parse(text);
+        segments = _parseTimedTextJson3(data);
+      } else if (text.charAt(0) === '<' || text.indexOf('<?xml') !== -1) {
+        segments = _parseTimedTextXml(text);
+      } else {
+        throw new Error('Unknown format: ' + text.substring(0, 50));
+      }
 
-        console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' timedtext segments');
+      console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' timedtext segments');
+      if (segments.length > 0) {
+        console.log('[CzechDub:PageScript] First: "' + segments[0].text + '" at ' + segments[0].start.toFixed(1) + 's');
+      }
 
-        if (segments.length > 0) {
-          console.log('[CzechDub:PageScript] First: "' + segments[0].text + '" at ' + segments[0].start.toFixed(1) + 's');
-          console.log('[CzechDub:PageScript] Last: "' + segments[segments.length - 1].text + '" at ' + segments[segments.length - 1].start.toFixed(1) + 's');
-        }
+      window.postMessage({
+        type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+        requestId: requestId,
+        success: segments.length > 0,
+        segments: segments
+      }, '*');
+    } catch (err) {
+      _sendTranscriptFailure(requestId, err.message);
+    }
+  }
 
-        window.postMessage({
-          type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
-          requestId: requestId,
-          success: segments.length > 0,
-          segments: segments
-        }, '*');
-      })
-      .catch(function(err) {
-        console.error('[CzechDub:PageScript] Timedtext fetch error:', err);
-        window.postMessage({
-          type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
-          requestId: requestId,
-          success: false,
-          error: err.message
-        }, '*');
-      });
+  function _sendTranscriptFailure(requestId, error) {
+    console.error('[CzechDub:PageScript] Timedtext error:', error);
+    window.postMessage({
+      type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+      requestId: requestId,
+      success: false,
+      error: error
+    }, '*');
   }
 
   /**
