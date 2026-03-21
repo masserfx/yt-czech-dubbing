@@ -11,9 +11,57 @@
 (function () {
   'use strict';
 
-  // CRITICAL: Save reference to original fetch BEFORE uBlock patches it.
+  // CRITICAL: Save references and hook XHR/fetch BEFORE uBlock patches them.
   // This script runs at document_start, before any other content scripts.
   var _originalFetch = window.fetch.bind(window);
+
+  // Intercept timedtext responses from YouTube's own player requests.
+  // When the player loads captions, we capture the response data.
+  var _capturedTimedtext = {};
+  var _origXHROpen = XMLHttpRequest.prototype.open;
+  var _origXHRSend = XMLHttpRequest.prototype.send;
+
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this._czechdub_url = (typeof url === 'string') ? url : '';
+    return _origXHROpen.apply(this, arguments);
+  };
+
+  XMLHttpRequest.prototype.send = function() {
+    var self = this;
+    var url = self._czechdub_url || '';
+    if (url.indexOf('timedtext') !== -1 || url.indexOf('api/timedtext') !== -1) {
+      var origOnReadyStateChange = self.onreadystatechange;
+      self.addEventListener('readystatechange', function() {
+        if (self.readyState === 4 && self.responseText && self.responseText.length > 10) {
+          _capturedTimedtext[url] = self.responseText;
+          _capturedTimedtext['_latest'] = self.responseText;
+          _capturedTimedtext['_latestUrl'] = url;
+          console.log('[CzechDub:PageScript] CAPTURED timedtext response:', self.responseText.length, 'bytes from', url.substring(0, 100));
+        }
+      });
+    }
+    return _origXHRSend.apply(this, arguments);
+  };
+
+  // Also intercept fetch for timedtext
+  window.fetch = function() {
+    var url = arguments[0];
+    if (typeof url === 'string' && (url.indexOf('timedtext') !== -1)) {
+      return _originalFetch.apply(window, arguments).then(function(response) {
+        var cloned = response.clone();
+        cloned.text().then(function(text) {
+          if (text && text.length > 10) {
+            _capturedTimedtext[url] = text;
+            _capturedTimedtext['_latest'] = text;
+            _capturedTimedtext['_latestUrl'] = url;
+            console.log('[CzechDub:PageScript] CAPTURED fetch timedtext:', text.length, 'bytes');
+          }
+        });
+        return response;
+      });
+    }
+    return _originalFetch.apply(window, arguments);
+  };
 
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
@@ -59,7 +107,15 @@
    * This works because we're in MAIN world with YouTube's cookies.
    */
   function handleGetTranscriptParams(requestId) {
-    console.log('[CzechDub:PageScript] Fetching transcript via timedtext...');
+    console.log('[CzechDub:PageScript] Fetching transcript...');
+
+    // Check if we already captured timedtext from YouTube's own player
+    if (_capturedTimedtext['_latest']) {
+      console.log('[CzechDub:PageScript] Using CAPTURED timedtext data:', _capturedTimedtext['_latest'].length, 'bytes');
+      _processTimedtextResponse(_capturedTimedtext['_latest'], requestId);
+      return;
+    }
+    console.log('[CzechDub:PageScript] No captured timedtext yet, trying direct fetch...');
 
     // Get caption tracks from player API
     var tracks = null;
