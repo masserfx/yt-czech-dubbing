@@ -21,7 +21,6 @@ class DubbingController {
 
     this._isSpeaking = false;
     this._speechQueue = [];
-    this._translatedSegments = [];
 
     this._settings = {
       ttsRate: 1.1,
@@ -66,35 +65,26 @@ class DubbingController {
       this.tts.setVolume(this._settings.ttsVolume);
       this.tts.setPitch(this._settings.ttsPitch);
 
-      // Download captions via background worker
-      this._setStatus('loading', 'Stahuji titulky...');
-      const segments = await this.extractor.downloadCaptions();
+      // Check if captions are available
+      this._setStatus('loading', 'Hledám titulky...');
+      const hasCaptions = await this.extractor.hasCaptions();
 
-      if (segments.length === 0) {
-        this._setStatus('error', 'Nepodařilo se stáhnout titulky');
+      if (!hasCaptions) {
+        this._setStatus('error', 'Titulky nejsou k dispozici pro toto video');
         return false;
       }
 
-      console.log(`[CzechDub] Downloaded ${segments.length} caption segments`);
+      // Enable Czech captions via YouTube player API
+      this._setStatus('loading', 'Zapínám české titulky...');
+      await this.extractor.enableCzechCaptions();
 
-      // Translate segments to Czech in batches
-      this._setStatus('loading', 'Překládám do češtiny...');
-      this._translatedSegments = await this._translateSegments(segments);
-
-      console.log(`[CzechDub] Translated ${this._translatedSegments.length} segments`);
-
-      // Disable YouTube visual captions (we use TTS)
-      window.postMessage({ type: 'CZECH_DUB_DISABLE_CAPTIONS' }, '*');
-
-      // Start synced playback
+      // Start DOM observation (emit-on-disappear strategy)
       this.isActive = true;
       this.originalVolume = this.videoElement.volume;
 
-      this.extractor.startSyncedPlayback(
-        this._translatedSegments,
-        this.videoElement,
-        (text) => this._onCaptionAppeared(text)
-      );
+      this.extractor.startObserving((text) => {
+        this._onCaptionAppeared(text);
+      });
 
       // Listen for video events
       this.videoElement.addEventListener('pause', this._onVideoPause);
@@ -102,7 +92,7 @@ class DubbingController {
       this.videoElement.addEventListener('seeked', this._onVideoSeeked);
 
       this._setStatus('playing', 'Český dabing aktivní');
-      console.log('[CzechDub] Dubbing started - transcript synced mode');
+      console.log('[CzechDub] Dubbing started - emit-on-disappear mode');
       return true;
 
     } catch (err) {
@@ -110,70 +100,6 @@ class DubbingController {
       this._setStatus('error', `Chyba: ${err.message}`);
       return false;
     }
-  }
-
-  /**
-   * Fallback: start with the old caption DOM approach if transcript is unavailable.
-   */
-  async _startWithCaptionDOM() {
-    this._setStatus('loading', 'Zapínám české titulky...');
-    await this.extractor.enableCzechCaptions();
-
-    this.isActive = true;
-    this.originalVolume = this.videoElement.volume;
-
-    this.extractor.startObserving((text) => {
-      this._onCaptionAppeared(text);
-    });
-
-    this.videoElement.addEventListener('pause', this._onVideoPause);
-    this.videoElement.addEventListener('play', this._onVideoPlay);
-    this.videoElement.addEventListener('seeked', this._onVideoSeeked);
-
-    this._setStatus('playing', 'Český dabing aktivní (titulky)');
-    return true;
-  }
-
-  /**
-   * Translate transcript segments to Czech in batches.
-   */
-  async _translateSegments(segments) {
-    const batchSize = 5;
-    const translated = [];
-
-    for (let i = 0; i < segments.length; i += batchSize) {
-      const batch = segments.slice(i, i + batchSize);
-
-      // Combine batch texts for efficient translation
-      const combinedText = batch.map(s => s.text).join(' ||| ');
-
-      let translatedText = null;
-      try {
-        translatedText = await this.translator.translate(combinedText, 'en');
-      } catch (e) {
-        console.warn(`[CzechDub] Translation failed for batch ${i}:`, e);
-      }
-
-      if (translatedText) {
-        const parts = translatedText.split(/\s*\|\|\|\s*/);
-        for (let j = 0; j < batch.length; j++) {
-          translated.push({
-            start: batch[j].start,
-            text: batch[j].text,
-            translated: parts[j] || batch[j].text
-          });
-        }
-      } else {
-        // If translation fails, keep original text
-        batch.forEach(s => translated.push({ ...s, translated: s.text }));
-      }
-
-      // Update progress
-      const progress = Math.min(i + batchSize, segments.length);
-      this._setStatus('loading', `Překládám... ${progress}/${segments.length}`);
-    }
-
-    return translated;
   }
 
   /**
@@ -247,7 +173,6 @@ class DubbingController {
 
     this._speechQueue = [];
     this._isSpeaking = false;
-    this._translatedSegments = [];
 
     // Restore original volume
     if (this.videoElement) {
