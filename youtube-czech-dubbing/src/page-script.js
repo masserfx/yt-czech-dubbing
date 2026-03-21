@@ -92,51 +92,39 @@
       return;
     }
 
-    console.log('[CzechDub:PageScript] Params type:', typeof params, 'value:', String(params).substring(0, 100));
-
-    // Get YouTube config values from page context
-    var clientVersion = '2.20250320.01.00';
+    // Get the FULL innertube context from ytcfg (same as YouTube uses internally)
+    var innertubeContext = null;
     var apiKey = '';
-    var visitorData = '';
     try {
-      clientVersion = window.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION') || clientVersion;
+      innertubeContext = window.ytcfg?.get?.('INNERTUBE_CONTEXT');
       apiKey = window.ytcfg?.get?.('INNERTUBE_API_KEY') || '';
-      visitorData = window.ytcfg?.get?.('VISITOR_DATA') || '';
     } catch (e) {}
 
-    var url = 'https://www.youtube.com/youtubei/v1/get_transcript';
-    if (apiKey) {
-      url += '?key=' + apiKey + '&prettyPrint=false';
-    } else {
-      url += '?prettyPrint=false';
+    if (!innertubeContext) {
+      console.warn('[CzechDub:PageScript] No INNERTUBE_CONTEXT available');
+      window.postMessage({
+        type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+        requestId: requestId,
+        success: false,
+        error: 'No innertube context'
+      }, '*');
+      return;
     }
 
-    console.log('[CzechDub:PageScript] Calling /get_transcript, apiKey:', apiKey ? 'yes' : 'no', 'visitorData:', visitorData ? 'yes' : 'no');
+    var url = 'https://www.youtube.com/youtubei/v1/get_transcript';
+    if (apiKey) url += '?key=' + apiKey + '&prettyPrint=false';
+    else url += '?prettyPrint=false';
 
-    var requestBody = {
-      context: {
-        client: {
-          clientName: 'WEB',
-          clientVersion: clientVersion,
-          hl: document.documentElement.lang || 'en',
-          gl: 'US',
-          visitorData: visitorData
-        }
-      },
-      params: params
-    };
-
-    console.log('[CzechDub:PageScript] Request body keys:', Object.keys(requestBody).join(', '));
+    console.log('[CzechDub:PageScript] Calling /get_transcript with full innertube context');
 
     _originalFetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Youtube-Client-Name': '1',
-        'X-Youtube-Client-Version': clientVersion
-      },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify({
+        context: innertubeContext,
+        params: params
+      })
     })
       .then(function(resp) {
         console.log('[CzechDub:PageScript] /get_transcript status:', resp.status);

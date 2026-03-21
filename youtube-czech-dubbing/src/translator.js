@@ -1,7 +1,8 @@
 /**
  * Translator - Translates text to Czech using free translation APIs.
+ * All API calls go through background.js service worker to bypass CSP.
  * Uses MyMemory Translation API (free, no API key needed, 5000 chars/day)
- * with fallback to LibreTranslate public instances.
+ * with fallback to LibreTranslate and Google Translate.
  */
 class Translator {
   constructor() {
@@ -85,23 +86,17 @@ class Translator {
   }
 
   /**
-   * MyMemory Translation API - Free, no API key required.
-   * Limit: 5000 chars/day without key, 50000 with free key.
+   * MyMemory Translation API via background worker.
    */
   async _translateMyMemory(text, sourceLang) {
     try {
-      const langPair = `${sourceLang}|cs`;
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langPair)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
-
-      if (data.responseStatus === 200 && data.responseData?.translatedText) {
-        const result = data.responseData.translatedText;
-        // MyMemory returns "MYMEMORY WARNING" when quota exceeded
-        if (result.includes('MYMEMORY WARNING') || result.includes('QUOTA')) {
-          return null;
-        }
-        return result;
+      const response = await chrome.runtime.sendMessage({
+        type: 'translate-mymemory',
+        text,
+        sourceLang
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
       }
     } catch (e) {
       console.warn('[CzechDub] MyMemory translation failed:', e);
@@ -110,53 +105,36 @@ class Translator {
   }
 
   /**
-   * LibreTranslate - Free open source translation.
-   * Uses public instances.
+   * LibreTranslate via background worker.
    */
   async _translateLibre(text, sourceLang) {
-    const instances = [
-      'https://libretranslate.de',
-      'https://translate.argosopentech.com',
-      'https://translate.terraprint.co'
-    ];
-
-    for (const instance of instances) {
-      try {
-        const resp = await fetch(`${instance}/translate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            q: text,
-            source: sourceLang,
-            target: 'cs',
-            format: 'text'
-          })
-        });
-
-        if (!resp.ok) continue;
-
-        const data = await resp.json();
-        if (data.translatedText) {
-          return data.translatedText;
-        }
-      } catch (e) {
-        continue;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'translate-libre',
+        text,
+        sourceLang
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
       }
+    } catch (e) {
+      console.warn('[CzechDub] LibreTranslate translation failed:', e);
     }
     return null;
   }
 
   /**
-   * Google Translate unofficial endpoint (fallback).
+   * Google Translate via background worker.
    */
   async _translateGoogle(text, sourceLang) {
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=cs&dt=t&q=${encodeURIComponent(text)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
-
-      if (data && data[0]) {
-        return data[0].map(item => item[0]).join('');
+      const response = await chrome.runtime.sendMessage({
+        type: 'translate-google',
+        text,
+        sourceLang
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
       }
     } catch (e) {
       console.warn('[CzechDub] Google translate fallback failed:', e);
