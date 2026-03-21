@@ -35,8 +35,11 @@ class TTSEngine {
         console.log('[CzechDub TTS] Available Czech voices:', czechVoices.map(v => `${v.name} (${v.lang})`).join(', '));
       }
 
-      // Priority: Google Czech > any Czech > Slovak > null
+      // Priority: Zuzana Premium/Enhanced > Zuzana > Google Czech > any Czech > Slovak
       this.czechVoice =
+        voices.find(v => v.lang.startsWith('cs') && /zuzana/i.test(v.name) && /premium|enhanced|profi|hq/i.test(v.name)) ||
+        voices.find(v => v.lang.startsWith('cs') && /zuzana/i.test(v.name)) ||
+        voices.find(v => v.lang === 'cs-CZ' && /premium|enhanced|hq/i.test(v.name)) ||
         voices.find(v => v.lang === 'cs-CZ' && v.name.includes('Google')) ||
         voices.find(v => v.lang === 'cs-CZ') ||
         voices.find(v => v.lang.startsWith('cs')) ||
@@ -45,7 +48,7 @@ class TTSEngine {
         null;
 
       if (this.czechVoice) {
-        console.log(`[CzechDub TTS] Selected voice: ${this.czechVoice.name} (${this.czechVoice.lang})`);
+        console.log(`[CzechDub TTS] Selected voice: ${this.czechVoice.name} (${this.czechVoice.lang}), local=${this.czechVoice.localService}`);
         this.voiceReady = true;
       } else {
         console.warn('[CzechDub TTS] NO Czech voice found! TTS will use lang="cs-CZ" hint.');
