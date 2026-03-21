@@ -238,6 +238,52 @@ class CaptionExtractor {
   }
 
   /**
+   * Fetch the full transcript (all segments with timestamps) from the page-script.
+   * Returns an array of {start, duration, text} or null on failure.
+   */
+  fetchFullTranscript() {
+    const videoId = this.getVideoId();
+    if (!videoId) return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      const requestId = 'czechdub_transcript_' + Date.now();
+
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data?.type !== 'CZECH_DUB_TRANSCRIPT_DATA') return;
+        if (event.data?.requestId !== requestId) return;
+
+        window.removeEventListener('message', handler);
+        clearTimeout(timeout);
+
+        if (event.data.success && event.data.segments?.length > 0) {
+          console.log(`[CzechDub] Got ${event.data.segments.length} transcript segments (lang: ${event.data.sourceLang})`);
+          resolve({
+            segments: event.data.segments,
+            sourceLang: event.data.sourceLang || 'en'
+          });
+        } else {
+          console.warn('[CzechDub] Transcript fetch failed:', event.data.error);
+          resolve(null);
+        }
+      };
+      window.addEventListener('message', handler);
+
+      window.postMessage({
+        type: 'CZECH_DUB_FETCH_TRANSCRIPT',
+        requestId: requestId,
+        videoId: videoId
+      }, '*');
+
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        console.warn('[CzechDub] Transcript fetch timeout');
+        resolve(null);
+      }, 15000);
+    });
+  }
+
+  /**
    * Request caption track list from page-script.
    */
   _requestTracksFromPageScript() {

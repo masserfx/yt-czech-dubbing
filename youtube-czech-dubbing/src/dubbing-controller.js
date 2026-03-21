@@ -22,6 +22,12 @@ class DubbingController {
     this._isSpeaking = false;
     this._speechQueue = [];
 
+    // Transcript-based mode
+    this._transcriptSegments = null; // translated segments with timestamps
+    this._transcriptMode = false;
+    this._lastSpokenIndex = -1;
+    this._transcriptTimer = null;
+
     this._settings = {
       ttsRate: 1.1,
       ttsVolume: 0.95,
@@ -65,7 +71,45 @@ class DubbingController {
       this.tts.setVolume(this._settings.ttsVolume);
       this.tts.setPitch(this._settings.ttsPitch);
 
-      // Check if captions are available
+      // Try transcript-based mode first (better quality)
+      this._setStatus('loading', 'Načítám přepis videa...');
+      const transcriptData = await this.extractor.fetchFullTranscript();
+
+      if (transcriptData && transcriptData.segments.length > 0) {
+        // Transcript mode — translate all segments, then play synchronized
+        console.log(`[CzechDub] Got ${transcriptData.segments.length} transcript segments, translating...`);
+        this._setStatus('translating', `Překládám přepis (${transcriptData.segments.length} segmentů)...`);
+
+        this.isActive = true;
+        this.originalVolume = this.videoElement.volume;
+
+        const translated = await this.translator.translateCaptions(
+          transcriptData.segments,
+          transcriptData.sourceLang,
+          (done, total) => {
+            this._setStatus('translating', `Překládám: ${done}/${total}`);
+          }
+        );
+
+        this._transcriptSegments = translated;
+        this._transcriptMode = true;
+        this._lastSpokenIndex = -1;
+
+        // Listen for video events
+        this.videoElement.addEventListener('pause', this._onVideoPause);
+        this.videoElement.addEventListener('play', this._onVideoPlay);
+        this.videoElement.addEventListener('seeked', this._onVideoSeeked);
+
+        // Start transcript playback timer
+        this._startTranscriptPlayback();
+
+        this._setStatus('playing', 'Český dabing aktivní (přepis)');
+        console.log('[CzechDub] Dubbing started - TRANSCRIPT mode');
+        return true;
+      }
+
+      // Fallback: DOM-based caption mode
+      console.log('[CzechDub] Transcript not available, falling back to caption DOM mode');
       this._setStatus('loading', 'Hledám titulky...');
       const hasCaptions = await this.extractor.hasCaptions();
 
@@ -74,25 +118,23 @@ class DubbingController {
         return false;
       }
 
-      // Enable Czech captions via YouTube player API
       this._setStatus('loading', 'Zapínám české titulky...');
       await this.extractor.enableCzechCaptions();
 
-      // Start DOM observation (emit-on-disappear strategy)
       this.isActive = true;
       this.originalVolume = this.videoElement.volume;
+      this._transcriptMode = false;
 
       this.extractor.startObserving((text) => {
         this._onCaptionAppeared(text);
       });
 
-      // Listen for video events
       this.videoElement.addEventListener('pause', this._onVideoPause);
       this.videoElement.addEventListener('play', this._onVideoPlay);
       this.videoElement.addEventListener('seeked', this._onVideoSeeked);
 
       this._setStatus('playing', 'Český dabing aktivní');
-      console.log('[CzechDub] Dubbing started - emit-on-disappear mode');
+      console.log('[CzechDub] Dubbing started - DOM caption mode (fallback)');
       return true;
 
     } catch (err) {
@@ -185,6 +227,84 @@ class DubbingController {
   }
 
   /**
+   * Start transcript-based playback — check video time periodically
+   * and speak the appropriate segment.
+   */
+  _startTranscriptPlayback() {
+    if (this._transcriptTimer) clearInterval(this._transcriptTimer);
+
+    this._transcriptTimer = setInterval(() => {
+      if (!this.isActive || !this._transcriptMode) return;
+      if (!this.videoElement || this.videoElement.paused) return;
+      if (this._isSpeaking) return;
+
+      const currentTime = this.videoElement.currentTime;
+      const nextIndex = this._findNextSegment(currentTime);
+
+      if (nextIndex !== -1 && nextIndex !== this._lastSpokenIndex) {
+        const segment = this._transcriptSegments[nextIndex];
+        // Only speak if we're within 0.5s of segment start
+        if (Math.abs(currentTime - segment.start) < 1.5) {
+          this._lastSpokenIndex = nextIndex;
+          this._speakSegment(segment);
+        }
+      }
+    }, 200);
+  }
+
+  /**
+   * Find the next transcript segment to speak based on current video time.
+   */
+  _findNextSegment(currentTime) {
+    if (!this._transcriptSegments) return -1;
+
+    for (let i = 0; i < this._transcriptSegments.length; i++) {
+      const seg = this._transcriptSegments[i];
+      // Find first segment that starts at or after currentTime and hasn't been spoken
+      if (seg.start >= currentTime - 0.5 && seg.start <= currentTime + 1.5) {
+        if (i > this._lastSpokenIndex) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Speak a single transcript segment with volume management.
+   */
+  async _speakSegment(segment) {
+    if (!this.isActive) return;
+
+    this._isSpeaking = true;
+    const czechText = segment.text;
+
+    try {
+      // Reduce video volume
+      if (this.videoElement) {
+        if (this._settings.muteOriginal) {
+          this.videoElement.volume = 0;
+        } else {
+          this.videoElement.volume = this._settings.reducedOriginalVolume;
+        }
+      }
+
+      this._showSubtitle(czechText);
+
+      console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s]: "${czechText.substring(0, 60)}"`);
+      await this.tts.speak(czechText);
+
+    } catch (e) {
+      console.warn('[CzechDub] TTS error:', e);
+    } finally {
+      if (this.isActive && this.videoElement) {
+        this.videoElement.volume = this.originalVolume;
+      }
+      this._isSpeaking = false;
+    }
+  }
+
+  /**
    * Stop dubbing.
    */
   stop() {
@@ -194,6 +314,15 @@ class DubbingController {
 
     this._speechQueue = [];
     this._isSpeaking = false;
+
+    // Clear transcript mode state
+    this._transcriptMode = false;
+    this._transcriptSegments = null;
+    this._lastSpokenIndex = -1;
+    if (this._transcriptTimer) {
+      clearInterval(this._transcriptTimer);
+      this._transcriptTimer = null;
+    }
 
     // Restore original volume
     if (this.videoElement) {
@@ -263,8 +392,24 @@ class DubbingController {
       this.tts.stop();
       this._speechQueue = [];
       this._isSpeaking = false;
-      // Reset transcript sync position
-      this.extractor.onSeek();
+
+      if (this._transcriptMode) {
+        // Reset to find the right segment for new position
+        const currentTime = this.videoElement?.currentTime || 0;
+        // Find the segment just before current time
+        this._lastSpokenIndex = -1;
+        if (this._transcriptSegments) {
+          for (let i = this._transcriptSegments.length - 1; i >= 0; i--) {
+            if (this._transcriptSegments[i].start < currentTime - 1) {
+              this._lastSpokenIndex = i;
+              break;
+            }
+          }
+        }
+        console.log(`[CzechDub] Seeked to ${currentTime.toFixed(1)}s, resuming from segment ${this._lastSpokenIndex + 1}`);
+      } else {
+        this.extractor.onSeek();
+      }
     }
   };
 
