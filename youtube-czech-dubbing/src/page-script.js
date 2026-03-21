@@ -11,6 +11,10 @@
 (function () {
   'use strict';
 
+  // CRITICAL: Save reference to original fetch BEFORE uBlock patches it.
+  // This script runs at document_start, before any other content scripts.
+  var _originalFetch = window.fetch.bind(window);
+
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
 
@@ -38,6 +42,10 @@
 
     if (event.data?.type === 'CZECH_DUB_DISABLE_CAPTIONS') {
       handleDisableCaptions();
+    }
+
+    if (event.data?.type === 'CZECH_DUB_FETCH_CAPTIONS') {
+      handleFetchCaptions(event.data.requestId, event.data.url);
     }
   });
 
@@ -306,5 +314,49 @@
     }
   }
 
-  console.log('[CzechDub:PageScript] MAIN world script loaded');
+  /**
+   * Fetch caption data using the ORIGINAL fetch (saved before uBlock patches it).
+   * This is the key trick: uBlock replaces window.fetch, but we saved the original.
+   */
+  function handleFetchCaptions(requestId, url) {
+    console.log('[CzechDub:PageScript] Fetching captions with original fetch:', url.substring(0, 150));
+
+    _originalFetch(url)
+      .then(function(resp) {
+        console.log('[CzechDub:PageScript] Caption fetch response:', resp.status);
+        return resp.text();
+      })
+      .then(function(text) {
+        console.log('[CzechDub:PageScript] Caption response: ' + text.length + ' chars');
+
+        if (!text || text.length < 10) {
+          window.postMessage({
+            type: 'CZECH_DUB_CAPTIONS_DATA',
+            requestId: requestId,
+            success: false,
+            error: 'Empty response'
+          }, '*');
+          return;
+        }
+
+        window.postMessage({
+          type: 'CZECH_DUB_CAPTIONS_DATA',
+          requestId: requestId,
+          success: true,
+          data: text,
+          format: text.trim().startsWith('{') ? 'json3' : 'xml'
+        }, '*');
+      })
+      .catch(function(err) {
+        console.error('[CzechDub:PageScript] Caption fetch error:', err.message);
+        window.postMessage({
+          type: 'CZECH_DUB_CAPTIONS_DATA',
+          requestId: requestId,
+          success: false,
+          error: err.message
+        }, '*');
+      });
+  }
+
+  console.log('[CzechDub:PageScript] MAIN world script loaded (original fetch saved)');
 })();

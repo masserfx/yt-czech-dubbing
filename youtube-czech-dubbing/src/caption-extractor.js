@@ -71,23 +71,75 @@ class CaptionExtractor {
 
     // Try multiple fetch methods
 
-    // Method 1: Fetch directly from content script (ISOLATED world)
-    // Content script's fetch is NOT intercepted by uBlock Origin
-    // (uBlock only patches window.fetch in MAIN world)
-    let segments = await this._fetchCaptionsDirectly(url);
+    // Method 1: Fetch via page-script's ORIGINAL fetch (saved before uBlock patches it)
+    // This is the most reliable method — uses the real fetch function
+    let segments = await this._fetchCaptionsViaPageScript(url);
     if (segments.length > 0) return segments;
 
-    // Method 2: Fetch via background service worker
+    // Method 2: Also try XML format via page-script
+    segments = await this._fetchCaptionsViaPageScript(track.baseUrl);
+    if (segments.length > 0) return segments;
+
+    // Method 3: Fetch directly from content script (ISOLATED world)
+    segments = await this._fetchCaptionsDirectly(url);
+    if (segments.length > 0) return segments;
+
+    // Method 4: Fetch via background service worker
     segments = await this._fetchCaptionsViaBackground(url);
-    if (segments.length > 0) return segments;
-
-    // Method 3: Try fetching without fmt=json3 (XML format)
-    const xmlUrl = track.baseUrl;
-    segments = await this._fetchCaptionsXML(xmlUrl);
     if (segments.length > 0) return segments;
 
     console.warn('[CzechDub] All caption fetch methods failed');
     return [];
+  }
+
+  /**
+   * Fetch captions via page-script's original fetch (saved before uBlock patches it).
+   * The page-script runs at document_start and saves window.fetch reference
+   * before uBlock's content script runs and replaces it.
+   */
+  async _fetchCaptionsViaPageScript(url) {
+    return new Promise((resolve) => {
+      const requestId = 'czechdub_captions_' + Date.now();
+
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data?.type !== 'CZECH_DUB_CAPTIONS_DATA') return;
+        if (event.data?.requestId !== requestId) return;
+
+        window.removeEventListener('message', handler);
+        clearTimeout(timeout);
+
+        if (event.data.success && event.data.data) {
+          const text = event.data.data;
+          console.log(`[CzechDub] Page-script fetch: ${text.length} chars, format: ${event.data.format}`);
+
+          let segments = [];
+          if (event.data.format === 'json3') {
+            segments = this._parseJSON3(text);
+          } else {
+            segments = this._parseXML(text);
+          }
+          resolve(segments);
+        } else {
+          console.warn('[CzechDub] Page-script fetch failed:', event.data.error);
+          resolve([]);
+        }
+      };
+
+      window.addEventListener('message', handler);
+
+      window.postMessage({
+        type: 'CZECH_DUB_FETCH_CAPTIONS',
+        requestId: requestId,
+        url: url
+      }, '*');
+
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        console.warn('[CzechDub] Page-script fetch timed out');
+        resolve([]);
+      }, 10000);
+    });
   }
 
   /**
