@@ -26,8 +26,8 @@ class TTSEngine {
    */
   _initVoice() {
     const isPremiumVoice = (name) => {
-      // macOS names premium voices various ways
-      return /premium|enhanced|vylepšen|profi|hq|\(.*kvalit/i.test(name);
+      // macOS names premium voices various ways (Czech locale: "prémiový")
+      return /premium|prémiov|enhanced|vylepšen|profi|hq|\(.*kvalit/i.test(name);
     };
 
     const findCzechVoice = () => {
