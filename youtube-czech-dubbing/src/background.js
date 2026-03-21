@@ -64,6 +64,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'fetch-transcript-with-params') {
+    fetchTranscriptWithParams(msg.params)
+      .then(segments => sendResponse({ success: true, segments }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'translate-google') {
     translateGoogle(msg.text, msg.sourceLang)
       .then(result => sendResponse({ success: true, translated: result }))
@@ -263,6 +270,43 @@ async function translateLibre(text, sourceLang) {
     }
   }
   return null;
+}
+
+/**
+ * Fetch transcript using pre-extracted params from page context.
+ * Only needs one API call: /get_transcript.
+ */
+async function fetchTranscriptWithParams(params) {
+  console.log('[CzechDub:BG] Fetching transcript with pre-extracted params...');
+
+  const resp = await fetch('https://www.youtube.com/youtubei/v1/get_transcript?prettyPrint=false', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Youtube-Client-Name': '1',
+      'X-Youtube-Client-Version': '2.20250320.01.00',
+      'Origin': 'https://www.youtube.com',
+      'Referer': 'https://www.youtube.com/'
+    },
+    body: JSON.stringify({
+      context: {
+        client: {
+          clientName: 'WEB',
+          clientVersion: '2.20250320.01.00'
+        }
+      },
+      params: params
+    })
+  });
+
+  if (!resp.ok) {
+    throw new Error(`/get_transcript returned HTTP ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  console.log('[CzechDub:BG] /get_transcript response keys:', Object.keys(data).join(', '));
+
+  return parseInnertubeTranscript(data);
 }
 
 /**

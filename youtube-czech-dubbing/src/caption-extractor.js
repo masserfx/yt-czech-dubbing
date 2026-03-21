@@ -242,16 +242,44 @@ class CaptionExtractor {
    * Returns an array of {start, duration, text} or null on failure.
    */
   /**
-   * Fetch full transcript via background.js service worker.
-   * Background.js fetches page HTML, extracts captionTracks, and downloads transcript.
-   * This completely bypasses uBlock and CSP restrictions.
+   * Fetch full transcript. Strategy:
+   * 1. Ask page-script for transcript params from ytInitialData (no network call)
+   * 2. If params found, send to background.js for /get_transcript call
+   * 3. If no params, send videoId to background.js for full HTML-based extraction
    */
   async fetchFullTranscript() {
     const videoId = this.getVideoId();
     if (!videoId) return null;
 
-    console.log(`[CzechDub] Fetching transcript via background for video: ${videoId}`);
+    console.log(`[CzechDub] Fetching transcript for video: ${videoId}`);
 
+    // Step 1: Get transcript params from page-script (MAIN world, has ytInitialData)
+    const pageData = await this._getTranscriptParamsFromPage();
+
+    if (pageData?.params) {
+      // Step 2a: We have params — call /get_transcript via background.js
+      console.log('[CzechDub] Got transcript params from page, calling /get_transcript...');
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'fetch-transcript-with-params',
+          params: pageData.params
+        });
+
+        if (response?.success && response.segments?.length > 0) {
+          console.log(`[CzechDub] Got ${response.segments.length} transcript segments via params`);
+          return {
+            segments: response.segments,
+            sourceLang: 'en'
+          };
+        }
+        console.warn('[CzechDub] /get_transcript failed:', response?.error);
+      } catch (e) {
+        console.error('[CzechDub] Transcript params fetch error:', e);
+      }
+    }
+
+    // Step 2b: No params — try full background.js extraction
+    console.log('[CzechDub] Trying background.js full extraction...');
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'fetch-transcript',
@@ -259,19 +287,48 @@ class CaptionExtractor {
       });
 
       if (response?.success && response.segments?.length > 0) {
-        console.log(`[CzechDub] Got ${response.segments.length} transcript segments`);
+        console.log(`[CzechDub] Got ${response.segments.length} transcript segments via background`);
         return {
           segments: response.segments,
           sourceLang: 'en'
         };
-      } else {
-        console.warn('[CzechDub] Transcript fetch failed:', response?.error);
-        return null;
       }
+      console.warn('[CzechDub] Background transcript fetch failed:', response?.error);
     } catch (e) {
-      console.error('[CzechDub] Transcript fetch error:', e);
-      return null;
+      console.error('[CzechDub] Background transcript error:', e);
     }
+
+    return null;
+  }
+
+  /**
+   * Get transcript params from page-script via postMessage.
+   */
+  _getTranscriptParamsFromPage() {
+    return new Promise((resolve) => {
+      const requestId = 'czechdub_params_' + Date.now();
+
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data?.type !== 'CZECH_DUB_TRANSCRIPT_PARAMS') return;
+        if (event.data?.requestId !== requestId) return;
+
+        window.removeEventListener('message', handler);
+        clearTimeout(timeout);
+        resolve(event.data);
+      };
+      window.addEventListener('message', handler);
+
+      window.postMessage({
+        type: 'CZECH_DUB_GET_TRANSCRIPT_PARAMS',
+        requestId: requestId
+      }, '*');
+
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }, 5000);
+    });
   }
 
   /**

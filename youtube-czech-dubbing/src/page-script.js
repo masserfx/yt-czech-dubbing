@@ -48,7 +48,114 @@
       handleFetchCaptions(event.data.requestId, event.data.url);
     }
 
+    if (event.data?.type === 'CZECH_DUB_GET_TRANSCRIPT_PARAMS') {
+      handleGetTranscriptParams(event.data.requestId);
+    }
+
   });
+
+  /**
+   * Extract transcript params from ytInitialData (available in MAIN world).
+   * No network call needed — data is already on the page.
+   */
+  function handleGetTranscriptParams(requestId) {
+    console.log('[CzechDub:PageScript] Extracting transcript params from page data...');
+
+    var params = null;
+
+    // Try ytInitialData engagement panels
+    try {
+      var panels = window.ytInitialData?.engagementPanels;
+      if (panels) {
+        console.log('[CzechDub:PageScript] Found ' + panels.length + ' engagement panels');
+        for (var i = 0; i < panels.length; i++) {
+          var panel = panels[i];
+          var panelId = panel?.engagementPanelSectionListRenderer?.panelIdentifier;
+          console.log('[CzechDub:PageScript]   Panel: ' + panelId);
+
+          if (panelId === 'engagement-panel-searchable-transcript') {
+            // Deep search for getTranscriptEndpoint.params
+            var found = _findDeepKey(panel, 'serializedShareEntity');
+            // Try multiple possible locations for params
+            params = _findDeepValue(panel, 'getTranscriptEndpoint', 'params');
+            if (params) {
+              console.log('[CzechDub:PageScript] Found transcript params in engagement panel');
+              break;
+            }
+          }
+        }
+      } else {
+        console.log('[CzechDub:PageScript] No engagementPanels in ytInitialData');
+      }
+    } catch (e) {
+      console.warn('[CzechDub:PageScript] Error searching ytInitialData:', e);
+    }
+
+    // Also try to get caption tracks baseUrl for fallback
+    var captionTracks = null;
+    try {
+      var player = document.querySelector('#movie_player');
+      if (player && typeof player.getPlayerResponse === 'function') {
+        var resp = player.getPlayerResponse();
+        captionTracks = resp?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      }
+    } catch (e) {}
+
+    if (!captionTracks) {
+      try {
+        captionTracks = window.ytInitialPlayerResponse
+          ?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      } catch (e) {}
+    }
+
+    // Extract useful track info
+    var trackInfo = null;
+    if (captionTracks && captionTracks.length > 0) {
+      var track = captionTracks.find(function(t) { return t.languageCode === 'en' && t.kind !== 'asr'; })
+        || captionTracks.find(function(t) { return t.languageCode === 'en'; })
+        || captionTracks[0];
+      trackInfo = {
+        baseUrl: track.baseUrl,
+        lang: track.languageCode,
+        kind: track.kind
+      };
+    }
+
+    window.postMessage({
+      type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
+      requestId: requestId,
+      params: params,
+      trackInfo: trackInfo
+    }, '*');
+  }
+
+  function _findDeepValue(obj, key, subKey, maxDepth) {
+    if (maxDepth === undefined) maxDepth = 15;
+    if (!obj || typeof obj !== 'object' || maxDepth <= 0) return null;
+
+    if (obj[key] !== undefined) {
+      return subKey ? obj[key][subKey] : obj[key];
+    }
+
+    var keys = Object.keys(obj);
+    for (var i = 0; i < keys.length; i++) {
+      var result = _findDeepValue(obj[keys[i]], key, subKey, maxDepth - 1);
+      if (result !== null && result !== undefined) return result;
+    }
+    return null;
+  }
+
+  function _findDeepKey(obj, key, maxDepth) {
+    if (maxDepth === undefined) maxDepth = 15;
+    if (!obj || typeof obj !== 'object' || maxDepth <= 0) return null;
+    if (obj[key] !== undefined) return obj;
+    var keys = Object.keys(obj);
+    for (var i = 0; i < keys.length; i++) {
+      var result = _findDeepKey(obj[keys[i]], key, maxDepth - 1);
+      if (result) return result;
+    }
+    return null;
+  }
 
   /**
    * Handle caption track list request.
