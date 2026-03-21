@@ -7,7 +7,7 @@
 class Translator {
   constructor() {
     this.cache = new Map();
-    this.rateLimitDelay = 100; // ms between requests
+    this.rateLimitDelay = 50; // ms between requests
     this.lastRequestTime = 0;
   }
 
@@ -56,15 +56,25 @@ class Translator {
   /**
    * Translate an array of caption objects in batches.
    * Returns new array with translated text.
+   * Uses large batches joined by ||| separator for efficiency.
    */
   async translateCaptions(captions, sourceLang = 'en', onProgress = null) {
     const translated = [];
-    const batchSize = 5;
+    // Large batch: ~2000 chars per API call (Google Translate handles up to 5000)
+    const maxCharsPerBatch = 2000;
 
-    for (let i = 0; i < captions.length; i += batchSize) {
-      const batch = captions.slice(i, i + batchSize);
+    let i = 0;
+    while (i < captions.length) {
+      // Build batch up to maxCharsPerBatch
+      const batch = [];
+      let charCount = 0;
+      while (i < captions.length && (charCount + captions[i].text.length < maxCharsPerBatch || batch.length === 0)) {
+        batch.push(captions[i]);
+        charCount += captions[i].text.length + 5; // +5 for " ||| "
+        i++;
+      }
 
-      // Combine batch into single text for more efficient translation
+      // Combine batch into single text
       const combinedText = batch.map(c => c.text).join(' ||| ');
       const translatedCombined = await this.translate(combinedText, sourceLang);
       const translatedParts = translatedCombined.split(/\s*\|\|\|\s*/);
@@ -78,7 +88,7 @@ class Translator {
       }
 
       if (onProgress) {
-        onProgress(Math.min(i + batchSize, captions.length), captions.length);
+        onProgress(Math.min(i, captions.length), captions.length);
       }
     }
 
