@@ -55,13 +55,16 @@ class CaptionExtractor {
       return [];
     }
 
-    // Wait for transcript segments to render
-    for (let i = 0; i < 20; i++) {
-      await this._sleep(300);
+    // Wait for transcript segments to render (up to 10 seconds)
+    for (let i = 0; i < 30; i++) {
+      await this._sleep(350);
       segments = this._readTranscriptDOM();
       if (segments.length > 0) {
         console.log(`[CzechDub] Transcript loaded: ${segments.length} segments`);
         return segments;
+      }
+      if (i === 5) {
+        console.log('[CzechDub] Still waiting for transcript segments...');
       }
     }
 
@@ -71,32 +74,91 @@ class CaptionExtractor {
 
   /**
    * Read transcript segments from the DOM.
+   * Tries multiple selectors since YouTube's DOM varies.
    */
   _readTranscriptDOM() {
-    const renderers = document.querySelectorAll('ytd-transcript-segment-renderer');
-    if (renderers.length === 0) return [];
+    // Try multiple selectors for transcript segments
+    const selectorSets = [
+      // Modern YouTube transcript panel
+      { container: 'ytd-transcript-segment-renderer', timestamp: '.segment-timestamp', text: '.segment-text' },
+      // Alternative selectors
+      { container: 'ytd-transcript-segment-renderer', timestamp: '.segment-start-offset', text: '.segment-text' },
+      // Engagement panel transcript
+      { container: '[target-id="engagement-panel-searchable-transcript"] .segment', timestamp: '.segment-timestamp', text: '.segment-text' },
+    ];
 
-    const segments = [];
-    renderers.forEach(renderer => {
-      const timestampEl = renderer.querySelector('.segment-timestamp');
-      const textEl = renderer.querySelector('.segment-text');
+    // First, log what transcript-related elements exist for debugging
+    const transcriptPanel = document.querySelector('ytd-transcript-renderer, ytd-engagement-panel-section-list-renderer[target-id*="transcript"]');
+    if (transcriptPanel) {
+      console.log(`[CzechDub] Transcript panel found: ${transcriptPanel.tagName}, children: ${transcriptPanel.children.length}`);
+      // Log first few child tag names
+      const childTags = Array.from(transcriptPanel.querySelectorAll('*'))
+        .slice(0, 30)
+        .map(el => el.tagName.toLowerCase())
+        .filter((v, i, a) => a.indexOf(v) === i);
+      console.log(`[CzechDub] Transcript child elements: ${childTags.join(', ')}`);
+    }
 
-      if (!timestampEl || !textEl) return;
+    for (const selectors of selectorSets) {
+      const renderers = document.querySelectorAll(selectors.container);
+      if (renderers.length === 0) continue;
 
-      const timestampText = timestampEl.textContent.trim();
-      const text = textEl.textContent.trim();
+      console.log(`[CzechDub] Found ${renderers.length} transcript segments with selector: ${selectors.container}`);
 
-      if (!text || text.length < 1) return;
+      // Log first renderer's innerHTML for debugging
+      if (renderers[0]) {
+        console.log(`[CzechDub] First segment HTML: ${renderers[0].innerHTML.substring(0, 300)}`);
+      }
 
-      const startSeconds = this._parseTimestamp(timestampText);
-      segments.push({
-        start: startSeconds,
-        text: text,
-        translated: null
+      const segments = [];
+      renderers.forEach(renderer => {
+        const timestampEl = renderer.querySelector(selectors.timestamp);
+        const textEl = renderer.querySelector(selectors.text);
+
+        if (!textEl) {
+          // Try getting text from the renderer itself (all text content minus timestamp)
+          const allText = renderer.textContent.trim();
+          if (allText.length < 2) return;
+
+          // Try to extract timestamp and text from raw content
+          const match = allText.match(/^(\d+:\d+(?::\d+)?)\s+(.+)/s);
+          if (match) {
+            segments.push({
+              start: this._parseTimestamp(match[1]),
+              text: match[2].trim(),
+              translated: null
+            });
+            return;
+          }
+          return;
+        }
+
+        const timestampText = timestampEl ? timestampEl.textContent.trim() : '0:00';
+        const text = textEl.textContent.trim();
+
+        if (!text || text.length < 1) return;
+
+        segments.push({
+          start: this._parseTimestamp(timestampText),
+          text: text,
+          translated: null
+        });
       });
-    });
 
-    return segments;
+      if (segments.length > 0) {
+        return segments;
+      }
+    }
+
+    // Last resort: try to find ANY element that looks like a transcript segment
+    const allSegmentLike = document.querySelectorAll('[class*="segment"], [class*="transcript"]');
+    if (allSegmentLike.length > 0) {
+      console.log(`[CzechDub] Found ${allSegmentLike.length} segment-like elements`);
+      const sampleTags = Array.from(allSegmentLike).slice(0, 5).map(el => `${el.tagName}[${el.className}]`);
+      console.log(`[CzechDub] Sample: ${sampleTags.join(', ')}`);
+    }
+
+    return [];
   }
 
   /**
