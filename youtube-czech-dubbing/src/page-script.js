@@ -147,7 +147,7 @@
     }
 
     if (transcriptButton) {
-      console.log('[CzechDub:PageScript] Clicking transcript button');
+      console.log('[CzechDub:PageScript] Clicking transcript button:', transcriptButton.tagName, transcriptButton.textContent?.substring(0, 50)?.trim());
       transcriptButton.click();
       _waitAndReadTranscript(requestId, 0);
       return;
@@ -206,11 +206,32 @@
    */
   function _waitAndReadTranscript(requestId, attempt) {
     if (attempt > 20) { // 20 * 500ms = 10s max wait
+      // Final diagnostic dump
+      console.log('[CzechDub:PageScript] Transcript panel DOM dump:');
+      var panel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+      console.log('[CzechDub:PageScript] Panel element:', panel ? 'found' : 'not found');
+      if (panel) {
+        console.log('[CzechDub:PageScript] Panel innerHTML (first 500):', panel.innerHTML.substring(0, 500));
+      }
+      var renderer = document.querySelector('ytd-transcript-renderer');
+      console.log('[CzechDub:PageScript] ytd-transcript-renderer:', renderer ? 'found' : 'not found');
+      var segments2 = document.querySelectorAll('ytd-transcript-segment-renderer');
+      console.log('[CzechDub:PageScript] ytd-transcript-segment-renderer count:', segments2.length);
+      // Look for any transcript-like elements
+      var allTranscript = document.querySelectorAll('[class*="transcript"], [class*="segment"]');
+      console.log('[CzechDub:PageScript] Elements with transcript/segment class:', allTranscript.length);
+      for (var d = 0; d < Math.min(5, allTranscript.length); d++) {
+        console.log('[CzechDub:PageScript]   - tag:', allTranscript[d].tagName, 'class:', allTranscript[d].className?.substring?.(0, 80), 'text:', allTranscript[d].textContent?.substring(0, 60));
+      }
+
       _sendTranscriptFailure(requestId, 'Transcript panel did not load');
       return;
     }
 
     setTimeout(function() {
+      if (attempt % 5 === 0) {
+        console.log('[CzechDub:PageScript] Waiting for transcript DOM (attempt ' + attempt + ')...');
+      }
       var segments = _readTranscriptFromDOM();
       if (segments && segments.length > 0) {
         console.log('[CzechDub:PageScript] Read ' + segments.length + ' segments from transcript panel');
