@@ -22,24 +22,30 @@ class TTSEngine {
   /**
    * Initialize and find the best Czech voice available.
    * Chrome loads Google online voices asynchronously.
+   * macOS premium voices may be named with parenthetical qualifiers.
    */
   _initVoice() {
+    const isPremiumVoice = (name) => {
+      // macOS names premium voices various ways
+      return /premium|enhanced|vylepšen|profi|hq|\(.*kvalit/i.test(name);
+    };
+
     const findCzechVoice = () => {
       const voices = this.synth.getVoices();
       if (voices.length === 0) return;
 
-      // Log all available voices for debugging
+      // Log ALL Czech/Slovak voices with full details
       const czechVoices = voices.filter(v => v.lang.startsWith('cs') || v.lang.startsWith('sk'));
       console.log(`[CzechDub TTS] Total voices: ${voices.length}, Czech/Slovak: ${czechVoices.length}`);
-      if (czechVoices.length > 0) {
-        console.log('[CzechDub TTS] Available Czech voices:', czechVoices.map(v => `${v.name} (${v.lang})`).join(', '));
-      }
+      czechVoices.forEach(v => {
+        console.log(`[CzechDub TTS]   - "${v.name}" lang=${v.lang} local=${v.localService} default=${v.default}`);
+      });
 
-      // Priority: Zuzana Premium/Enhanced > Zuzana > Google Czech > any Czech > Slovak
-      this.czechVoice =
-        voices.find(v => v.lang.startsWith('cs') && /zuzana/i.test(v.name) && /premium|enhanced|profi|hq/i.test(v.name)) ||
+      // Priority: Zuzana Premium/Enhanced > any Premium Czech > Zuzana > Google Czech > any Czech > Slovak
+      const best =
+        voices.find(v => v.lang.startsWith('cs') && /zuzana/i.test(v.name) && isPremiumVoice(v.name)) ||
+        voices.find(v => v.lang.startsWith('cs') && isPremiumVoice(v.name)) ||
         voices.find(v => v.lang.startsWith('cs') && /zuzana/i.test(v.name)) ||
-        voices.find(v => v.lang === 'cs-CZ' && /premium|enhanced|hq/i.test(v.name)) ||
         voices.find(v => v.lang === 'cs-CZ' && v.name.includes('Google')) ||
         voices.find(v => v.lang === 'cs-CZ') ||
         voices.find(v => v.lang.startsWith('cs')) ||
@@ -47,13 +53,18 @@ class TTSEngine {
         voices.find(v => v.lang.startsWith('sk')) ||
         null;
 
-      if (this.czechVoice) {
-        console.log(`[CzechDub TTS] Selected voice: ${this.czechVoice.name} (${this.czechVoice.lang}), local=${this.czechVoice.localService}`);
+      // Only upgrade voice — never downgrade from premium to standard
+      if (best) {
+        const bestIsPremium = isPremiumVoice(best.name);
+        const currentIsPremium = this.czechVoice && isPremiumVoice(this.czechVoice.name);
+
+        if (!this.czechVoice || bestIsPremium || !currentIsPremium) {
+          this.czechVoice = best;
+        }
+        console.log(`[CzechDub TTS] Selected voice: "${this.czechVoice.name}" (${this.czechVoice.lang}), local=${this.czechVoice.localService}`);
         this.voiceReady = true;
       } else {
         console.warn('[CzechDub TTS] NO Czech voice found! TTS will use lang="cs-CZ" hint.');
-        console.warn('[CzechDub TTS] Available voices:', voices.map(v => `${v.name} (${v.lang})`).join(', '));
-        // Still mark as ready - we'll use lang hint
         this.voiceReady = true;
       }
     };
@@ -63,33 +74,32 @@ class TTSEngine {
     if (voices.length > 0) {
       findCzechVoice();
     }
+    // Re-run on voiceschanged — premium voices may arrive later
     this.synth.onvoiceschanged = () => {
       findCzechVoice();
     };
 
-    // Force voice loading by requesting voices multiple times
-    setTimeout(() => {
-      if (!this.voiceReady) findCzechVoice();
-    }, 500);
-    setTimeout(() => {
-      if (!this.voiceReady) findCzechVoice();
-    }, 2000);
+    // Force voice loading with multiple retries
+    setTimeout(() => findCzechVoice(), 500);
+    setTimeout(() => findCzechVoice(), 1500);
+    setTimeout(() => findCzechVoice(), 3000);
   }
 
   /**
-   * Wait until voices are loaded.
+   * Wait until voices are loaded. Re-triggers voice selection to
+   * ensure premium voices that load late are picked up.
    */
   async waitForVoice() {
-    if (this.voiceReady) return;
+    if (this.voiceReady && this.czechVoice) return;
     return new Promise(resolve => {
       const check = () => {
-        if (this.voiceReady) {
+        if (this.voiceReady && this.czechVoice) {
           resolve();
           return;
         }
         const voices = this.synth.getVoices();
         if (voices.length > 0) {
-          this.voiceReady = true;
+          this._initVoice();
           resolve();
           return;
         }
