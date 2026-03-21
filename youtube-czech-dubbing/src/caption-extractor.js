@@ -5,21 +5,22 @@
  * we enable YouTube's built-in captions/translation via the player API
  * and read caption text directly from the DOM using MutationObserver.
  *
- * Deduplication: YouTube shows rollup captions where text grows word-by-word.
- * We wait for a complete line change (stable text that differs from previous)
- * and only emit text that hasn't been spoken yet.
+ * Deduplication: YouTube shows captions in "rollup" mode — multiple visual
+ * lines are visible simultaneously. New lines appear at the bottom, old ones
+ * scroll up and disappear. We track individual visual lines and only emit
+ * each unique line ONCE, when it first appears as a new bottom line.
  */
 class CaptionExtractor {
   constructor() {
     this.currentVideoId = null;
     this.captionObserver = null;
     this.onCaption = null; // callback: (text) => void
-    this._lastRawText = '';
-    this._lastEmittedText = '';
-    this._currentLineText = '';
-    this._stableText = '';       // text that stopped changing
-    this._stableCount = 0;       // how many checks text stayed the same
-    this._lineStartTime = 0;
+    // Track emitted lines to avoid duplicates
+    this._emittedLines = new Set();
+    // Track the last few raw line snapshots to detect stability
+    this._lastSnapshot = '';
+    this._stableCount = 0;
+    this._pendingLine = null;    // line waiting to be emitted after stabilizing
     this._debounceTimer = null;
     this._maxWaitTimer = null;
   }
@@ -83,7 +84,7 @@ class CaptionExtractor {
     this.stopObserving();
 
     this.onCaption = callback;
-    this._lastRawText = '';
+    this._lastSnapshot = '';
 
     // YouTube renders captions in .ytp-caption-window-container
     // The actual text is in .ytp-caption-segment elements
@@ -160,128 +161,132 @@ class CaptionExtractor {
   /**
    * Check for new caption text in the DOM.
    *
-   * Strategy: YouTube captions grow word-by-word (rollup). We wait for
-   * the text to stabilize (same text for 2+ checks = ~400ms) before
-   * emitting. When a completely new line appears, we emit the previous
-   * stable line. We deduplicate by removing any overlap with the
-   * previously emitted text.
+   * YouTube caption DOM structure:
+   *   .ytp-caption-window-container
+   *     .caption-window
+   *       .captions-text
+   *         .caption-visual-line   ← Line 1 (older, scrolling up)
+   *           .ytp-caption-segment
+   *         .caption-visual-line   ← Line 2 (newest, just appeared)
+   *           .ytp-caption-segment
+   *
+   * Strategy: Read individual visual lines. Only emit NEW lines that
+   * haven't been spoken yet. Each line grows word-by-word (rollup),
+   * so we wait for a line to stabilize before emitting.
    */
   _checkCaptionText() {
-    const segments = document.querySelectorAll('.ytp-caption-segment');
-    if (segments.length === 0) return;
+    // Read individual visual lines, not all segments combined
+    const visualLines = document.querySelectorAll('.caption-visual-line');
 
-    let fullText = '';
-    segments.forEach(seg => {
-      const t = seg.textContent.trim();
-      if (t) fullText += (fullText ? ' ' : '') + t;
-    });
+    // Fallback: if no visual lines found, try reading segments directly
+    let lines = [];
+    if (visualLines.length > 0) {
+      visualLines.forEach(line => {
+        const segments = line.querySelectorAll('.ytp-caption-segment');
+        let lineText = '';
+        segments.forEach(seg => {
+          const t = seg.textContent.trim();
+          if (t) lineText += (lineText ? ' ' : '') + t;
+        });
+        lineText = this._cleanText(lineText);
+        if (lineText && lineText.length >= 3) {
+          lines.push(lineText);
+        }
+      });
+    } else {
+      // Fallback: read all segments as one line
+      const segments = document.querySelectorAll('.ytp-caption-segment');
+      let lineText = '';
+      segments.forEach(seg => {
+        const t = seg.textContent.trim();
+        if (t) lineText += (lineText ? ' ' : '') + t;
+      });
+      lineText = this._cleanText(lineText);
+      if (lineText && lineText.length >= 3) {
+        lines.push(lineText);
+      }
+    }
 
-    if (!fullText || fullText.length === 0) return;
+    if (lines.length === 0) return;
 
-    // Filter out YouTube UI text
-    fullText = fullText.replace(/\s*(Angličtina|Čeština|English)\s*\(.*?\)\s*>>\s*\S+/g, '').trim();
-    fullText = fullText.replace(/\s*Nastavení\s+můž.*/g, '').trim();
-
-    if (!fullText || fullText.length < 3) return;
-
-    // Same as last check — text is stable
-    if (fullText === this._lastRawText) {
+    // Create a snapshot of current state to detect changes
+    const snapshot = lines.join('|||');
+    if (snapshot === this._lastSnapshot) {
       this._stableCount++;
-      // After 2 stable checks (~400ms), emit if not yet emitted
-      if (this._stableCount === 2 && this._currentLineText && this._currentLineText !== this._lastEmittedText) {
-        this._emitDeduped(this._currentLineText);
+      // After 3 stable checks (~600ms), emit pending line
+      if (this._stableCount === 3 && this._pendingLine) {
+        this._emitNewLine(this._pendingLine);
+        this._pendingLine = null;
       }
       return;
     }
 
-    const prevText = this._lastRawText;
-    this._lastRawText = fullText;
+    this._lastSnapshot = snapshot;
     this._stableCount = 0;
 
-    // Detect if this is a NEW line vs text growing on the same line
-    const isNewLine = prevText && !fullText.startsWith(prevText.substring(0, Math.min(15, prevText.length)));
+    // Find the LAST (bottom/newest) visual line — that's the one growing
+    const bottomLine = lines[lines.length - 1];
 
-    if (isNewLine) {
-      // Previous line is complete — emit it if not yet emitted
-      if (this._currentLineText && this._currentLineText !== this._lastEmittedText) {
-        this._emitDeduped(this._currentLineText);
-      }
-      // Start tracking the new line
-      this._currentLineText = fullText;
-      this._lineStartTime = Date.now();
+    // Check if this bottom line is new (not yet emitted)
+    if (bottomLine && !this._isAlreadyEmitted(bottomLine)) {
+      // Set as pending — will emit after it stabilizes
+      this._pendingLine = bottomLine;
 
-      // Max wait: emit after 4s even if text keeps changing
+      // Max wait: emit after 4s even if still growing
       clearTimeout(this._maxWaitTimer);
       this._maxWaitTimer = setTimeout(() => {
-        if (this._currentLineText && this._currentLineText !== this._lastEmittedText) {
-          this._emitDeduped(this._currentLineText);
+        if (this._pendingLine) {
+          this._emitNewLine(this._pendingLine);
+          this._pendingLine = null;
         }
       }, 4000);
-    } else {
-      // Text is growing on the same line
-      this._currentLineText = fullText;
-
-      // If accumulating for 5+ seconds, emit what we have
-      if (this._lineStartTime && (Date.now() - this._lineStartTime) > 5000) {
-        if (this._currentLineText !== this._lastEmittedText) {
-          this._emitDeduped(this._currentLineText);
-          this._lineStartTime = Date.now();
-        }
-      }
     }
   }
 
   /**
-   * Emit caption text, removing any overlap with the previously emitted text.
-   * This prevents Zuzana from repeating phrases that were already spoken.
+   * Clean caption text — remove YouTube UI artifacts.
    */
-  _emitDeduped(text) {
-    if (!text || text.length < 3) return;
-
-    let newText = text;
-
-    // If we have a previous emission, find and remove overlap
-    if (this._lastEmittedText) {
-      const overlap = this._findOverlap(this._lastEmittedText, text);
-      if (overlap.length > 5) {
-        // Remove the overlapping prefix from the new text
-        newText = text.substring(overlap.length).trim();
-      }
-    }
-
-    // Don't emit very short remnants (likely just partial words)
-    if (!newText || newText.length < 3) return;
-
-    this._emitCaption(newText);
+  _cleanText(text) {
+    if (!text) return '';
+    text = text.replace(/\s*(Angličtina|Čeština|English)\s*\(.*?\)\s*>>\s*\S+/g, '').trim();
+    text = text.replace(/\s*Nastavení\s+můž.*/g, '').trim();
+    return text;
   }
 
   /**
-   * Find the longest suffix of `prev` that is a prefix of `current`.
-   * Returns the overlapping portion.
+   * Check if a line has already been emitted (or is very similar to one).
    */
-  _findOverlap(prev, current) {
-    const prevWords = prev.split(/\s+/);
-    const currentWords = current.split(/\s+/);
+  _isAlreadyEmitted(lineText) {
+    // Exact match
+    if (this._emittedLines.has(lineText)) return true;
 
-    // Try progressively shorter suffixes of prev as prefix of current
-    for (let start = 0; start < prevWords.length; start++) {
-      const suffix = prevWords.slice(start).join(' ');
-      if (current.startsWith(suffix) && suffix.length > 5) {
-        return suffix;
-      }
+    // Check if this line is a substring of, or contains, an already emitted line
+    // This handles word-by-word growth: "Hello" → "Hello world" → "Hello world today"
+    for (const emitted of this._emittedLines) {
+      // If the emitted line starts with this text (this is a shorter version)
+      if (emitted.startsWith(lineText)) return true;
+      // If this text starts with emitted (emitted was a prefix — this grew)
+      // Don't mark as emitted, we want to emit the longer version
     }
 
-    // Also try: does current start with any tail portion of prev?
-    // Word-level matching for partial overlaps
-    for (let i = 1; i < Math.min(prevWords.length, currentWords.length); i++) {
-      const prevTail = prevWords.slice(-i).join(' ');
-      const currentHead = currentWords.slice(0, i).join(' ');
-      if (prevTail === currentHead && prevTail.length > 5) {
-        return prevTail;
-      }
+    return false;
+  }
+
+  /**
+   * Emit a new unique line to the callback.
+   */
+  _emitNewLine(lineText) {
+    if (!lineText || lineText.length < 3) return;
+    if (this._isAlreadyEmitted(lineText)) return;
+
+    // Add to emitted set (keep last 20 to prevent memory growth)
+    this._emittedLines.add(lineText);
+    if (this._emittedLines.size > 20) {
+      const first = this._emittedLines.values().next().value;
+      this._emittedLines.delete(first);
     }
 
-    return '';
+    this._emitCaption(lineText);
   }
 
   /**
@@ -289,8 +294,7 @@ class CaptionExtractor {
    */
   _emitCaption(text) {
     if (!text || text.length < 3) return;
-    this._lastEmittedText = text;
-    console.log(`[CzechDub] Caption ready: "${text.substring(0, 100)}"`);
+    console.log(`[CzechDub] Caption: "${text.substring(0, 100)}"`);
     if (this.onCaption) {
       this.onCaption(text);
     }
@@ -309,12 +313,10 @@ class CaptionExtractor {
       this._pollInterval = null;
     }
     this.onCaption = null;
-    this._lastRawText = '';
-    this._lastEmittedText = '';
-    this._currentLineText = '';
-    this._stableText = '';
+    this._emittedLines.clear();
+    this._lastSnapshot = '';
     this._stableCount = 0;
-    this._lineStartTime = 0;
+    this._pendingLine = null;
     clearTimeout(this._debounceTimer);
     clearTimeout(this._maxWaitTimer);
   }
