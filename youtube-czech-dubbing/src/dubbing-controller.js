@@ -66,26 +66,16 @@ class DubbingController {
       this.tts.setVolume(this._settings.ttsVolume);
       this.tts.setPitch(this._settings.ttsPitch);
 
-      // Check if captions are available
-      this._setStatus('loading', 'Hledám titulky...');
-      const hasCaptions = await this.extractor.hasCaptions();
+      // Download captions via background worker
+      this._setStatus('loading', 'Stahuji titulky...');
+      const segments = await this.extractor.downloadCaptions();
 
-      if (!hasCaptions) {
-        this._setStatus('error', 'Titulky nejsou k dispozici pro toto video');
+      if (segments.length === 0) {
+        this._setStatus('error', 'Nepodařilo se stáhnout titulky');
         return false;
       }
 
-      // Open transcript panel and read segments
-      this._setStatus('loading', 'Otevírám přepis...');
-      const segments = await this.extractor.openAndReadTranscript();
-
-      if (segments.length === 0) {
-        // Fallback: try the old caption DOM approach
-        console.warn('[CzechDub] Transcript not available, falling back to caption DOM');
-        return this._startWithCaptionDOM();
-      }
-
-      console.log(`[CzechDub] Read ${segments.length} transcript segments`);
+      console.log(`[CzechDub] Downloaded ${segments.length} caption segments`);
 
       // Translate segments to Czech in batches
       this._setStatus('loading', 'Překládám do češtiny...');

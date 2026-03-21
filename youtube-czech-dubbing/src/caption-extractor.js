@@ -1,21 +1,16 @@
 /**
- * CaptionExtractor - Reads captions from YouTube's Transcript panel.
+ * CaptionExtractor - Downloads and manages captions for YouTube videos.
  *
- * Strategy: Instead of reading rollup captions from the video player DOM
- * (which causes duplication), we read the Transcript panel which has clean,
- * complete, timestamped segments. We then translate them and synchronize
- * playback with the video's currentTime.
- *
- * Transcript DOM structure:
- *   ytd-transcript-segment-renderer
- *     .segment-start-offset  → timestamp text like "40:11"
- *     .segment-text          → segment text
+ * Strategy: Get caption track URLs from YouTube player API (via page-script
+ * in MAIN world), then download the JSON3 caption data via background.js
+ * service worker (which bypasses uBlock Origin blocking). The result is
+ * clean, timestamped segments that can be translated and synced with video.
  */
 class CaptionExtractor {
   constructor() {
     this.currentVideoId = null;
     this.onCaption = null; // callback: (text) => void
-    this._segments = [];        // [{start: seconds, text: string, translated: string}]
+    this._segments = [];        // [{start: seconds, duration: seconds, text: string}]
     this._currentIndex = -1;    // index of last spoken segment
     this._syncInterval = null;  // polling interval for time sync
     this._videoElement = null;
@@ -30,148 +25,71 @@ class CaptionExtractor {
    * Check if captions are available for this video.
    */
   async hasCaptions() {
-    const tracks = await this._requestTracksFromPageScript();
+    const tracks = await this._getTrackList();
     return tracks && tracks.length > 0;
   }
 
   /**
-   * Open YouTube's Transcript panel and read all segments.
-   * Returns array of {start: seconds, text: string}.
+   * Download caption segments via background worker.
+   * Returns array of {start: seconds, duration: seconds, text: string}.
    */
-  async openAndReadTranscript() {
-    console.log('[CzechDub] Opening transcript panel...');
+  async downloadCaptions() {
+    console.log('[CzechDub] Downloading captions...');
 
-    // First check if transcript is already open
-    let segments = this._readTranscriptDOM();
-    if (segments.length > 0) {
-      console.log(`[CzechDub] Transcript already open, found ${segments.length} segments`);
-      return segments;
-    }
-
-    // Try to open transcript panel via page-script (MAIN world)
-    const opened = await this._requestOpenTranscript();
-    if (!opened) {
-      console.warn('[CzechDub] Could not open transcript panel');
+    // Get caption tracks from YouTube player API
+    const tracks = await this._getTrackList();
+    if (!tracks || tracks.length === 0) {
+      console.warn('[CzechDub] No caption tracks available');
       return [];
     }
 
-    // Wait for transcript segments to render (up to 10 seconds)
-    for (let i = 0; i < 30; i++) {
-      await this._sleep(350);
-      segments = this._readTranscriptDOM();
-      if (segments.length > 0) {
-        console.log(`[CzechDub] Transcript loaded: ${segments.length} segments`);
-        return segments;
-      }
-      if (i === 5) {
-        console.log('[CzechDub] Still waiting for transcript segments...');
-      }
+    console.log(`[CzechDub] Found ${tracks.length} caption tracks:`);
+    tracks.forEach((t, i) => {
+      console.log(`[CzechDub]   ${i}: ${t.languageCode} (${t.kind || 'manual'}) - ${t.name?.simpleText || t.vssId || ''}`);
+    });
+
+    // Pick the best track: prefer English manual > English ASR > any
+    const track =
+      tracks.find(t => t.languageCode === 'en' && t.kind !== 'asr') ||
+      tracks.find(t => t.languageCode === 'en') ||
+      tracks[0];
+
+    if (!track || !track.baseUrl) {
+      console.warn('[CzechDub] No usable caption track found');
+      return [];
     }
 
-    console.warn('[CzechDub] Transcript panel opened but no segments found');
-    return [];
-  }
+    console.log(`[CzechDub] Using track: ${track.languageCode} (${track.kind || 'manual'})`);
 
-  /**
-   * Read transcript segments from the DOM.
-   * Tries multiple selectors since YouTube's DOM varies.
-   */
-  _readTranscriptDOM() {
-    // Try multiple selectors for transcript segments
-    const selectorSets = [
-      // Modern YouTube transcript panel
-      { container: 'ytd-transcript-segment-renderer', timestamp: '.segment-timestamp', text: '.segment-text' },
-      // Alternative selectors
-      { container: 'ytd-transcript-segment-renderer', timestamp: '.segment-start-offset', text: '.segment-text' },
-      // Engagement panel transcript
-      { container: '[target-id="engagement-panel-searchable-transcript"] .segment', timestamp: '.segment-timestamp', text: '.segment-text' },
-    ];
-
-    // First, log what transcript-related elements exist for debugging
-    const transcriptPanel = document.querySelector('ytd-transcript-renderer, ytd-engagement-panel-section-list-renderer[target-id*="transcript"]');
-    if (transcriptPanel) {
-      console.log(`[CzechDub] Transcript panel found: ${transcriptPanel.tagName}, children: ${transcriptPanel.children.length}`);
-      // Log first few child tag names
-      const childTags = Array.from(transcriptPanel.querySelectorAll('*'))
-        .slice(0, 30)
-        .map(el => el.tagName.toLowerCase())
-        .filter((v, i, a) => a.indexOf(v) === i);
-      console.log(`[CzechDub] Transcript child elements: ${childTags.join(', ')}`);
+    // Add JSON3 format parameter to the URL
+    let url = track.baseUrl;
+    if (!url.includes('fmt=')) {
+      url += (url.includes('?') ? '&' : '?') + 'fmt=json3';
     }
 
-    for (const selectors of selectorSets) {
-      const renderers = document.querySelectorAll(selectors.container);
-      if (renderers.length === 0) continue;
-
-      console.log(`[CzechDub] Found ${renderers.length} transcript segments with selector: ${selectors.container}`);
-
-      // Log first renderer's innerHTML for debugging
-      if (renderers[0]) {
-        console.log(`[CzechDub] First segment HTML: ${renderers[0].innerHTML.substring(0, 300)}`);
-      }
-
-      const segments = [];
-      renderers.forEach(renderer => {
-        const timestampEl = renderer.querySelector(selectors.timestamp);
-        const textEl = renderer.querySelector(selectors.text);
-
-        if (!textEl) {
-          // Try getting text from the renderer itself (all text content minus timestamp)
-          const allText = renderer.textContent.trim();
-          if (allText.length < 2) return;
-
-          // Try to extract timestamp and text from raw content
-          const match = allText.match(/^(\d+:\d+(?::\d+)?)\s+(.+)/s);
-          if (match) {
-            segments.push({
-              start: this._parseTimestamp(match[1]),
-              text: match[2].trim(),
-              translated: null
-            });
-            return;
-          }
-          return;
-        }
-
-        const timestampText = timestampEl ? timestampEl.textContent.trim() : '0:00';
-        const text = textEl.textContent.trim();
-
-        if (!text || text.length < 1) return;
-
-        segments.push({
-          start: this._parseTimestamp(timestampText),
-          text: text,
-          translated: null
-        });
+    // Fetch via background worker (bypasses uBlock)
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'fetch-captions',
+        url: url
       });
 
-      if (segments.length > 0) {
+      if (response?.success && response.data) {
+        const segments = response.data;
+        console.log(`[CzechDub] Downloaded ${segments.length} caption segments`);
+        if (segments.length > 0) {
+          console.log(`[CzechDub] First: "${segments[0].text}" @ ${segments[0].start}s`);
+          console.log(`[CzechDub] Last: "${segments[segments.length - 1].text}" @ ${segments[segments.length - 1].start}s`);
+        }
         return segments;
+      } else {
+        console.warn('[CzechDub] Caption fetch failed:', response?.error);
       }
-    }
-
-    // Last resort: try to find ANY element that looks like a transcript segment
-    const allSegmentLike = document.querySelectorAll('[class*="segment"], [class*="transcript"]');
-    if (allSegmentLike.length > 0) {
-      console.log(`[CzechDub] Found ${allSegmentLike.length} segment-like elements`);
-      const sampleTags = Array.from(allSegmentLike).slice(0, 5).map(el => `${el.tagName}[${el.className}]`);
-      console.log(`[CzechDub] Sample: ${sampleTags.join(', ')}`);
+    } catch (e) {
+      console.error('[CzechDub] Caption fetch error:', e);
     }
 
     return [];
-  }
-
-  /**
-   * Parse timestamp like "40:11" or "1:02:30" to seconds.
-   */
-  _parseTimestamp(ts) {
-    const parts = ts.split(':').map(p => parseInt(p.trim(), 10));
-    if (parts.length === 3) {
-      return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    } else if (parts.length === 2) {
-      return parts[0] * 60 + parts[1];
-    }
-    return parseInt(ts, 10) || 0;
   }
 
   /**
@@ -227,7 +145,6 @@ class CaptionExtractor {
       if (segment) {
         const textToSpeak = segment.translated || segment.text;
         if (textToSpeak && textToSpeak.length >= 2) {
-          console.log(`[CzechDub] Segment ${targetIndex}: "${textToSpeak.substring(0, 80)}" @ ${segment.start}s`);
           this.onCaption(textToSpeak);
         }
       }
@@ -246,43 +163,25 @@ class CaptionExtractor {
   }
 
   /**
-   * Enable YouTube captions with Czech translation via player API.
-   * (Kept for compatibility, but we now prefer transcript-based approach)
+   * Legacy methods kept for fallback compatibility.
    */
   async enableCzechCaptions() {
-    console.log('[CzechDub] Enabling Czech captions via player API...');
-
     return new Promise((resolve) => {
       const requestId = 'czechdub_enable_' + Date.now();
-
       const handler = (event) => {
         if (event.source !== window) return;
         if (event.data?.type !== 'CZECH_DUB_ENABLE_RESULT') return;
         if (event.data?.requestId !== requestId) return;
-
         window.removeEventListener('message', handler);
         clearTimeout(timeout);
-
-        console.log(`[CzechDub] Enable captions result: ${event.data.success} - ${event.data.message}`);
         resolve(event.data.success);
       };
       window.addEventListener('message', handler);
-
-      window.postMessage({
-        type: 'CZECH_DUB_ENABLE_CAPTIONS',
-        requestId: requestId,
-        targetLang: 'cs'
-      }, '*');
-
-      const timeout = setTimeout(() => {
-        window.removeEventListener('message', handler);
-        console.warn('[CzechDub] Enable captions timed out');
-        resolve(false);
-      }, 5000);
+      window.postMessage({ type: 'CZECH_DUB_ENABLE_CAPTIONS', requestId, targetLang: 'cs' }, '*');
+      const timeout = setTimeout(() => { window.removeEventListener('message', handler); resolve(false); }, 5000);
     });
   }
 
-  // Legacy method kept for compatibility
   startObserving(callback) {
     this.onCaption = callback;
   }
@@ -302,39 +201,10 @@ class CaptionExtractor {
   }
 
   /**
-   * Request transcript panel to be opened via page-script (MAIN world).
+   * Get caption track list from page-script (MAIN world).
+   * Returns tracks with baseUrl for downloading.
    */
-  _requestOpenTranscript() {
-    return new Promise((resolve) => {
-      const requestId = 'czechdub_transcript_' + Date.now();
-
-      const handler = (event) => {
-        if (event.source !== window) return;
-        if (event.data?.type !== 'CZECH_DUB_TRANSCRIPT_RESULT') return;
-        if (event.data?.requestId !== requestId) return;
-
-        window.removeEventListener('message', handler);
-        clearTimeout(timeout);
-        resolve(event.data.success);
-      };
-      window.addEventListener('message', handler);
-
-      window.postMessage({
-        type: 'CZECH_DUB_OPEN_TRANSCRIPT',
-        requestId: requestId
-      }, '*');
-
-      const timeout = setTimeout(() => {
-        window.removeEventListener('message', handler);
-        resolve(false);
-      }, 5000);
-    });
-  }
-
-  /**
-   * Request caption track list from page-script.
-   */
-  _requestTracksFromPageScript() {
+  _getTrackList() {
     return new Promise((resolve) => {
       const requestId = 'czechdub_tracks_' + Date.now();
 
@@ -359,10 +229,6 @@ class CaptionExtractor {
         resolve([]);
       }, 3000);
     });
-  }
-
-  _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
