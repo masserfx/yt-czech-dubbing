@@ -103,19 +103,40 @@ class DubbingController {
   }
 
   /**
-   * Called when a segment should be spoken.
+   * Called when a caption line disappears from the DOM (complete line).
+   * Translates to Czech if needed, then queues for TTS.
    */
   async _onCaptionAppeared(text) {
     if (!this.isActive) return;
     if (this.videoElement?.paused) return;
     if (!text || text.trim().length < 3) return;
 
+    // Skip YouTube UI text
+    if (text === 'Angličtina' || text === 'Čeština' || text.length < 5) return;
+
+    // Check if text is already in Czech (contains Czech-specific chars)
+    const isCzech = /[ěščřžýáíéúůďťň]/i.test(text);
+
+    let czechText = text;
+    if (!isCzech) {
+      // Translate English to Czech via Google Translate
+      try {
+        const translated = await this.translator.translate(text, 'en');
+        if (translated && translated.length > 2) {
+          czechText = translated;
+          console.log(`[CzechDub] Translated: "${text.substring(0, 40)}" → "${czechText.substring(0, 40)}"`);
+        }
+      } catch (e) {
+        console.warn('[CzechDub] Translation failed, using original:', e.message);
+      }
+    }
+
     // Keep queue short — drop old items if backlogged
     while (this._speechQueue.length > 1) {
       this._speechQueue.shift();
     }
 
-    this._speechQueue.push(text);
+    this._speechQueue.push(czechText);
     this._processQueue();
   }
 
