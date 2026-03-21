@@ -31,6 +31,7 @@ class DubbingController {
     // Sentence buffer for DOM caption mode — accumulates lines until sentence boundary
     this._sentenceBuffer = '';
     this._sentenceFlushTimer = null;
+    this._translationQueue = Promise.resolve(); // ensures translations are queued in order
 
     this._settings = {
       ttsRate: 1.1,
@@ -189,8 +190,9 @@ class DubbingController {
 
   /**
    * Flush the sentence buffer — translate the accumulated text and queue for TTS.
+   * Uses a sequential promise chain to guarantee translation order.
    */
-  async _flushSentenceBuffer() {
+  _flushSentenceBuffer() {
     if (this._sentenceFlushTimer) {
       clearTimeout(this._sentenceFlushTimer);
       this._sentenceFlushTimer = null;
@@ -202,29 +204,33 @@ class DubbingController {
     if (!fullText || fullText.length < 3) return;
     if (!this.isActive) return;
 
-    // Check if text is already in Czech
-    const isCzech = /[ěščřžýáíéúůďťň]/i.test(fullText);
+    // Chain translation to ensure ordering
+    this._translationQueue = this._translationQueue.then(async () => {
+      if (!this.isActive) return;
 
-    let czechText = fullText;
-    if (!isCzech) {
-      try {
-        const translated = await this.translator.translate(fullText, 'en');
-        if (translated && translated.length > 2) {
-          czechText = translated;
-          console.log(`[CzechDub] Translated: "${fullText.substring(0, 80)}" → "${czechText.substring(0, 80)}"`);
+      const isCzech = /[ěščřžýáíéúůďťň]/i.test(fullText);
+
+      let czechText = fullText;
+      if (!isCzech) {
+        try {
+          const translated = await this.translator.translate(fullText, 'en');
+          if (translated && translated.length > 2) {
+            czechText = translated;
+            console.log(`[CzechDub] Translated: "${fullText.substring(0, 80)}" → "${czechText.substring(0, 80)}"`);
+          }
+        } catch (e) {
+          console.warn('[CzechDub] Translation failed, using original:', e.message);
         }
-      } catch (e) {
-        console.warn('[CzechDub] Translation failed, using original:', e.message);
       }
-    }
 
-    // Keep queue short — drop old items if backlogged
-    while (this._speechQueue.length > 1) {
-      this._speechQueue.shift();
-    }
+      // Keep queue short — drop old items if backlogged
+      while (this._speechQueue.length > 2) {
+        this._speechQueue.shift();
+      }
 
-    this._speechQueue.push(czechText);
-    this._processQueue();
+      this._speechQueue.push(czechText);
+      this._processQueue();
+    });
   }
 
   /**

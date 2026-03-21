@@ -380,14 +380,29 @@ async function fetchTranscriptInnertube(videoId) {
 async function fetchTranscriptViaNext(videoId) {
   console.log('[CzechDub:BG] Fetching transcript via /next → /get_transcript...');
 
+  const innertube = {
+    clientName: 'WEB',
+    clientVersion: '2.20250320.01.00'
+  };
+
   const nextResp = await fetch('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      'X-Youtube-Client-Name': '1',
+      'X-Youtube-Client-Version': innertube.clientVersion,
+      'Origin': 'https://www.youtube.com',
+      'Referer': 'https://www.youtube.com/'
     },
     body: JSON.stringify({
-      context: { client: { clientName: 'WEB', clientVersion: '2.20250320.01.00' } },
+      context: {
+        client: {
+          clientName: innertube.clientName,
+          clientVersion: innertube.clientVersion,
+          hl: 'en',
+          gl: 'US'
+        }
+      },
       videoId: videoId
     })
   });
@@ -420,9 +435,15 @@ async function fetchTranscriptViaNext(videoId) {
 
   const transcriptResp = await fetch('https://www.youtube.com/youtubei/v1/get_transcript?prettyPrint=false', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Youtube-Client-Name': '1',
+      'X-Youtube-Client-Version': innertube.clientVersion,
+      'Origin': 'https://www.youtube.com',
+      'Referer': 'https://www.youtube.com/'
+    },
     body: JSON.stringify({
-      context: { client: { clientName: 'WEB', clientVersion: '2.20250320.01.00' } },
+      context: { client: { clientName: innertube.clientName, clientVersion: innertube.clientVersion } },
       params: transcriptParams
     })
   });
