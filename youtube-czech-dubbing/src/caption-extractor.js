@@ -241,10 +241,58 @@ class CaptionExtractor {
    * Fetch the full transcript (all segments with timestamps) from the page-script.
    * Returns an array of {start, duration, text} or null on failure.
    */
-  fetchFullTranscript() {
+  async fetchFullTranscript() {
     const videoId = this.getVideoId();
-    if (!videoId) return Promise.resolve(null);
+    if (!videoId) return null;
 
+    // Step 1: Ask page-script for caption track info (baseUrl)
+    const trackInfo = await this._getTrackInfoFromPageScript(videoId);
+
+    if (!trackInfo) {
+      console.warn('[CzechDub] No track info from page-script');
+      return null;
+    }
+
+    if (trackInfo.fetchViaBackground && trackInfo.baseUrl) {
+      // Step 2: Fetch via background.js service worker (bypasses uBlock)
+      console.log(`[CzechDub] Fetching transcript via background.js: ${trackInfo.baseUrl.substring(0, 150)}`);
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'fetch-transcript',
+          url: trackInfo.baseUrl
+        });
+
+        if (response?.success && response.segments?.length > 0) {
+          console.log(`[CzechDub] Got ${response.segments.length} transcript segments via background`);
+          return {
+            segments: response.segments,
+            sourceLang: trackInfo.sourceLang || 'en'
+          };
+        } else {
+          console.warn('[CzechDub] Background fetch failed:', response?.error);
+          return null;
+        }
+      } catch (e) {
+        console.error('[CzechDub] Background fetch error:', e);
+        return null;
+      }
+    }
+
+    if (trackInfo.segments?.length > 0) {
+      return {
+        segments: trackInfo.segments,
+        sourceLang: trackInfo.sourceLang || 'en'
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Get track info from page-script via postMessage.
+   */
+  _getTrackInfoFromPageScript(videoId) {
     return new Promise((resolve) => {
       const requestId = 'czechdub_transcript_' + Date.now();
 
@@ -255,17 +303,7 @@ class CaptionExtractor {
 
         window.removeEventListener('message', handler);
         clearTimeout(timeout);
-
-        if (event.data.success && event.data.segments?.length > 0) {
-          console.log(`[CzechDub] Got ${event.data.segments.length} transcript segments (lang: ${event.data.sourceLang})`);
-          resolve({
-            segments: event.data.segments,
-            sourceLang: event.data.sourceLang || 'en'
-          });
-        } else {
-          console.warn('[CzechDub] Transcript fetch failed:', event.data.error);
-          resolve(null);
-        }
+        resolve(event.data);
       };
       window.addEventListener('message', handler);
 
@@ -277,9 +315,9 @@ class CaptionExtractor {
 
       const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
-        console.warn('[CzechDub] Transcript fetch timeout');
+        console.warn('[CzechDub] Track info timeout');
         resolve(null);
-      }, 15000);
+      }, 10000);
     });
   }
 

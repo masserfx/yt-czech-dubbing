@@ -367,13 +367,12 @@
    * This runs in MAIN world so we have access to ytInitialPlayerResponse and original fetch.
    */
   function handleFetchTranscript(requestId, videoId) {
-    console.log('[CzechDub:PageScript] Fetching full transcript for:', videoId);
+    console.log('[CzechDub:PageScript] Fetching transcript tracks for:', videoId);
 
-    // Strategy 1: Get captionTracks baseUrl from player response
+    // Get captionTracks from player response — just extract info, don't fetch
     var captionTracks = null;
 
     try {
-      // Try player API first
       var player = document.querySelector('#movie_player');
       if (player && typeof player.getPlayerResponse === 'function') {
         var resp = player.getPlayerResponse();
@@ -390,9 +389,6 @@
 
     if (captionTracks && captionTracks.length > 0) {
       console.log('[CzechDub:PageScript] Found ' + captionTracks.length + ' caption tracks');
-      captionTracks.forEach(function(t) {
-        console.log('[CzechDub:PageScript]   Track: ' + t.languageCode + ' (' + (t.name?.simpleText || t.kind || '') + ')');
-      });
 
       // Prefer English manual > English ASR > first track
       var track = captionTracks.find(function(t) { return t.languageCode === 'en' && t.kind !== 'asr'; })
@@ -400,54 +396,37 @@
         || captionTracks[0];
 
       var baseUrl = track.baseUrl;
-      // Request JSON3 format for easier parsing
+
+      // Ensure lang parameter is present
+      if (baseUrl.indexOf('&lang=') === -1) {
+        baseUrl += '&lang=' + track.languageCode;
+      }
+      // Ensure name parameter is present (needed for non-ASR tracks)
+      if (track.name && track.name.simpleText && baseUrl.indexOf('&name=') === -1) {
+        baseUrl += '&name=' + encodeURIComponent(track.name.simpleText);
+      }
+      // Request JSON3 format
       if (baseUrl.indexOf('fmt=') === -1) {
         baseUrl += '&fmt=json3';
       } else {
         baseUrl = baseUrl.replace(/fmt=[^&]+/, 'fmt=json3');
       }
 
-      console.log('[CzechDub:PageScript] Fetching transcript from baseUrl (json3):', baseUrl.substring(0, 200));
+      console.log('[CzechDub:PageScript] Track baseUrl:', baseUrl.substring(0, 250));
 
-      _originalFetch(baseUrl)
-        .then(function(resp) {
-          console.log('[CzechDub:PageScript] Transcript fetch status:', resp.status);
-          return resp.text();
-        })
-        .then(function(text) {
-          console.log('[CzechDub:PageScript] Transcript response length:', text.length);
-
-          if (!text || text.length < 20) {
-            // baseUrl fetch failed, try innertube approach
-            console.log('[CzechDub:PageScript] baseUrl returned empty, trying innertube...');
-            return fetchTranscriptViaInnertube(requestId, videoId);
-          }
-
-          try {
-            var data = JSON.parse(text);
-            var segments = parseJson3Transcript(data, track.languageCode);
-            console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' transcript segments');
-
-            window.postMessage({
-              type: 'CZECH_DUB_TRANSCRIPT_DATA',
-              requestId: requestId,
-              success: true,
-              segments: segments,
-              sourceLang: track.languageCode
-            }, '*');
-          } catch (parseErr) {
-            console.error('[CzechDub:PageScript] Failed to parse transcript JSON:', parseErr);
-            fetchTranscriptViaInnertube(requestId, videoId);
-          }
-        })
-        .catch(function(err) {
-          console.error('[CzechDub:PageScript] baseUrl fetch error:', err.message);
-          fetchTranscriptViaInnertube(requestId, videoId);
-        });
+      // Send tracks info back to content script — it will fetch via background.js
+      window.postMessage({
+        type: 'CZECH_DUB_TRANSCRIPT_DATA',
+        requestId: requestId,
+        success: false,
+        fetchViaBackground: true,
+        baseUrl: baseUrl,
+        sourceLang: track.languageCode,
+        videoId: videoId
+      }, '*');
     } else {
-      // No captionTracks — try innertube directly
-      console.log('[CzechDub:PageScript] No captionTracks found, trying innertube...');
-      fetchTranscriptViaInnertube(requestId, videoId);
+      console.log('[CzechDub:PageScript] No captionTracks found');
+      sendTranscriptError(requestId, 'No caption tracks available');
     }
   }
 
@@ -468,177 +447,6 @@
         };
       })
       .filter(function(seg) { return seg.text.length > 0 && seg.text !== '\n'; });
-  }
-
-  /**
-   * Fallback: Fetch transcript via innertube /get_transcript endpoint.
-   * Requires getting params from ytInitialData or /next endpoint.
-   */
-  function fetchTranscriptViaInnertube(requestId, videoId) {
-    console.log('[CzechDub:PageScript] Trying innertube /get_transcript...');
-
-    // Try to get transcript params from ytInitialData
-    var params = null;
-
-    try {
-      var panels = window.ytInitialData?.engagementPanels;
-      if (panels) {
-        for (var i = 0; i < panels.length; i++) {
-          var panel = panels[i];
-          var panelId = panel?.engagementPanelSectionListRenderer?.panelIdentifier;
-          if (panelId === 'engagement-panel-searchable-transcript') {
-            // Deep search for getTranscriptEndpoint.params
-            params = findDeepKey(panel, 'getTranscriptEndpoint')?.params;
-            if (params) break;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[CzechDub:PageScript] Failed to extract params from ytInitialData:', e);
-    }
-
-    if (!params) {
-      // Fallback: call /next to get params
-      console.log('[CzechDub:PageScript] No params in ytInitialData, calling /next...');
-
-      var clientVersion = '2.20250320.01.00';
-      try {
-        clientVersion = window.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION') || clientVersion;
-      } catch (e) {}
-
-      _originalFetch('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          context: { client: { clientName: 'WEB', clientVersion: clientVersion } },
-          videoId: videoId
-        })
-      })
-        .then(function(r) { return r.json(); })
-        .then(function(nextData) {
-          params = findDeepKey(nextData, 'getTranscriptEndpoint')?.params;
-          if (params) {
-            callGetTranscript(requestId, videoId, params, clientVersion);
-          } else {
-            console.warn('[CzechDub:PageScript] No getTranscriptEndpoint found in /next response');
-            sendTranscriptError(requestId, 'No transcript params found');
-          }
-        })
-        .catch(function(err) {
-          console.error('[CzechDub:PageScript] /next fetch error:', err);
-          sendTranscriptError(requestId, err.message);
-        });
-      return;
-    }
-
-    var clientVersion2 = '2.20250320.01.00';
-    try {
-      clientVersion2 = window.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION') || clientVersion2;
-    } catch (e) {}
-
-    callGetTranscript(requestId, videoId, params, clientVersion2);
-  }
-
-  /**
-   * Call /youtubei/v1/get_transcript with params.
-   */
-  function callGetTranscript(requestId, videoId, params, clientVersion) {
-    console.log('[CzechDub:PageScript] Calling /get_transcript with params...');
-
-    _originalFetch('https://www.youtube.com/youtubei/v1/get_transcript?prettyPrint=false', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        context: { client: { clientName: 'WEB', clientVersion: clientVersion } },
-        params: params
-      })
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        console.log('[CzechDub:PageScript] /get_transcript response keys:', Object.keys(data).join(', '));
-
-        var segments = parseInnertubeTranscript(data);
-        if (segments.length > 0) {
-          console.log('[CzechDub:PageScript] Got ' + segments.length + ' transcript segments via innertube');
-          window.postMessage({
-            type: 'CZECH_DUB_TRANSCRIPT_DATA',
-            requestId: requestId,
-            success: true,
-            segments: segments,
-            sourceLang: 'en'
-          }, '*');
-        } else {
-          sendTranscriptError(requestId, 'No segments in innertube response');
-        }
-      })
-      .catch(function(err) {
-        console.error('[CzechDub:PageScript] /get_transcript error:', err);
-        sendTranscriptError(requestId, err.message);
-      });
-  }
-
-  /**
-   * Parse innertube /get_transcript response.
-   */
-  function parseInnertubeTranscript(data) {
-    var segments = [];
-
-    try {
-      var body = data?.actions?.[0]?.updateEngagementPanelAction
-        ?.content?.transcriptRenderer?.body?.transcriptBodyRenderer;
-
-      if (!body) {
-        // Alternative structure
-        body = data?.actions?.[0]?.updateEngagementPanelAction
-          ?.content?.transcriptRenderer?.content?.transcriptSearchPanelRenderer
-          ?.body?.transcriptSegmentListRenderer;
-      }
-
-      var cueGroups = body?.cueGroups || [];
-
-      for (var i = 0; i < cueGroups.length; i++) {
-        var group = cueGroups[i];
-        var cues = group?.transcriptCueGroupRenderer?.cues || [];
-
-        for (var j = 0; j < cues.length; j++) {
-          var cue = cues[j]?.transcriptCueRenderer;
-          if (cue) {
-            var text = cue.cue?.simpleText || '';
-            var startMs = parseInt(cue.startOffsetMs || '0', 10);
-            var durMs = parseInt(cue.durationMs || '0', 10);
-
-            if (text.trim()) {
-              segments.push({
-                start: startMs / 1000,
-                duration: durMs / 1000,
-                text: text.trim()
-              });
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[CzechDub:PageScript] Parse innertube transcript error:', e);
-    }
-
-    return segments;
-  }
-
-  /**
-   * Deep search for a key in a nested object.
-   */
-  function findDeepKey(obj, key, maxDepth) {
-    if (maxDepth === undefined) maxDepth = 10;
-    if (!obj || typeof obj !== 'object' || maxDepth <= 0) return null;
-
-    if (obj[key] !== undefined) return obj;
-
-    var keys = Object.keys(obj);
-    for (var i = 0; i < keys.length; i++) {
-      var result = findDeepKey(obj[keys[i]], key, maxDepth - 1);
-      if (result) return result;
-    }
-    return null;
   }
 
   function sendTranscriptError(requestId, error) {

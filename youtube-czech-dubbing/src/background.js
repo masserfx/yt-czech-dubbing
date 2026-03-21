@@ -57,6 +57,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'fetch-transcript') {
+    fetchTranscriptJson3(msg.url)
+      .then(segments => sendResponse({ success: true, segments }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'translate-google') {
     translateGoogle(msg.text, msg.sourceLang)
       .then(result => sendResponse({ success: true, translated: result }))
@@ -256,6 +263,52 @@ async function translateLibre(text, sourceLang) {
     }
   }
   return null;
+}
+
+/**
+ * Fetch transcript in JSON3 format from YouTube timedtext API.
+ * Runs in service worker context — not affected by uBlock.
+ */
+async function fetchTranscriptJson3(url) {
+  console.log(`[CzechDub:BG] Fetching transcript: ${url.substring(0, 200)}`);
+
+  const resp = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'Referer': 'https://www.youtube.com/',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    }
+  });
+
+  console.log(`[CzechDub:BG] Transcript response: status=${resp.status}`);
+
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+  const text = await resp.text();
+  console.log(`[CzechDub:BG] Transcript body: ${text.length} chars, first 200: ${text.substring(0, 200)}`);
+
+  if (!text || text.length < 20) {
+    throw new Error('Empty transcript response');
+  }
+
+  const data = JSON.parse(text);
+
+  if (!data.events) {
+    console.warn('[CzechDub:BG] No events in transcript. Keys:', Object.keys(data).join(', '));
+    throw new Error('No events in transcript data');
+  }
+
+  const segments = data.events
+    .filter(event => event.segs && event.segs.length > 0)
+    .map(event => ({
+      start: (event.tStartMs || 0) / 1000,
+      duration: (event.dDurationMs || 0) / 1000,
+      text: event.segs.map(s => s.utf8 || '').join('').trim()
+    }))
+    .filter(seg => seg.text.length > 0 && seg.text !== '\n');
+
+  console.log(`[CzechDub:BG] Parsed ${segments.length} transcript segments`);
+  return segments;
 }
 
 /**
