@@ -50,9 +50,22 @@ class DubbingController {
       this.stop();
     }
 
+    this._isStarting = true;
     this._setStatus('loading', 'Načítání...');
 
     try {
+      // Verify extension context is still valid
+      try {
+        await chrome.runtime.sendMessage({ type: 'ping' });
+      } catch (e) {
+        if (e.message?.includes('Extension context invalidated')) {
+          this.translator._contextInvalidated = true;
+          this.translator._showReloadBanner();
+          this._setStatus('error', 'Rozšíření bylo aktualizováno — reload stránky');
+          return false;
+        }
+      }
+
       // Find video element
       this.videoElement = document.querySelector('video.html5-main-video') ||
                           document.querySelector('video');
@@ -64,6 +77,7 @@ class DubbingController {
 
       // Load settings
       await this._loadSettings();
+      await this.translator.loadSettings();
 
       // Wait for TTS voices
       await this.tts.waitForVoice();
@@ -106,11 +120,19 @@ class DubbingController {
           transcriptData.segments,
           transcriptData.sourceLang,
           (done, total) => {
+            if (!this._isStarting) return; // cancelled during translation
             this._setStatus('translating', `Překládám: ${done}/${total}`);
           }
         );
 
-        this._transcriptSegments = translated;
+        // Check if stopped during translation
+        if (!this._isStarting) {
+          this.isActive = false;
+          return false;
+        }
+
+        // Validate and optimize translations against time constraints
+        this._transcriptSegments = this._optimizeForTiming(translated);
         this._transcriptMode = true;
         this._lastSpokenIndex = -1;
 
@@ -272,9 +294,9 @@ class DubbingController {
     } catch (e) {
       console.warn('[CzechDub] TTS error:', e);
     } finally {
-      // Restore volume
-      if (this.isActive && this.videoElement) {
-        this.videoElement.volume = this.originalVolume;
+      // Always restore volume — even if stopped (isActive=false)
+      if (this.videoElement) {
+        this.videoElement.volume = this.originalVolume ?? 1.0;
       }
       this._isSpeaking = false;
 
@@ -283,6 +305,41 @@ class DubbingController {
         this._processQueue();
       }
     }
+  }
+
+  /**
+   * Optimize translated segments for TTS timing.
+   * Ensures translations fit within their time window.
+   * Splits overly long translations, trims trailing filler.
+   */
+  _optimizeForTiming(segments) {
+    const ttsRate = this._settings.ttsRate || 1.1;
+    // Czech TTS: ~150 words/min at rate 1.0, adjusted by rate
+    const wordsPerSec = (150 * ttsRate) / 60;
+
+    let optimized = 0;
+    for (const seg of segments) {
+      if (!seg.text || !seg.duration) continue;
+
+      const words = seg.text.split(/\s+/);
+      const estimatedDuration = words.length / wordsPerSec;
+      const availableTime = seg.duration * 1.3; // allow 30% overflow
+
+      if (estimatedDuration > availableTime && words.length > 3) {
+        // Trim to fit — keep proportional number of words
+        const maxWords = Math.max(3, Math.floor(words.length * (availableTime / estimatedDuration)));
+        seg.text = words.slice(0, maxWords).join(' ');
+        optimized++;
+      }
+
+      // Clean trailing incomplete phrases
+      seg.text = seg.text.replace(/\s+(a|i|nebo|že|který|která|které|pro|na|v|s|z|k|do)\s*$/i, '');
+    }
+
+    if (optimized > 0) {
+      console.log(`[CzechDub] Optimized ${optimized} segments for timing`);
+    }
+    return segments;
   }
 
   /**
@@ -300,31 +357,29 @@ class DubbingController {
       const currentTime = this.videoElement.currentTime;
       const nextIndex = this._findNextSegment(currentTime);
 
-      if (nextIndex !== -1 && nextIndex !== this._lastSpokenIndex) {
-        const segment = this._transcriptSegments[nextIndex];
-        // Only speak if we're within 0.5s of segment start
-        if (Math.abs(currentTime - segment.start) < 1.5) {
-          this._lastSpokenIndex = nextIndex;
-          this._speakSegment(segment);
-        }
+      if (nextIndex !== -1) {
+        this._lastSpokenIndex = nextIndex;
+        this._speakSegment(this._transcriptSegments[nextIndex]);
       }
     }, 200);
   }
 
   /**
    * Find the next transcript segment to speak based on current video time.
+   * Segments are now sentence-level groups with wider time ranges.
    */
   _findNextSegment(currentTime) {
     if (!this._transcriptSegments) return -1;
 
-    for (let i = 0; i < this._transcriptSegments.length; i++) {
+    for (let i = this._lastSpokenIndex + 1; i < this._transcriptSegments.length; i++) {
       const seg = this._transcriptSegments[i];
-      // Find first segment that starts at or after currentTime and hasn't been spoken
-      if (seg.start >= currentTime - 0.5 && seg.start <= currentTime + 1.5) {
-        if (i > this._lastSpokenIndex) {
-          return i;
-        }
+      const segEnd = seg.start + (seg.duration || 5);
+      // Speak if current time is within the segment's time range
+      if (currentTime >= seg.start - 0.5 && currentTime <= segEnd) {
+        return i;
       }
+      // Skip segments we've already passed
+      if (seg.start > currentTime + 2) break;
     }
     return -1;
   }
@@ -350,14 +405,15 @@ class DubbingController {
 
       this._showSubtitle(czechText);
 
-      console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s]: "${czechText.substring(0, 60)}"`);
+      console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s]: "${czechText.substring(0, 100)}" (orig: "${(segment.originalText || '').substring(0, 80)}")`);
       await this.tts.speak(czechText);
 
     } catch (e) {
       console.warn('[CzechDub] TTS error:', e);
     } finally {
-      if (this.isActive && this.videoElement) {
-        this.videoElement.volume = this.originalVolume;
+      // Always restore volume — even if stopped (isActive=false)
+      if (this.videoElement) {
+        this.videoElement.volume = this.originalVolume ?? 1.0;
       }
       this._isSpeaking = false;
     }
@@ -368,6 +424,7 @@ class DubbingController {
    */
   stop() {
     this.isActive = false;
+    this._isStarting = false;
     this.tts.stop();
     this.extractor.stopObserving();
 
@@ -392,7 +449,7 @@ class DubbingController {
 
     // Restore original volume
     if (this.videoElement) {
-      this.videoElement.volume = this.originalVolume;
+      this.videoElement.volume = this.originalVolume ?? 1.0;
       this.videoElement.removeEventListener('pause', this._onVideoPause);
       this.videoElement.removeEventListener('play', this._onVideoPlay);
       this.videoElement.removeEventListener('seeked', this._onVideoSeeked);
@@ -443,13 +500,20 @@ class DubbingController {
    */
   _onVideoPause = () => {
     if (this.isActive) {
-      this.tts.pause();
+      // Chrome's synth.pause() is unreliable — cancel speech instead
+      this.tts.stop();
+      this._isSpeaking = false;
+      // Restore volume while paused
+      if (this.videoElement) {
+        this.videoElement.volume = this.originalVolume;
+      }
     }
   };
 
   _onVideoPlay = () => {
     if (this.isActive) {
-      this.tts.resume();
+      // Speech was cancelled on pause — playback timer will pick up next segment
+      this._isSpeaking = false;
     }
   };
 
@@ -524,7 +588,15 @@ class DubbingController {
     }
     try {
       chrome.runtime.sendMessage({ type: 'status-update', status, message });
-    } catch (e) {}
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) {
+        this.stop();
+        // Show reload banner via translator (it has the method)
+        if (this.translator?._showReloadBanner) {
+          this.translator._showReloadBanner();
+        }
+      }
+    }
   }
 
   getStatus() {
