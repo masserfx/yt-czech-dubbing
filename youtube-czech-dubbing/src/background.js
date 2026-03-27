@@ -623,17 +623,11 @@ async function translateClaude(text, sourceLang, apiKey) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
+      system: 'Jsi překladač titulků z YouTube videí. Vrať POUZE přeložený text, nic jiného. Žádné komentáře, vysvětlení ani meta-text. Pokud je text již v češtině, vrať ho beze změny.',
       messages: [{
         role: 'user',
-        content: `Přelož následující text do přirozené, plynulé češtiny. Jde o přepis mluveného slova z YouTube videa.
+        content: `Přelož do plynulé mluvené češtiny. Zachovej oddělovač XSEP9F3A mezi částmi (musí být stejný počet částí před i po překladu). Vlastní jména (osoby, firmy, produkty) nech v originále.
 
-Pravidla:
-- Zachovej oddělovač ||| mezi větami (stejný počet částí)
-- Nepřekládej vlastní jména (osoby, firmy, produkty) — nech je v originále
-- Používej běžnou mluvenou češtinu, ne knižní
-- Nepřidávej nic navíc, jen překlad
-
-Text (${sourceLang}):
 ${text}`
       }]
     })
