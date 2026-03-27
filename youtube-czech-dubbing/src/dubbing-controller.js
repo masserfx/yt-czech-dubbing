@@ -95,6 +95,7 @@ class DubbingController {
       let transcriptData = await this.extractor.fetchFullTranscript();
 
       // Step 2: If no transcript yet, enable captions first (triggers player to load timedtext)
+      let alreadyCzech = false;
       if (!transcriptData) {
         this._setStatus('loading', 'Zapínám titulky...');
         const hasCaptions = await this.extractor.hasCaptions();
@@ -105,6 +106,12 @@ class DubbingController {
           await this._sleep(3000);
           // Try again — timedtext should now be captured
           transcriptData = await this.extractor.fetchFullTranscript();
+          // Captions were loaded via Czech translation — already in Czech
+          if (transcriptData) {
+            alreadyCzech = true;
+            transcriptData.sourceLang = 'cs';
+            console.log('[CzechDub] Using YouTube auto-translated Czech captions — skipping translation');
+          }
         }
       }
 
@@ -112,18 +119,32 @@ class DubbingController {
       this.originalVolume = this.videoElement.volume;
 
       if (transcriptData && transcriptData.segments.length > 0) {
-        // Transcript mode — translate all segments, then play synchronized
-        console.log(`[CzechDub] Got ${transcriptData.segments.length} transcript segments, translating...`);
-        this._setStatus('translating', `Překládám přepis (${transcriptData.segments.length} segmentů)...`);
+        let translated;
 
-        const translated = await this.translator.translateCaptions(
-          transcriptData.segments,
-          transcriptData.sourceLang,
-          (done, total) => {
-            if (!this._isStarting) return; // cancelled during translation
-            this._setStatus('translating', `Překládám: ${done}/${total}`);
-          }
-        );
+        if (alreadyCzech || transcriptData.sourceLang === 'cs') {
+          // Already in Czech (from YouTube auto-translate) — use directly, no re-translation
+          console.log(`[CzechDub] Got ${transcriptData.segments.length} Czech segments, skipping translation`);
+          this._setStatus('translating', 'Přepis již v češtině, přeskakuji překlad...');
+          translated = transcriptData.segments.map(seg => ({
+            start: seg.start,
+            duration: seg.duration,
+            originalText: seg.text,
+            text: seg.text
+          }));
+        } else {
+          // Translate from source language to Czech
+          console.log(`[CzechDub] Got ${transcriptData.segments.length} transcript segments, translating...`);
+          this._setStatus('translating', `Překládám přepis (${transcriptData.segments.length} segmentů)...`);
+
+          translated = await this.translator.translateCaptions(
+            transcriptData.segments,
+            transcriptData.sourceLang,
+            (done, total) => {
+              if (!this._isStarting) return; // cancelled during translation
+              this._setStatus('translating', `Překládám: ${done}/${total}`);
+            }
+          );
+        }
 
         // Check if stopped during translation
         if (!this._isStarting) {
