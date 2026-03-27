@@ -34,7 +34,7 @@ class DubbingController {
     this._translationQueue = Promise.resolve(); // ensures translations are queued in order
 
     this._settings = {
-      ttsRate: 1.1,
+      ttsRate: 1.25,
       ttsVolume: 0.95,
       ttsPitch: 1.0,
       reducedOriginalVolume: 0.15,
@@ -368,31 +368,41 @@ class DubbingController {
    * Splits overly long translations, trims trailing filler.
    */
   _optimizeForTiming(segments) {
-    const ttsRate = this._settings.ttsRate || 1.1;
-    // Czech TTS: ~150 words/min at rate 1.0, adjusted by rate
-    const wordsPerSec = (150 * ttsRate) / 60;
+    const baseRate = this._settings.ttsRate || 1.1;
+    // Czech TTS: ~140 words/min at rate 1.0 (Czech words are longer than English)
+    const baseWordsPerSec = 140 / 60;
 
-    let optimized = 0;
+    let speedAdjusted = 0;
+    let trimmed = 0;
     for (const seg of segments) {
       if (!seg.text || !seg.duration) continue;
 
       const words = seg.text.split(/\s+/);
-      const estimatedDuration = words.length / wordsPerSec;
-      const availableTime = seg.duration * 1.3; // allow 30% overflow
+      const estimatedDuration = words.length / (baseWordsPerSec * baseRate);
+      const availableTime = seg.duration * 1.2; // allow 20% overflow
 
-      if (estimatedDuration > availableTime && words.length > 3) {
-        // Trim to fit — keep proportional number of words
-        const maxWords = Math.max(3, Math.floor(words.length * (availableTime / estimatedDuration)));
-        seg.text = words.slice(0, maxWords).join(' ');
-        optimized++;
+      if (estimatedDuration > availableTime) {
+        // Calculate required rate to fit text into available time
+        const requiredRate = (words.length / baseWordsPerSec) / availableTime;
+        // Cap at 1.8x to keep speech intelligible
+        seg._ttsRate = Math.min(1.8, requiredRate);
+        speedAdjusted++;
+
+        // Only trim if even at max rate it won't fit
+        const maxRateDuration = words.length / (baseWordsPerSec * 1.8);
+        if (maxRateDuration > availableTime && words.length > 5) {
+          const maxWords = Math.max(5, Math.floor(words.length * (availableTime / maxRateDuration)));
+          seg.text = words.slice(0, maxWords).join(' ');
+          trimmed++;
+        }
       }
 
       // Clean trailing incomplete phrases
       seg.text = seg.text.replace(/\s+(a|i|nebo|že|který|která|které|pro|na|v|s|z|k|do)\s*$/i, '');
     }
 
-    if (optimized > 0) {
-      console.log(`[CzechDub] Optimized ${optimized} segments for timing`);
+    if (speedAdjusted > 0 || trimmed > 0) {
+      console.log(`[CzechDub] Optimized timing: ${speedAdjusted} segments speed-adjusted, ${trimmed} trimmed`);
     }
     return segments;
   }
@@ -460,8 +470,19 @@ class DubbingController {
 
       this._showSubtitle(czechText);
 
-      console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s]: "${czechText.substring(0, 100)}" (orig: "${(segment.originalText || '').substring(0, 80)}")`);
+      // Use per-segment rate if timing optimization calculated one, otherwise default
+      const segRate = segment._ttsRate || this._settings.ttsRate || 1.1;
+      if (segment._ttsRate) {
+        this.tts.setRate(segRate);
+      }
+
+      console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s @${segRate.toFixed(1)}x]: "${czechText.substring(0, 100)}" (orig: "${(segment.originalText || '').substring(0, 80)}")`);
       await this.tts.speak(czechText);
+
+      // Restore default rate if we changed it
+      if (segment._ttsRate) {
+        this.tts.setRate(this._settings.ttsRate || 1.1);
+      }
 
     } catch (e) {
       console.warn('[CzechDub] TTS error:', e);

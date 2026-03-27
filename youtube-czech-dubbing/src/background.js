@@ -12,7 +12,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     // Set default settings
     chrome.storage.local.set({
       czechDubSettings: {
-        ttsRate: 1.1,
+        ttsRate: 1.25,
         ttsVolume: 0.95,
         ttsPitch: 1.0,
         reducedOriginalVolume: 0.15,
