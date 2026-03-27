@@ -89,12 +89,23 @@ function updateSetting(setting, value) {
       settings.ttsPitch = parseInt(value) / 100;
       document.getElementById('pitchValue').textContent = (parseInt(value) / 100).toFixed(1);
       break;
+    case 'ttsMaxRate':
+      settings.ttsMaxRate = parseInt(value) / 100;
+      document.getElementById('maxRateValue').textContent = `${(parseInt(value) / 100).toFixed(1)}x`;
+      break;
     case 'originalVolume':
       settings.reducedOriginalVolume = parseInt(value) / 100;
       document.getElementById('origVolValue').textContent = `${value}%`;
       break;
     case 'muteOriginal':
       settings.muteOriginal = value;
+      break;
+    case 'translatorEngine':
+      settings.translatorEngine = value;
+      document.getElementById('apiKeyGroup').style.display = value === 'claude' ? 'block' : 'none';
+      break;
+    case 'anthropicApiKey':
+      settings.anthropicApiKey = value;
       break;
   }
 
@@ -187,9 +198,12 @@ function saveSettings() {
   const settings = {
     ttsVolume: document.getElementById('ttsVolume').value,
     ttsRate: document.getElementById('ttsRate').value,
+    ttsMaxRate: document.getElementById('ttsMaxRate').value,
     ttsPitch: document.getElementById('ttsPitch').value,
     originalVolume: document.getElementById('originalVolume').value,
-    muteOriginal: document.getElementById('muteOriginal').checked
+    muteOriginal: document.getElementById('muteOriginal').checked,
+    translatorEngine: document.getElementById('translatorEngine').value,
+    anthropicApiKey: document.getElementById('anthropicApiKey').value
   };
   chrome.storage.local.set({ popupSettings: settings });
 }
@@ -210,6 +224,10 @@ async function loadSettings() {
         document.getElementById('ttsRate').value = s.ttsRate;
         document.getElementById('rateValue').textContent = `${(parseInt(s.ttsRate) / 100).toFixed(1)}x`;
       }
+      if (s.ttsMaxRate) {
+        document.getElementById('ttsMaxRate').value = s.ttsMaxRate;
+        document.getElementById('maxRateValue').textContent = `${(parseInt(s.ttsMaxRate) / 100).toFixed(1)}x`;
+      }
       if (s.ttsPitch) {
         document.getElementById('ttsPitch').value = s.ttsPitch;
         document.getElementById('pitchValue').textContent = (parseInt(s.ttsPitch) / 100).toFixed(1);
@@ -220,6 +238,13 @@ async function loadSettings() {
       }
       if (s.muteOriginal !== undefined) {
         document.getElementById('muteOriginal').checked = s.muteOriginal;
+      }
+      if (s.translatorEngine) {
+        document.getElementById('translatorEngine').value = s.translatorEngine;
+        document.getElementById('apiKeyGroup').style.display = s.translatorEngine === 'claude' ? 'block' : 'none';
+      }
+      if (s.anthropicApiKey) {
+        document.getElementById('anthropicApiKey').value = s.anthropicApiKey;
       }
     }
   } catch (e) {

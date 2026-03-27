@@ -35,6 +35,7 @@ class DubbingController {
 
     this._settings = {
       ttsRate: 1.25,
+      ttsMaxRate: 1.8,
       ttsVolume: 0.95,
       ttsPitch: 1.0,
       reducedOriginalVolume: 0.15,
@@ -368,7 +369,8 @@ class DubbingController {
    * Splits overly long translations, trims trailing filler.
    */
   _optimizeForTiming(segments) {
-    const baseRate = this._settings.ttsRate || 1.1;
+    const baseRate = this._settings.ttsRate || 1.25;
+    const maxRate = this._settings.ttsMaxRate || 1.8;
     // Czech TTS: ~140 words/min at rate 1.0 (Czech words are longer than English)
     const baseWordsPerSec = 140 / 60;
 
@@ -384,12 +386,12 @@ class DubbingController {
       if (estimatedDuration > availableTime) {
         // Calculate required rate to fit text into available time
         const requiredRate = (words.length / baseWordsPerSec) / availableTime;
-        // Cap at 1.8x to keep speech intelligible
-        seg._ttsRate = Math.min(1.8, requiredRate);
+        // Cap at user-configured max rate to keep speech intelligible
+        seg._ttsRate = Math.min(maxRate, requiredRate);
         speedAdjusted++;
 
         // Only trim if even at max rate it won't fit
-        const maxRateDuration = words.length / (baseWordsPerSec * 1.8);
+        const maxRateDuration = words.length / (baseWordsPerSec * maxRate);
         if (maxRateDuration > availableTime && words.length > 5) {
           const maxWords = Math.max(5, Math.floor(words.length * (availableTime / maxRateDuration)));
           seg.text = words.slice(0, maxWords).join(' ');

@@ -10,7 +10,8 @@
       font-family: 'Segoe UI', Roboto, Arial, sans-serif;
       background: #1a1a2e;
       color: #e0e0e0;
-      overflow: hidden;
+      overflow-y: auto;
+      max-height: 600px;
     }
 
     .header {
@@ -215,9 +216,19 @@
     <div class="setting-group">
       <div class="setting-label">
         <span>Rychlost řeči</span>
-        <span class="setting-value" id="rateValue">1.1x</span>
+        <span class="setting-value" id="rateValue">1.3x</span>
       </div>
-      <input type="range" id="ttsRate" min="50" max="200" value="110" oninput="updateSetting('ttsRate', this.value)">
+      <input type="range" id="ttsRate" min="50" max="200" value="125" oninput="updateSetting('ttsRate', this.value)">
+      <div style="font-size:10px;color:#555;margin-top:2px;">Automaticky zrychlí až na max, pokud nestíhá</div>
+    </div>
+
+    <div class="setting-group">
+      <div class="setting-label">
+        <span>Max rychlost (auto-sync)</span>
+        <span class="setting-value" id="maxRateValue">1.8x</span>
+      </div>
+      <input type="range" id="ttsMaxRate" min="120" max="250" value="180" oninput="updateSetting('ttsMaxRate', this.value)">
+      <div style="font-size:10px;color:#555;margin-top:2px;">Limit auto-zrychlení pro delší věty</div>
     </div>
 
     <div class="setting-group">
@@ -246,6 +257,22 @@
     <div class="checkbox-group">
       <input type="checkbox" id="muteOriginal" onchange="updateSetting('muteOriginal', this.checked)">
       <label for="muteOriginal">Úplně ztlumit originální zvuk</label>
+    </div>
+
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+      <div class="setting-label"><span>Překladač</span></div>
+      <select id="translatorEngine" onchange="updateSetting('translatorEngine', this.value)">
+        <option value="google">Google Translate (zdarma)</option>
+        <option value="claude">Claude Haiku 4.5 (API klíč)</option>
+      </select>
+    </div>
+
+    <div class="setting-group" id="apiKeyGroup" style="display: none;">
+      <div class="setting-label"><span>Anthropic API klíč</span></div>
+      <input type="password" id="anthropicApiKey" placeholder="sk-ant-..."
+        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;"
+        onchange="updateSetting('anthropicApiKey', this.value)">
+      <div style="font-size:10px;color:#666;margin-top:4px;">~$0.003 za 30min video. Klíč z console.anthropic.com</div>
     </div>
   </div>
 
