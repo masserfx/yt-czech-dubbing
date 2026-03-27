@@ -63,6 +63,12 @@
     return _originalFetch.apply(window, arguments);
   };
 
+  // Reset captured timedtext on SPA navigation to prevent stale data from previous video
+  document.addEventListener('yt-navigate-finish', function() {
+    _capturedTimedtext = {};
+    console.log('[CzechDub:PageScript] Cleared captured timedtext on navigation');
+  });
+
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
 
