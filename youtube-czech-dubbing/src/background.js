@@ -91,6 +91,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'get-usage') {
+    getUsageStats()
+      .then(stats => sendResponse({ success: true, stats }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'reset-usage') {
+    chrome.storage.local.remove('claudeUsage')
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   return false;
 });
 
@@ -643,5 +657,77 @@ ${text}`
   const translated = data.content?.[0]?.text?.trim();
   if (!translated) throw new Error('Empty response from Claude');
 
+  // Track usage
+  const inputTokens = data.usage?.input_tokens || 0;
+  const outputTokens = data.usage?.output_tokens || 0;
+  trackClaudeUsage(inputTokens, outputTokens);
+
   return translated;
+}
+
+// --- Usage tracking ---
+
+const HAIKU_INPUT_PRICE = 0.80;   // $ per 1M input tokens
+const HAIKU_OUTPUT_PRICE = 4.00;  // $ per 1M output tokens
+
+function calcCost(inputTokens, outputTokens) {
+  return (inputTokens * HAIKU_INPUT_PRICE + outputTokens * HAIKU_OUTPUT_PRICE) / 1_000_000;
+}
+
+async function trackClaudeUsage(inputTokens, outputTokens) {
+  const now = Date.now();
+  const cost = calcCost(inputTokens, outputTokens);
+
+  const result = await chrome.storage.local.get('claudeUsage');
+  const usage = result.claudeUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+
+  usage.requests.push({ ts: now, input: inputTokens, output: outputTokens, cost });
+  usage.totalInput += inputTokens;
+  usage.totalOutput += outputTokens;
+  usage.totalCost += cost;
+
+  // Keep only last 90 days of individual requests (for daily/weekly/monthly stats)
+  const cutoff = now - 90 * 24 * 60 * 60 * 1000;
+  usage.requests = usage.requests.filter(r => r.ts > cutoff);
+
+  await chrome.storage.local.set({ claudeUsage: usage });
+}
+
+async function getUsageStats() {
+  const result = await chrome.storage.local.get('claudeUsage');
+  const usage = result.claudeUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+
+  const periods = {
+    today: now - DAY,
+    week: now - 7 * DAY,
+    month: now - 30 * DAY,
+    year: now - 365 * DAY
+  };
+
+  const stats = { total: { input: usage.totalInput, output: usage.totalOutput, cost: usage.totalCost, requests: usage.requests.length } };
+
+  for (const [name, since] of Object.entries(periods)) {
+    const filtered = usage.requests.filter(r => r.ts > since);
+    stats[name] = {
+      input: filtered.reduce((s, r) => s + r.input, 0),
+      output: filtered.reduce((s, r) => s + r.output, 0),
+      cost: filtered.reduce((s, r) => s + r.cost, 0),
+      requests: filtered.length
+    };
+  }
+
+  // Current video (last batch of requests within 60s)
+  const recentCutoff = now - 60000;
+  const recent = usage.requests.filter(r => r.ts > recentCutoff);
+  stats.currentVideo = {
+    input: recent.reduce((s, r) => s + r.input, 0),
+    output: recent.reduce((s, r) => s + r.output, 0),
+    cost: recent.reduce((s, r) => s + r.cost, 0),
+    requests: recent.length
+  };
+
+  return stats;
 }

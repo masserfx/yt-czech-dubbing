@@ -38,6 +38,9 @@ async function init() {
 
   // Load saved settings
   loadSettings();
+
+  // Load usage stats
+  loadUsageStats();
 }
 
 /**
@@ -103,6 +106,7 @@ function updateSetting(setting, value) {
     case 'translatorEngine':
       settings.translatorEngine = value;
       document.getElementById('apiKeyGroup').style.display = value === 'claude' ? 'block' : 'none';
+      loadUsageStats();
       break;
     case 'anthropicApiKey':
       settings.anthropicApiKey = value;
@@ -260,6 +264,60 @@ chrome.runtime.onMessage.addListener((msg) => {
     updateStatus(msg.status, msg.message);
   }
 });
+
+// --- Usage stats ---
+
+function formatTokens(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return String(n);
+}
+
+function formatCost(usd) {
+  if (usd < 0.001) return '—';
+  if (usd < 0.01) return '$' + usd.toFixed(4);
+  if (usd < 1) return '$' + usd.toFixed(3);
+  return '$' + usd.toFixed(2);
+}
+
+async function loadUsageStats() {
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'get-usage' });
+    if (!resp?.success) return;
+    const s = resp.stats;
+
+    const rows = [
+      ['Video', s.currentVideo],
+      ['Day', s.today],
+      ['Week', s.week],
+      ['Month', s.month],
+      ['Year', s.year],
+      ['Total', s.total]
+    ];
+
+    for (const [key, data] of rows) {
+      const tokens = data.input + data.output;
+      document.getElementById('usage' + key).textContent = tokens > 0 ? formatTokens(tokens) : '—';
+      document.getElementById('cost' + key).textContent = data.cost > 0 ? formatCost(data.cost) : '—';
+    }
+
+    // Show section only if Claude is selected or there's usage data
+    const engine = document.getElementById('translatorEngine').value;
+    document.getElementById('usageSection').style.display =
+      (engine === 'claude' || s.total.requests > 0) ? 'block' : 'none';
+  } catch (e) {
+    // Background not available
+  }
+}
+
+async function resetUsage() {
+  if (!confirm('Smazat historii spotřeby tokenů?')) return;
+  await chrome.runtime.sendMessage({ type: 'reset-usage' });
+  loadUsageStats();
+}
+
+// Make resetUsage available to onclick
+window.resetUsage = resetUsage;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', init);

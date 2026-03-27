@@ -276,6 +276,35 @@
     </div>
   </div>
 
+  <div class="settings" id="usageSection" style="display:none;">
+    <div style="border-top: 1px solid #0f3460; padding-top: 12px; margin-top: 4px;">
+      <div class="setting-label" style="margin-bottom: 8px;">
+        <span style="font-size:13px; color:#e0e0e0; font-weight:500;">Claude API — Spotřeba</span>
+        <span class="setting-value" style="font-size:10px; cursor:pointer; color:#e74c3c;" onclick="resetUsage()" title="Smazat historii">Reset</span>
+      </div>
+      <table style="width:100%; font-size:11px; border-collapse:collapse; color:#ccc;">
+        <thead>
+          <tr style="color:#888; text-align:left;">
+            <th style="padding:3px 4px;">Období</th>
+            <th style="padding:3px 4px; text-align:right;">Tokeny</th>
+            <th style="padding:3px 4px; text-align:right;">Cena</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:2px 4px;">Aktuální video</td><td style="padding:2px 4px; text-align:right;" id="usageVideo">—</td><td style="padding:2px 4px; text-align:right;" id="costVideo">—</td></tr>
+          <tr><td style="padding:2px 4px;">Dnes</td><td style="padding:2px 4px; text-align:right;" id="usageDay">—</td><td style="padding:2px 4px; text-align:right;" id="costDay">—</td></tr>
+          <tr><td style="padding:2px 4px;">Týden</td><td style="padding:2px 4px; text-align:right;" id="usageWeek">—</td><td style="padding:2px 4px; text-align:right;" id="costWeek">—</td></tr>
+          <tr><td style="padding:2px 4px;">Měsíc</td><td style="padding:2px 4px; text-align:right;" id="usageMonth">—</td><td style="padding:2px 4px; text-align:right;" id="costMonth">—</td></tr>
+          <tr><td style="padding:2px 4px;">Rok</td><td style="padding:2px 4px; text-align:right;" id="usageYear">—</td><td style="padding:2px 4px; text-align:right;" id="costYear">—</td></tr>
+          <tr style="border-top:1px solid #0f3460; font-weight:600; color:#e0e0e0;">
+            <td style="padding:4px 4px;">Celkem</td><td style="padding:4px 4px; text-align:right;" id="usageTotal">—</td><td style="padding:4px 4px; text-align:right;" id="costTotal">—</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="font-size:10px; color:#555; margin-top:6px;">Haiku 4.5: $0.80/1M input, $4.00/1M output</div>
+    </div>
+  </div>
+
   <div class="footer">
     YouTube Czech Dubbing v1.0 | Zdarma & Open Source
   </div>
