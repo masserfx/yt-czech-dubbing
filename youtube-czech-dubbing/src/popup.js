@@ -36,8 +36,8 @@ async function init() {
   // Load voices
   loadVoices();
 
-  // Load saved settings
-  loadSettings();
+  // Load saved settings (must be before loadUsageStats so engine is set)
+  await loadSettings();
 
   // Load usage stats
   loadUsageStats();

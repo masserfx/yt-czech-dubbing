@@ -274,10 +274,8 @@
         onchange="updateSetting('anthropicApiKey', this.value)">
       <div style="font-size:10px;color:#666;margin-top:4px;">~$0.003 za 30min video. Klíč z console.anthropic.com</div>
     </div>
-  </div>
-
-  <div class="settings" id="usageSection" style="display:none;">
-    <div style="border-top: 1px solid #0f3460; padding-top: 12px; margin-top: 4px;">
+  <div class="setting-group" id="usageSection" style="display:none; border-top: 1px solid #0f3460; padding-top: 12px; margin-top: 12px;">
+    <div>
       <div class="setting-label" style="margin-bottom: 8px;">
         <span style="font-size:13px; color:#e0e0e0; font-weight:500;">Claude API — Spotřeba</span>
         <span class="setting-value" style="font-size:10px; cursor:pointer; color:#e74c3c;" onclick="resetUsage()" title="Smazat historii">Reset</span>
@@ -303,6 +301,7 @@
       </table>
       <div style="font-size:10px; color:#555; margin-top:6px;">Haiku 4.5: $0.80/1M input, $4.00/1M output</div>
     </div>
+  </div>
   </div>
 
   <div class="footer">
