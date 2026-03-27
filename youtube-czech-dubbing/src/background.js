@@ -105,21 +105,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // --- Proxy functions for external API calls ---
 
 /**
- * Get YouTube cookies as a Cookie header string.
- */
-async function getYouTubeCookies() {
-  try {
-    const cookies = await chrome.cookies.getAll({ domain: '.youtube.com' });
-    return cookies.map(c => `${c.name}=${c.value}`).join('; ');
-  } catch (e) {
-    console.warn('[CzechDub:BG] Failed to get YouTube cookies:', e);
-    return '';
-  }
-}
-
-/**
  * Download and parse captions from a YouTube caption track URL.
- * Uses YouTube cookies for authentication.
  * Retries on 429 with exponential backoff.
  */
 async function fetchCaptions(url) {

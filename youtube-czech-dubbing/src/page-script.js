@@ -81,7 +81,7 @@
         type: 'CZECH_DUB_PLAYER_TIME',
         requestId: event.data.requestId,
         time: time
-      }, '*');
+      }, 'https://www.youtube.com');
     }
 
     if (event.data?.type === 'CZECH_DUB_OPEN_TRANSCRIPT') {
@@ -144,7 +144,7 @@
         requestId: requestId,
         success: false,
         error: 'No caption tracks'
-      }, '*');
+      }, 'https://www.youtube.com');
       return;
     }
 
@@ -162,7 +162,7 @@
         requestId: requestId,
         success: false,
         error: 'No track baseUrl'
-      }, '*');
+      }, 'https://www.youtube.com');
       return;
     }
 
@@ -234,7 +234,7 @@
         requestId: requestId,
         success: segments.length > 0,
         segments: segments
-      }, '*');
+      }, 'https://www.youtube.com');
     } catch (err) {
       _sendTranscriptFailure(requestId, err.message);
     }
@@ -247,7 +247,7 @@
       requestId: requestId,
       success: false,
       error: error
-    }, '*');
+    }, 'https://www.youtube.com');
   }
 
   /**
@@ -413,7 +413,7 @@
       type: 'CZECH_DUB_CAPTION_TRACKS',
       requestId: requestId,
       tracks: tracks || []
-    }, '*');
+    }, 'https://www.youtube.com');
   }
 
   /**
@@ -504,7 +504,7 @@
       requestId: requestId,
       success: success,
       message: message
-    }, '*');
+    }, 'https://www.youtube.com');
   }
 
   /**
@@ -523,7 +523,7 @@
           type: 'CZECH_DUB_TRANSCRIPT_RESULT',
           requestId: requestId,
           success: true
-        }, '*');
+        }, 'https://www.youtube.com');
         return;
       }
 
@@ -564,7 +564,7 @@
                   type: 'CZECH_DUB_TRANSCRIPT_RESULT',
                   requestId: requestId,
                   success: true
-                }, '*');
+                }, 'https://www.youtube.com');
                 return;
               }
             }
@@ -576,7 +576,7 @@
               type: 'CZECH_DUB_TRANSCRIPT_RESULT',
               requestId: requestId,
               success: false
-            }, '*');
+            }, 'https://www.youtube.com');
           }, 800);
           return;
         }
@@ -589,14 +589,14 @@
           type: 'CZECH_DUB_TRANSCRIPT_RESULT',
           requestId: requestId,
           success: true
-        }, '*');
+        }, 'https://www.youtube.com');
       } else {
         console.warn('[CzechDub:PageScript] No transcript button found');
         window.postMessage({
           type: 'CZECH_DUB_TRANSCRIPT_RESULT',
           requestId: requestId,
           success: false
-        }, '*');
+        }, 'https://www.youtube.com');
       }
     } catch (e) {
       console.error('[CzechDub:PageScript] Open transcript error:', e);
@@ -604,7 +604,7 @@
         type: 'CZECH_DUB_TRANSCRIPT_RESULT',
         requestId: requestId,
         success: false
-      }, '*');
+      }, 'https://www.youtube.com');
     }
   }
 
@@ -649,7 +649,7 @@
             requestId: requestId,
             success: false,
             error: 'Empty response'
-          }, '*');
+          }, 'https://www.youtube.com');
           return;
         }
 
@@ -659,7 +659,7 @@
           success: true,
           data: text,
           format: text.trim().startsWith('{') ? 'json3' : 'xml'
-        }, '*');
+        }, 'https://www.youtube.com');
       })
       .catch(function(err) {
         console.error('[CzechDub:PageScript] Caption fetch error:', err.message);
@@ -668,7 +668,7 @@
           requestId: requestId,
           success: false,
           error: err.message
-        }, '*');
+        }, 'https://www.youtube.com');
       });
   }
 

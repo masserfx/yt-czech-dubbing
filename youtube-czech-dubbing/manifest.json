@@ -5,8 +5,7 @@
   "description": "Automatický český dabing pro YouTube videa - překlad a hlasový výstup v reálném čase",
   "permissions": [
     "activeTab",
-    "storage",
-    "cookies"
+    "storage"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
@@ -15,7 +14,8 @@
     "https://libretranslate.de/*",
     "https://translate.argosopentech.com/*",
     "https://translate.terraprint.co/*",
-    "https://translate.googleapis.com/*"
+    "https://translate.googleapis.com/*",
+    "https://api.anthropic.com/*"
   ],
   "background": {
     "service_worker": "src/background.js"

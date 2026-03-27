@@ -61,7 +61,7 @@ class CaptionExtractor {
         type: 'CZECH_DUB_ENABLE_CAPTIONS',
         requestId: requestId,
         targetLang: 'cs'
-      }, '*');
+      }, 'https://www.youtube.com');
 
       const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
@@ -312,7 +312,7 @@ class CaptionExtractor {
       window.postMessage({
         type: 'CZECH_DUB_GET_TRANSCRIPT_PARAMS',
         requestId: requestId
-      }, '*');
+      }, 'https://www.youtube.com');
 
       const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
@@ -342,7 +342,7 @@ class CaptionExtractor {
       window.postMessage({
         type: 'CZECH_DUB_REQUEST_TRACKS',
         requestId: requestId
-      }, '*');
+      }, 'https://www.youtube.com');
 
       const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
