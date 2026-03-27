@@ -24,6 +24,11 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'ping') {
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.type === 'status-update') {
     // Forward status updates to popup (if open)
     return false;
@@ -73,6 +78,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'translate-google') {
     translateGoogle(msg.text, msg.sourceLang)
+      .then(result => sendResponse({ success: true, translated: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'translate-claude') {
+    translateClaude(msg.text, msg.sourceLang, msg.apiKey)
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -588,12 +600,67 @@ function findDeepArray(obj, key, maxDepth = 12) {
  * Google Translate unofficial endpoint
  */
 async function translateGoogle(text, sourceLang) {
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=cs&dt=t&q=${encodeURIComponent(text)}`;
-  const resp = await fetch(url);
-  const data = await resp.json();
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=cs&dt=t&q=${encodeURIComponent(text)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.warn('[translateGoogle] HTTP error:', resp.status);
+      return null;
+    }
+    const data = await resp.json();
 
-  if (data && data[0]) {
-    return data[0].map(item => item[0]).join('');
+    if (data && data[0]) {
+      return data[0].filter(Boolean).map(item => item[0]).join('');
+    }
+    return null;
+  } catch (err) {
+    console.error('[translateGoogle] error:', err);
+    return null;
   }
-  return null;
+}
+
+/**
+ * Claude Haiku 4.5 translation via Anthropic Messages API.
+ * Sends batched sentences separated by ||| and gets Czech translations back.
+ */
+async function translateClaude(text, sourceLang, apiKey) {
+  if (!apiKey) throw new Error('No Anthropic API key');
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      messages: [{
+        role: 'user',
+        content: `Přelož následující text do přirozené, plynulé češtiny. Jde o přepis mluveného slova z YouTube videa.
+
+Pravidla:
+- Zachovej oddělovač ||| mezi větami (stejný počet částí)
+- Nepřekládej vlastní jména (osoby, firmy, produkty) — nech je v originále
+- Používej běžnou mluvenou češtinu, ne knižní
+- Nepřidávej nic navíc, jen překlad
+
+Text (${sourceLang}):
+${text}`
+      }]
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Anthropic API ${resp.status}: ${err.substring(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  const translated = data.content?.[0]?.text?.trim();
+  if (!translated) throw new Error('Empty response from Claude');
+
+  return translated;
 }
