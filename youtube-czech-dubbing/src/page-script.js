@@ -234,12 +234,29 @@
       } else {
         segments = _parseTimedTextXml(text);
       }
-      console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' timedtext segments');
+      // Detect language from captured URL (tlang= parameter) and content
+      var capturedUrl = _capturedTimedtext['_latestUrl'] || '';
+      var tlangMatch = capturedUrl.match(/[?&]tlang=([a-z]{2})/);
+      var detectedLang = tlangMatch ? tlangMatch[1] : null;
+
+      // If no tlang in URL, detect from content — check for Czech diacritics
+      if (!detectedLang && segments.length > 0) {
+        var sampleText = segments.slice(0, Math.min(10, segments.length)).map(function(s) { return s.text; }).join(' ');
+        var czechChars = (sampleText.match(/[áčďéěíňóřšťúůýž]/gi) || []).length;
+        // If more than 3% Czech diacritics, it's likely Czech
+        if (sampleText.length > 0 && (czechChars / sampleText.length) > 0.03) {
+          detectedLang = 'cs';
+        }
+      }
+
+      console.log('[CzechDub:PageScript] Parsed ' + segments.length + ' timedtext segments, detectedLang: ' + (detectedLang || 'en'));
+
       window.postMessage({
         type: 'CZECH_DUB_TRANSCRIPT_PARAMS',
         requestId: requestId,
         success: segments.length > 0,
-        segments: segments
+        segments: segments,
+        detectedLang: detectedLang || null
       }, 'https://www.youtube.com');
     } catch (err) {
       _sendTranscriptFailure(requestId, err.message);

@@ -280,10 +280,11 @@ class CaptionExtractor {
     const result = await this._getTranscriptFromPage();
 
     if (result?.success && result.segments?.length > 0) {
-      console.log(`[CzechDub] Got ${result.segments.length} transcript segments from page`);
+      const lang = result.detectedLang || 'en';
+      console.log(`[CzechDub] Got ${result.segments.length} transcript segments from page (lang: ${lang})`);
       return {
         segments: result.segments,
-        sourceLang: 'en'
+        sourceLang: lang
       };
     }
 

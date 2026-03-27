@@ -96,7 +96,6 @@ class DubbingController {
       let transcriptData = await this.extractor.fetchFullTranscript();
 
       // Step 2: If no transcript yet, enable captions first (triggers player to load timedtext)
-      let alreadyCzech = false;
       if (!transcriptData) {
         this._setStatus('loading', 'Zapínám titulky...');
         const hasCaptions = await this.extractor.hasCaptions();
@@ -107,12 +106,6 @@ class DubbingController {
           await this._sleep(3000);
           // Try again — timedtext should now be captured
           transcriptData = await this.extractor.fetchFullTranscript();
-          // Captions were loaded via Czech translation — already in Czech
-          if (transcriptData) {
-            alreadyCzech = true;
-            transcriptData.sourceLang = 'cs';
-            console.log('[CzechDub] Using YouTube auto-translated Czech captions — skipping translation');
-          }
         }
       }
 
@@ -121,8 +114,10 @@ class DubbingController {
 
       if (transcriptData && transcriptData.segments.length > 0) {
         let translated;
+        const isCzech = transcriptData.sourceLang === 'cs';
+        console.log(`[CzechDub] Transcript sourceLang: ${transcriptData.sourceLang}, isCzech: ${isCzech}`);
 
-        if (alreadyCzech || transcriptData.sourceLang === 'cs') {
+        if (isCzech) {
           // Already in Czech (from YouTube auto-translate) — group into sentences, no re-translation
           console.log(`[CzechDub] Got ${transcriptData.segments.length} Czech segments, grouping into sentences...`);
           this._setStatus('translating', 'Přepis již v češtině, seskupuji do vět...');
