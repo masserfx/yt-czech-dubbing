@@ -122,15 +122,11 @@ class DubbingController {
         let translated;
 
         if (alreadyCzech || transcriptData.sourceLang === 'cs') {
-          // Already in Czech (from YouTube auto-translate) — use directly, no re-translation
-          console.log(`[CzechDub] Got ${transcriptData.segments.length} Czech segments, skipping translation`);
-          this._setStatus('translating', 'Přepis již v češtině, přeskakuji překlad...');
-          translated = transcriptData.segments.map(seg => ({
-            start: seg.start,
-            duration: seg.duration,
-            originalText: seg.text,
-            text: seg.text
-          }));
+          // Already in Czech (from YouTube auto-translate) — group into sentences, no re-translation
+          console.log(`[CzechDub] Got ${transcriptData.segments.length} Czech segments, grouping into sentences...`);
+          this._setStatus('translating', 'Přepis již v češtině, seskupuji do vět...');
+          translated = this._groupSegmentsIntoSentences(transcriptData.segments);
+          console.log(`[CzechDub] Grouped into ${translated.length} sentences`);
         } else {
           // Translate from source language to Czech
           console.log(`[CzechDub] Got ${transcriptData.segments.length} transcript segments, translating...`);
@@ -331,6 +327,44 @@ class DubbingController {
   /**
    * Optimize translated segments for TTS timing.
    * Ensures translations fit within their time window.
+   * Group small ASR segments into natural sentences for smoother TTS playback.
+   * Merges consecutive segments until a sentence boundary (. ! ?) or 200 chars.
+   */
+  _groupSegmentsIntoSentences(segments) {
+    const groups = [];
+    let buffer = '';
+    let groupSegs = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg.text || !seg.text.trim()) continue;
+
+      groupSegs.push(seg);
+      buffer += (buffer ? ' ' : '') + seg.text.trim();
+
+      // End group on sentence boundary, long buffer, or last segment
+      const isSentenceEnd = /[.!?]["»"]?\s*$/.test(buffer);
+      const isLong = buffer.length > 200;
+      const isLast = i === segments.length - 1;
+
+      if (isSentenceEnd || isLong || isLast) {
+        const firstSeg = groupSegs[0];
+        const lastSeg = groupSegs[groupSegs.length - 1];
+        groups.push({
+          start: firstSeg.start,
+          duration: (lastSeg.start + (lastSeg.duration || 2)) - firstSeg.start,
+          originalText: buffer.trim(),
+          text: buffer.trim()
+        });
+        buffer = '';
+        groupSegs = [];
+      }
+    }
+
+    return groups;
+  }
+
+  /**
    * Splits overly long translations, trims trailing filler.
    */
   _optimizeForTiming(segments) {
