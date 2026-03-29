@@ -1,0 +1,8 @@
+node_modules/
+.env
+tts-models/*.onnx
+tts-models/*.json
+tmp/
+dist/
+*.mp3
+*.wav

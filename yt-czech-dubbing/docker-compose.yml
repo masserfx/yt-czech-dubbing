@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DEEPL_API_KEY=${DEEPL_API_KEY}
+      - PIPER_PATH=/usr/local/bin/piper
+      - PIPER_MODEL=/opt/piper-voices/cs_CZ-jirka-medium.onnx
+      - TMP_DIR=/app/tmp
+    volumes:
+      - audio-cache:/app/tmp
+    restart: unless-stopped
+
+volumes:
+  audio-cache:
