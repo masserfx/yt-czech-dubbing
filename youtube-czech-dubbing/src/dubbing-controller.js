@@ -11,6 +11,9 @@ class DubbingController {
     this.extractor = new CaptionExtractor();
     this.translator = new Translator();
     this.tts = new TTSEngine();
+    this.serviceClient = new ServiceClient();
+    this._targetLang = DEFAULT_LANGUAGE;
+    this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
 
     this.isActive = false;
     this.videoElement = null;
@@ -79,6 +82,16 @@ class DubbingController {
       // Load settings
       await this._loadSettings();
       await this.translator.loadSettings();
+      await this.serviceClient.loadConfig();
+
+      // Wire service client for B2B mode
+      this.translator._serviceClient = this.serviceClient;
+      this.tts._serviceClient = this.serviceClient;
+
+      // Apply target language
+      this._targetLang = this.translator._targetLang;
+      this._langConfig = this.translator._langConfig;
+      this.tts.setTargetLanguage(this._targetLang);
 
       // Wait for TTS voices
       await this.tts.waitForVoice();
@@ -100,7 +113,7 @@ class DubbingController {
         this._setStatus('loading', 'Zapínám titulky...');
         const hasCaptions = await this.extractor.hasCaptions();
         if (hasCaptions) {
-          await this.extractor.enableCzechCaptions();
+          await this.extractor.enableCaptions(this._targetLang);
           // Wait for player to load timedtext (our XHR hook captures it)
           this._setStatus('loading', 'Čekám na přepis...');
           await this._sleep(3000);
@@ -114,7 +127,7 @@ class DubbingController {
 
       if (transcriptData && transcriptData.segments.length > 0) {
         let translated;
-        const isCzech = transcriptData.sourceLang === 'cs';
+        const isCzech = transcriptData.sourceLang === this._targetLang;
         console.log(`[CzechDub] Transcript sourceLang: ${transcriptData.sourceLang}, isCzech: ${isCzech}`);
 
         if (isCzech) {
@@ -251,7 +264,7 @@ class DubbingController {
     this._translationQueue = this._translationQueue.then(async () => {
       if (!this.isActive) return;
 
-      const isCzech = /[ěščřžýáíéúůďťň]/i.test(fullText);
+      const isCzech = this._langConfig.diacriticsRegex.test(fullText);
 
       let czechText = fullText;
       if (!isCzech) {
@@ -395,7 +408,9 @@ class DubbingController {
       }
 
       // Clean trailing incomplete phrases
-      seg.text = seg.text.replace(/\s+(a|i|nebo|že|který|která|které|pro|na|v|s|z|k|do)\s*$/i, '');
+      if (this._langConfig.trailingWords) {
+        seg.text = seg.text.replace(this._langConfig.trailingWords, '');
+      }
     }
 
     if (speedAdjusted > 0 || trimmed > 0) {

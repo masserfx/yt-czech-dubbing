@@ -52,7 +52,7 @@
     if (existing) existing.remove();
 
     // Wait for the player controls to be available
-    _injectInterval = setInterval(() => {
+    _injectInterval = setInterval(async () => {
       // Guard: if button was already injected by a concurrent call, stop
       if (document.getElementById('czech-dub-container')) {
         clearInterval(_injectInterval);
@@ -68,28 +68,56 @@
         clearInterval(_injectInterval);
         _injectInterval = null;
 
+        // Read saved language to set initial button text
+        const savedLang = await new Promise(resolve => {
+          chrome.storage.local.get('popupSettings', r => {
+            resolve(r.popupSettings?.targetLanguage || DEFAULT_LANGUAGE);
+          });
+        });
+        const initLangCfg = getLanguageConfig(savedLang);
+
         const btn = document.createElement('button');
         btn.id = 'czech-dub-activate-btn';
         btn.className = 'czech-dub-btn';
-        btn.innerHTML = `
-          <span class="czech-dub-btn-icon">🇨🇿</span>
-          <span class="czech-dub-btn-text">Český dabing</span>
-        `;
-        btn.title = 'Aktivovat český dabing pro toto video';
+        const btnIcon = document.createElement('span');
+        btnIcon.className = 'czech-dub-btn-icon';
+        btnIcon.textContent = initLangCfg.flag;
+        const btnText = document.createElement('span');
+        btnText.className = 'czech-dub-btn-text';
+        btnText.textContent = initLangCfg.uiStrings.activate;
+        btn.appendChild(btnIcon);
+        btn.appendChild(btnText);
+        btn.title = initLangCfg.uiStrings.activate;
 
         // Gear button for settings
         const gear = document.createElement('button');
         gear.className = 'czech-dub-gear';
         gear.textContent = '\u2699';
-        gear.title = 'Nastavení dabingu';
+        gear.title = initLangCfg.uiStrings.settings;
 
         // Settings panel (built with DOM methods)
         const settingsPanel = document.createElement('div');
         settingsPanel.className = 'czech-dub-settings';
 
         const heading = document.createElement('h3');
-        heading.textContent = '\u2699 Nastavení dabingu';
+        heading.textContent = '\u2699 ' + initLangCfg.uiStrings.settings;
         settingsPanel.appendChild(heading);
+
+        // Language picker
+        const langLabel = document.createElement('label');
+        langLabel.textContent = 'Language / Jazyk';
+        settingsPanel.appendChild(langLabel);
+
+        const langSelect = document.createElement('select');
+        langSelect.id = 'czech-dub-lang';
+        Object.values(LANGUAGES).forEach(lang => {
+          const opt = document.createElement('option');
+          opt.value = lang.code;
+          opt.textContent = `${lang.flag} ${lang.name}`;
+          langSelect.appendChild(opt);
+        });
+        langSelect.value = savedLang;
+        settingsPanel.appendChild(langSelect);
 
         const engineLabel = document.createElement('label');
         engineLabel.textContent = 'Překladač';
@@ -169,33 +197,44 @@
           });
         });
 
+        // Language change updates button text
+        langSelect.addEventListener('change', () => {
+          const cfg = getLanguageConfig(langSelect.value);
+          btn.querySelector('.czech-dub-btn-icon').textContent = cfg.flag;
+          btn.querySelector('.czech-dub-btn-text').textContent = cfg.uiStrings.activate;
+          btn.title = cfg.uiStrings.activate;
+        });
+
         // Save button
         saveBtn.addEventListener('click', () => {
           const engine = engineSelect.value;
           const apiKey = apiKeyInput.value;
           const deeplKey = deeplKeyInput.value;
+          const targetLang = langSelect.value;
           chrome.storage.local.get('popupSettings', (result) => {
             const s = result.popupSettings || {};
             s.translatorEngine = engine;
             s.anthropicApiKey = apiKey;
             s.deeplApiKey = deeplKey;
+            s.targetLanguage = targetLang;
             chrome.storage.local.set({ popupSettings: s }, () => {
               settingsPanel.classList.remove('open');
-              console.log('[CzechDub] Settings saved: engine=' + engine + ', apiKey=' + (apiKey ? 'set' : 'none'));
+              console.log('[CzechDub] Settings saved: lang=' + targetLang + ', engine=' + engine);
             });
           });
         });
 
         btn.addEventListener('click', async () => {
+          const curLangCfg = getLanguageConfig(langSelect.value);
           if (controller.isActive || controller._isStarting) {
             controller.stop();
             controller._isStarting = false;
             btn.classList.remove('active', 'loading');
-            btn.querySelector('.czech-dub-btn-text').textContent = 'Český dabing';
+            btn.querySelector('.czech-dub-btn-text').textContent = curLangCfg.uiStrings.activate;
           } else {
             controller._isStarting = true;
             btn.classList.add('loading');
-            btn.querySelector('.czech-dub-btn-text').textContent = 'Načítání...';
+            btn.querySelector('.czech-dub-btn-text').textContent = curLangCfg.uiStrings.loading;
 
             const success = await controller.start();
             controller._isStarting = false;
@@ -203,9 +242,9 @@
             btn.classList.remove('loading');
             if (success) {
               btn.classList.add('active');
-              btn.querySelector('.czech-dub-btn-text').textContent = 'Dabing aktivní ✓';
+              btn.querySelector('.czech-dub-btn-text').textContent = curLangCfg.uiStrings.active;
             } else {
-              btn.querySelector('.czech-dub-btn-text').textContent = 'Český dabing';
+              btn.querySelector('.czech-dub-btn-text').textContent = curLangCfg.uiStrings.activate;
             }
           }
         });
@@ -219,7 +258,7 @@
           } else if (status === 'playing') {
             btn.classList.remove('loading');
             btn.classList.add('active');
-            textEl.textContent = 'Dabing aktivní ✓';
+            textEl.textContent = getLanguageConfig(langSelect.value).uiStrings.active;
           } else if (status === 'error') {
             btn.classList.remove('loading', 'active');
             textEl.textContent = message;

@@ -128,6 +128,25 @@ function updateSetting(setting, value) {
     case 'azureTtsVoice':
       settings.azureTtsVoice = value;
       break;
+    case 'targetLanguage':
+      settings.targetLanguage = value;
+      // Update header flag
+      const flags = { cs: '🇨🇿', sk: '🇸🇰', pl: '🇵🇱', hu: '🇭🇺' };
+      document.getElementById('headerFlag').textContent = flags[value] || '🌍';
+      break;
+    case 'serviceMode':
+      settings.serviceMode = value;
+      document.getElementById('serviceConfigGroup').style.display = value === 'service' ? 'block' : 'none';
+      break;
+    case 'serviceApiEndpoint':
+      settings.serviceApiEndpoint = value;
+      break;
+    case 'serviceAuthToken':
+      settings.serviceAuthToken = value;
+      break;
+    case 'serviceOrganizationId':
+      settings.serviceOrganizationId = value;
+      break;
   }
 
   sendMessage({ type: 'update-settings', settings });
@@ -223,13 +242,18 @@ function saveSettings() {
     ttsPitch: document.getElementById('ttsPitch').value,
     originalVolume: document.getElementById('originalVolume').value,
     muteOriginal: document.getElementById('muteOriginal').checked,
+    targetLanguage: document.getElementById('targetLanguage').value,
     translatorEngine: document.getElementById('translatorEngine').value,
     anthropicApiKey: document.getElementById('anthropicApiKey').value,
     deeplApiKey: document.getElementById('deeplApiKey').value,
     ttsEngine: document.getElementById('ttsEngine').value,
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
-    azureTtsVoice: document.getElementById('azureTtsVoice').value
+    azureTtsVoice: document.getElementById('azureTtsVoice').value,
+    serviceMode: document.getElementById('serviceMode').value,
+    serviceApiEndpoint: document.getElementById('serviceApiEndpoint').value,
+    serviceAuthToken: document.getElementById('serviceAuthToken').value,
+    serviceOrganizationId: document.getElementById('serviceOrganizationId').value
   };
   chrome.storage.local.set({ popupSettings: settings });
 }
@@ -288,6 +312,24 @@ async function loadSettings() {
       }
       if (s.azureTtsVoice) {
         document.getElementById('azureTtsVoice').value = s.azureTtsVoice;
+      }
+      if (s.targetLanguage) {
+        document.getElementById('targetLanguage').value = s.targetLanguage;
+        const flags = { cs: '🇨🇿', sk: '🇸🇰', pl: '🇵🇱', hu: '🇭🇺' };
+        document.getElementById('headerFlag').textContent = flags[s.targetLanguage] || '🇨🇿';
+      }
+      if (s.serviceMode) {
+        document.getElementById('serviceMode').value = s.serviceMode;
+        document.getElementById('serviceConfigGroup').style.display = s.serviceMode === 'service' ? 'block' : 'none';
+      }
+      if (s.serviceApiEndpoint) {
+        document.getElementById('serviceApiEndpoint').value = s.serviceApiEndpoint;
+      }
+      if (s.serviceAuthToken) {
+        document.getElementById('serviceAuthToken').value = s.serviceAuthToken;
+      }
+      if (s.serviceOrganizationId) {
+        document.getElementById('serviceOrganizationId').value = s.serviceOrganizationId;
       }
     }
   } catch (e) {
@@ -383,6 +425,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('azureTtsKey').addEventListener('change', (e) => updateSetting('azureTtsKey', e.target.value));
   document.getElementById('azureTtsRegion').addEventListener('change', (e) => updateSetting('azureTtsRegion', e.target.value));
   document.getElementById('azureTtsVoice').addEventListener('change', (e) => updateSetting('azureTtsVoice', e.target.value));
+
+  // Language picker
+  document.getElementById('targetLanguage').addEventListener('change', (e) => updateSetting('targetLanguage', e.target.value));
+
+  // Service mode
+  document.getElementById('serviceMode').addEventListener('change', (e) => updateSetting('serviceMode', e.target.value));
+  document.getElementById('serviceApiEndpoint').addEventListener('change', (e) => updateSetting('serviceApiEndpoint', e.target.value));
+  document.getElementById('serviceAuthToken').addEventListener('change', (e) => updateSetting('serviceAuthToken', e.target.value));
+  document.getElementById('serviceOrganizationId').addEventListener('change', (e) => updateSetting('serviceOrganizationId', e.target.value));
 
   // Reset usage
   document.getElementById('btnResetUsage').addEventListener('click', resetUsage);

@@ -1,8 +1,7 @@
 /**
- * Translator - Translates text to Czech using free translation APIs.
+ * Translator - Translates text using free translation APIs.
  * All API calls go through background.js service worker to bypass CSP.
- * Uses MyMemory Translation API (free, no API key needed, 5000 chars/day)
- * with fallback to LibreTranslate and Google Translate.
+ * Supports multiple target languages (cs, sk, pl, hu).
  */
 class Translator {
   constructor() {
@@ -14,6 +13,9 @@ class Translator {
     this._engine = 'google'; // 'google', 'claude', or 'deepl'
     this._anthropicApiKey = null;
     this._deeplApiKey = null;
+    this._targetLang = DEFAULT_LANGUAGE;
+    this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
+    this._serviceClient = null; // injected by DubbingController for B2B mode
   }
 
   /**
@@ -26,21 +28,32 @@ class Translator {
         this._engine = result.popupSettings.translatorEngine || 'google';
         this._anthropicApiKey = result.popupSettings.anthropicApiKey || null;
         this._deeplApiKey = result.popupSettings.deeplApiKey || null;
+        this._targetLang = result.popupSettings.targetLanguage || DEFAULT_LANGUAGE;
+        this._langConfig = getLanguageConfig(this._targetLang);
       }
     } catch (e) {}
-    console.log(`[CzechDub] Translation engine: ${this._engine}`);
+    console.log(`[CzechDub] Translation engine: ${this._engine}, target: ${this._targetLang}`);
   }
 
   /**
-   * Translate a single text string to Czech.
+   * Translate a single text string to the configured target language.
    */
   async translate(text, sourceLang = 'en') {
     if (!text || text.trim().length === 0) return '';
     if (this._contextInvalidated) return text;
 
-    const cacheKey = `${sourceLang}:${text}`;
+    const cacheKey = `${sourceLang}:${this._targetLang}:${text}`;
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
+    }
+
+    // Service mode: delegate to centralized API
+    if (this._serviceClient?.isServiceMode()) {
+      const result = await this._serviceClient.translate(text, sourceLang, this._targetLang, this._engine);
+      if (result) {
+        this.cache.set(cacheKey, result);
+        return result;
+      }
     }
 
     // Rate limiting — use engine-specific delay
@@ -260,6 +273,8 @@ class Translator {
         type: 'translate-claude',
         text,
         sourceLang,
+        targetLang: this._targetLang,
+        claudePrompt: this._langConfig.claudePrompt,
         apiKey: this._anthropicApiKey
       });
       if (response?.success && response.translated) {
@@ -291,6 +306,7 @@ class Translator {
         type: 'translate-deepl',
         text,
         sourceLang,
+        targetLang: this._langConfig.translationCodes.deepl,
         apiKey: this._deeplApiKey
       });
       if (response?.success && response.translated) {
@@ -315,7 +331,8 @@ class Translator {
       const response = await this._sendMessage({
         type: 'translate-mymemory',
         text,
-        sourceLang
+        sourceLang,
+        targetLang: this._langConfig.translationCodes.mymemory
       });
       if (response?.success && response.translated) {
         return response.translated;
@@ -335,7 +352,8 @@ class Translator {
       const response = await this._sendMessage({
         type: 'translate-libre',
         text,
-        sourceLang
+        sourceLang,
+        targetLang: this._langConfig.translationCodes.libre
       });
       if (response?.success && response.translated) {
         return response.translated;
@@ -355,7 +373,8 @@ class Translator {
       const response = await this._sendMessage({
         type: 'translate-google',
         text,
-        sourceLang
+        sourceLang,
+        targetLang: this._langConfig.translationCodes.google
       });
       if (response?.success && response.translated) {
         return response.translated;

@@ -50,14 +50,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'translate-mymemory') {
-    translateMyMemory(msg.text, msg.sourceLang)
+    translateMyMemory(msg.text, msg.sourceLang, msg.targetLang || 'cs')
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
   if (msg.type === 'translate-libre') {
-    translateLibre(msg.text, msg.sourceLang)
+    translateLibre(msg.text, msg.sourceLang, msg.targetLang || 'cs')
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -78,28 +78,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'translate-google') {
-    translateGoogle(msg.text, msg.sourceLang)
+    translateGoogle(msg.text, msg.sourceLang, msg.targetLang || 'cs')
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
   if (msg.type === 'translate-claude') {
-    translateClaude(msg.text, msg.sourceLang, msg.apiKey)
+    translateClaude(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'cs', msg.claudePrompt)
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
   if (msg.type === 'translate-deepl') {
-    translateDeepL(msg.text, msg.sourceLang, msg.apiKey)
+    translateDeepL(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'CS')
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
   if (msg.type === 'synthesize-azure-tts') {
-    synthesizeAzureTTS(msg.text, msg.apiKey, msg.region, msg.voice, msg.rate, msg.pitch)
+    synthesizeAzureTTS(msg.text, msg.apiKey, msg.region, msg.voice, msg.rate, msg.pitch, msg.lang)
+      .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Service mode proxy handlers (B2B)
+  if (msg.type === 'service-translate') {
+    serviceTranslate(msg.endpoint, msg.authToken, msg.organizationId, msg.text, msg.sourceLang, msg.targetLang, msg.engine)
+      .then(result => sendResponse({ success: true, translated: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'service-synthesize') {
+    serviceSynthesize(msg.endpoint, msg.authToken, msg.organizationId, msg.text, msg.targetLang, msg.voice)
       .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -247,8 +262,8 @@ async function fetchPageCaptions(videoId) {
 /**
  * MyMemory Translation API
  */
-async function translateMyMemory(text, sourceLang) {
-  const langPair = `${sourceLang}|cs`;
+async function translateMyMemory(text, sourceLang, targetLang = 'cs') {
+  const langPair = `${sourceLang}|${targetLang}`;
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langPair)}`;
   const resp = await fetch(url);
   const data = await resp.json();
@@ -266,7 +281,7 @@ async function translateMyMemory(text, sourceLang) {
 /**
  * LibreTranslate
  */
-async function translateLibre(text, sourceLang) {
+async function translateLibre(text, sourceLang, targetLang = 'cs') {
   const instances = [
     'https://libretranslate.de',
     'https://translate.argosopentech.com',
@@ -281,7 +296,7 @@ async function translateLibre(text, sourceLang) {
         body: JSON.stringify({
           q: text,
           source: sourceLang,
-          target: 'cs',
+          target: targetLang,
           format: 'text'
         })
       });
@@ -614,9 +629,9 @@ function findDeepArray(obj, key, maxDepth = 12) {
 /**
  * Google Translate unofficial endpoint
  */
-async function translateGoogle(text, sourceLang) {
+async function translateGoogle(text, sourceLang, targetLang = 'cs') {
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=cs&dt=t&q=${encodeURIComponent(text)}`;
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
     const resp = await fetch(url);
     if (!resp.ok) {
       console.warn('[translateGoogle] HTTP error:', resp.status);
@@ -638,8 +653,14 @@ async function translateGoogle(text, sourceLang) {
  * Claude Haiku 4.5 translation via Anthropic Messages API.
  * Sends batched sentences separated by ||| and gets Czech translations back.
  */
-async function translateClaude(text, sourceLang, apiKey) {
+async function translateClaude(text, sourceLang, apiKey, targetLang = 'cs', claudePrompt = null) {
   if (!apiKey) throw new Error('No Anthropic API key');
+
+  const systemPrompt = claudePrompt ||
+    'Jsi překladač titulků z YouTube videí. Vrať POUZE přeložený text, nic jiného. Žádné komentáře, vysvětlení ani meta-text.';
+
+  const LANG_NAMES = { cs: 'češtiny', sk: 'slovenčiny', pl: 'polszczyzny', hu: 'magyarra' };
+  const langName = LANG_NAMES[targetLang] || targetLang;
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -652,10 +673,10 @@ async function translateClaude(text, sourceLang, apiKey) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
-      system: 'Jsi překladač titulků z YouTube videí. Vrať POUZE přeložený text, nic jiného. Žádné komentáře, vysvětlení ani meta-text. Pokud je text již v češtině, vrať ho beze změny.',
+      system: systemPrompt,
       messages: [{
         role: 'user',
-        content: `Přelož do plynulé mluvené češtiny. Zachovej oddělovač XSEP9F3A mezi částmi (musí být stejný počet částí před i po překladu). Vlastní jména (osoby, firmy, produkty) nech v originále.
+        content: `Translate to fluent spoken ${langName}. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.
 
 ${text}`
       }]
@@ -682,7 +703,7 @@ ${text}`
 /**
  * DeepL Translation API (free tier: 500k chars/month)
  */
-async function translateDeepL(text, sourceLang, apiKey) {
+async function translateDeepL(text, sourceLang, apiKey, targetLang = 'CS') {
   if (!apiKey) throw new Error('No DeepL API key');
 
   // Free keys end with ':fx', use free endpoint
@@ -702,7 +723,7 @@ async function translateDeepL(text, sourceLang, apiKey) {
       body: JSON.stringify({
         text: [text],
         source_lang: sourceLang.toUpperCase(),
-        target_lang: 'CS',
+        target_lang: targetLang.toUpperCase(),
         formality: 'default'
       })
     });
@@ -734,14 +755,15 @@ async function translateDeepL(text, sourceLang, apiKey) {
  * Azure Cognitive Services TTS
  * Returns base64-encoded audio (MP3).
  */
-async function synthesizeAzureTTS(text, apiKey, region, voice, rate, pitch) {
+async function synthesizeAzureTTS(text, apiKey, region, voice, rate, pitch, lang) {
   if (!apiKey || !region) throw new Error('No Azure TTS key or region');
 
   const voiceName = voice || 'cs-CZ-VlastaNeural';
+  const xmlLang = lang || voiceName.substring(0, 5) || 'cs-CZ';
   const rateStr = rate ? `${Math.round((rate - 1) * 100)}%` : '+0%';
   const pitchStr = pitch ? `${Math.round((pitch - 1) * 50)}%` : '+0%';
 
-  const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="cs-CZ">
+  const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${xmlLang}">
   <voice name="${voiceName}">
     <prosody rate="${rateStr}" pitch="${pitchStr}">${escapeXml(text)}</prosody>
   </voice>
@@ -839,4 +861,42 @@ async function getUsageStats() {
   };
 
   return stats;
+}
+
+// --- B2B Service Mode Proxy ---
+
+async function serviceTranslate(endpoint, authToken, orgId, text, sourceLang, targetLang, engine) {
+  const resp = await fetch(`${endpoint}/translate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`,
+      ...(orgId ? { 'X-Organization-Id': orgId } : {})
+    },
+    body: JSON.stringify({ text, sourceLang, targetLang, engine })
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Service API ${resp.status}: ${err.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+  return data.translated || data.text;
+}
+
+async function serviceSynthesize(endpoint, authToken, orgId, text, targetLang, voice) {
+  const resp = await fetch(`${endpoint}/synthesize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`,
+      ...(orgId ? { 'X-Organization-Id': orgId } : {})
+    },
+    body: JSON.stringify({ text, targetLang, voice })
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Service TTS ${resp.status}: ${err.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+  return data.audioBase64;
 }

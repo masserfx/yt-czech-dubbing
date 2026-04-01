@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YouTube Czech Dubbing",
-  "version": "1.2.0",
-  "description": "Automatický český dabing pro YouTube videa - překlad a hlasový výstup v reálném čase",
+  "name": "YouTube Dubbing — CS SK PL HU",
+  "version": "2.0.0",
+  "description": "YouTube video dubbing - automatic translation and voice output in Czech, Slovak, Polish, Hungarian",
   "permissions": [
     "activeTab",
     "storage"
@@ -20,6 +20,9 @@
     "https://api.deepl.com/*",
     "https://*.tts.speech.microsoft.com/*",
     "https://*.api.cognitive.microsoft.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
   ],
   "background": {
     "service_worker": "src/background.js"
@@ -43,6 +46,8 @@
       ],
       "js": [
         "src/caption-extractor.js",
+        "src/language-config.js",
+        "src/service-mode.js",
         "src/translator.js",
         "src/tts-engine.js",
         "src/dubbing-controller.js",

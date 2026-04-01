@@ -39,8 +39,8 @@ class CaptionExtractor {
   /**
    * Enable YouTube captions with Czech translation via player API.
    */
-  async enableCzechCaptions() {
-    console.log('[CzechDub] Enabling Czech captions via player API...');
+  async enableCaptions(targetLang = 'cs') {
+    console.log(`[CzechDub] Enabling ${targetLang} captions via player API...`);
 
     return new Promise((resolve) => {
       const requestId = 'czechdub_enable_' + Date.now();
@@ -60,7 +60,7 @@ class CaptionExtractor {
       window.postMessage({
         type: 'CZECH_DUB_ENABLE_CAPTIONS',
         requestId: requestId,
-        targetLang: 'cs'
+        targetLang: targetLang
       }, 'https://www.youtube.com');
 
       const timeout = setTimeout(() => {

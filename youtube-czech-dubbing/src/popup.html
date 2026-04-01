@@ -188,8 +188,8 @@
 </head>
 <body>
   <div class="header">
-    <h1>🇨🇿 YouTube Czech Dubbing</h1>
-    <div class="subtitle">Automatický český dabing pro YouTube videa</div>
+    <h1><span id="headerFlag">🇨🇿</span> YouTube Dubbing</h1>
+    <div class="subtitle">Automatic video dubbing — CS, SK, PL, HU</div>
   </div>
 
   <div class="status-bar">
@@ -260,6 +260,16 @@
     </div>
 
     <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+      <div class="setting-label"><span>Jazyk dabingu / Dubbing language</span></div>
+      <select id="targetLanguage">
+        <option value="cs">🇨🇿 Čeština</option>
+        <option value="sk">🇸🇰 Slovenčina</option>
+        <option value="pl">🇵🇱 Polski</option>
+        <option value="hu">🇭🇺 Magyar</option>
+      </select>
+    </div>
+
+    <div class="setting-group">
       <div class="setting-label"><span>Překladač</span></div>
       <select id="translatorEngine">
         <option value="google">Google Translate (zdarma)</option>
@@ -299,8 +309,22 @@
         style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
       <div class="setting-label" style="margin-top:6px;"><span>Hlas</span></div>
       <select id="azureTtsVoice">
-        <option value="cs-CZ-VlastaNeural">Vlasta (cs-CZ, ženský)</option>
-        <option value="cs-CZ-AntoninNeural">Antonín (cs-CZ, mužský)</option>
+        <optgroup label="🇨🇿 Čeština">
+          <option value="cs-CZ-VlastaNeural">Vlasta (cs-CZ, žena)</option>
+          <option value="cs-CZ-AntoninNeural">Antonín (cs-CZ, muž)</option>
+        </optgroup>
+        <optgroup label="🇸🇰 Slovenčina">
+          <option value="sk-SK-ViktoriaNeural">Viktória (sk-SK, žena)</option>
+          <option value="sk-SK-LukasNeural">Lukáš (sk-SK, muž)</option>
+        </optgroup>
+        <optgroup label="🇵🇱 Polski">
+          <option value="pl-PL-AgnieszkaNeural">Agnieszka (pl-PL, kobieta)</option>
+          <option value="pl-PL-MarekNeural">Marek (pl-PL, mężczyzna)</option>
+        </optgroup>
+        <optgroup label="🇭🇺 Magyar">
+          <option value="hu-HU-NoemiNeural">Noémi (hu-HU, nő)</option>
+          <option value="hu-HU-TamasNeural">Tamás (hu-HU, férfi)</option>
+        </optgroup>
       </select>
       <div style="font-size:10px;color:#666;margin-top:4px;">Free: 500k zn./měs. Klíč z portal.azure.com</div>
     </div>
@@ -364,8 +388,35 @@
   </div>
   </div>
 
+    <!-- B2B Service Mode -->
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+      <details>
+        <summary style="font-size:12px; color:#666; cursor:pointer; user-select:none;">Service / B2B mode</summary>
+        <div style="margin-top:8px;">
+          <div class="setting-label"><span>Mode</span></div>
+          <select id="serviceMode">
+            <option value="direct">Direct (vlastní API klíče)</option>
+            <option value="service">Service (firemní backend)</option>
+          </select>
+          <div id="serviceConfigGroup" style="display:none; margin-top:8px;">
+            <div class="setting-label"><span>API Endpoint</span></div>
+            <input type="text" id="serviceApiEndpoint" placeholder="https://api.yourcompany.com/v1"
+              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+            <div class="setting-label" style="margin-top:6px;"><span>Auth Token</span></div>
+            <input type="password" id="serviceAuthToken" placeholder="Bearer token"
+              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+            <div class="setting-label" style="margin-top:6px;"><span>Organization ID (optional)</span></div>
+            <input type="text" id="serviceOrganizationId" placeholder="org-..."
+              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+          </div>
+          <div style="font-size:10px;color:#555;margin-top:6px;">Pro firemní nasazení — překlad a TTS přes centrální API</div>
+        </div>
+      </details>
+    </div>
+  </div>
+
   <div class="footer">
-    YouTube Czech Dubbing v1.2 | Zdarma & Open Source
+    YouTube Dubbing v2.0 | CS SK PL HU | Open Source
   </div>
 
   <script src="popup.js"></script>

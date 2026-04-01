@@ -1,12 +1,12 @@
 /**
- * TTSEngine - Text-to-Speech engine for Czech dubbing.
- * Uses the Web Speech API (SpeechSynthesis) built into Chrome.
- * Actively searches for Czech voices including Google online voices.
+ * TTSEngine - Text-to-Speech engine for YouTube dubbing.
+ * Uses Web Speech API (SpeechSynthesis) built into Chrome.
+ * Supports multiple languages with automatic voice selection.
  */
 class TTSEngine {
   constructor() {
     this.synth = window.speechSynthesis;
-    this.czechVoice = null;
+    this.selectedVoice = null;
     this.queue = [];
     this.isSpeaking = false;
     this.currentUtterance = null;
@@ -17,12 +17,19 @@ class TTSEngine {
     this.onSpeakEnd = null;
     this.voiceReady = false;
 
+    // Language config
+    this._targetLang = DEFAULT_LANGUAGE;
+    this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
+
     // Azure TTS settings
     this._ttsEngine = 'browser'; // 'browser' or 'azure'
     this._azureKey = null;
     this._azureRegion = null;
     this._azureVoice = 'cs-CZ-VlastaNeural';
     this._currentAudio = null;
+
+    // Service mode
+    this._serviceClient = null;
 
     this._initVoice();
     this._loadTTSSettings();
@@ -35,171 +42,187 @@ class TTSEngine {
         this._ttsEngine = result.popupSettings.ttsEngine || 'browser';
         this._azureKey = result.popupSettings.azureTtsKey || null;
         this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
-        this._azureVoice = result.popupSettings.azureTtsVoice || 'cs-CZ-VlastaNeural';
+        this._azureVoice = result.popupSettings.azureTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-VlastaNeural';
+        if (result.popupSettings.targetLanguage) {
+          this._targetLang = result.popupSettings.targetLanguage;
+          this._langConfig = getLanguageConfig(this._targetLang);
+        }
       }
     } catch (e) {}
   }
 
   /**
-   * Initialize and find the best Czech voice available.
-   * Chrome loads Google online voices asynchronously.
-   * macOS premium voices may be named with parenthetical qualifiers.
+   * Set target language and re-select voice.
+   */
+  setTargetLanguage(langCode) {
+    this._targetLang = langCode;
+    this._langConfig = getLanguageConfig(langCode);
+    this.selectedVoice = null;
+    this.voiceReady = false;
+    this._azureVoice = this._langConfig.azureVoices[0]?.id || this._azureVoice;
+    this._initVoice();
+  }
+
+  /**
+   * Initialize and find the best voice for the configured language.
    */
   _initVoice() {
     const isPremiumVoice = (name) => {
-      // macOS names premium voices various ways (Czech locale: "prémiový")
       return /premium|prémiov|enhanced|vylepšen|profi|hq|\(.*kvalit/i.test(name);
     };
 
-    const findCzechVoice = () => {
+    const findBestVoice = () => {
       const voices = this.synth.getVoices();
       if (voices.length === 0) return;
 
-      // Log ALL Czech/Slovak voices with full details
-      const czechVoices = voices.filter(v => v.lang.startsWith('cs') || v.lang.startsWith('sk'));
-      console.log(`[CzechDub TTS] Total voices: ${voices.length}, Czech/Slovak: ${czechVoices.length}`);
-      czechVoices.forEach(v => {
-        console.log(`[CzechDub TTS]   - "${v.name}" lang=${v.lang} local=${v.localService} default=${v.default}`);
+      const langConfig = this._langConfig;
+      const fallbackLangs = langConfig.voiceFallbackLangs;
+      const priorityPatterns = langConfig.voicePriority;
+
+      // Filter voices matching any of the fallback language prefixes
+      const matchingVoices = voices.filter(v =>
+        fallbackLangs.some(lang => v.lang === lang || v.lang.startsWith(lang.split('-')[0]))
+      );
+
+      console.log(`[Dub TTS] Total voices: ${voices.length}, ${langConfig.name} matching: ${matchingVoices.length}`);
+      matchingVoices.forEach(v => {
+        console.log(`[Dub TTS]   - "${v.name}" lang=${v.lang} local=${v.localService}`);
       });
 
-      // Priority: Zuzana Premium/Enhanced > any Premium Czech > Zuzana > Google Czech > any Czech > Slovak
-      const best =
-        voices.find(v => v.lang.startsWith('cs') && /zuzana/i.test(v.name) && isPremiumVoice(v.name)) ||
-        voices.find(v => v.lang.startsWith('cs') && isPremiumVoice(v.name)) ||
-        voices.find(v => v.lang.startsWith('cs') && /zuzana/i.test(v.name)) ||
-        voices.find(v => v.lang === 'cs-CZ' && v.name.includes('Google')) ||
-        voices.find(v => v.lang === 'cs-CZ') ||
-        voices.find(v => v.lang.startsWith('cs')) ||
-        voices.find(v => v.lang === 'sk-SK') ||
-        voices.find(v => v.lang.startsWith('sk')) ||
-        null;
+      // Try priority patterns first (premium, specific names)
+      let best = null;
+      for (const pattern of priorityPatterns) {
+        best = matchingVoices.find(v => pattern.test(v.name) && isPremiumVoice(v.name));
+        if (best) break;
+      }
+      if (!best) {
+        for (const pattern of priorityPatterns) {
+          best = matchingVoices.find(v => pattern.test(v.name));
+          if (best) break;
+        }
+      }
+      // Fallback: any voice for primary language
+      if (!best) best = matchingVoices.find(v => v.lang === langConfig.bcp47);
+      if (!best) best = matchingVoices.find(v => v.lang.startsWith(langConfig.code));
+      // Last resort: any matching voice
+      if (!best && matchingVoices.length > 0) best = matchingVoices[0];
 
-      // Only upgrade voice — never downgrade from premium to standard
       if (best) {
         const bestIsPremium = isPremiumVoice(best.name);
-        const currentIsPremium = this.czechVoice && isPremiumVoice(this.czechVoice.name);
-
-        if (!this.czechVoice || bestIsPremium || !currentIsPremium) {
-          this.czechVoice = best;
+        const currentIsPremium = this.selectedVoice && isPremiumVoice(this.selectedVoice.name);
+        if (!this.selectedVoice || bestIsPremium || !currentIsPremium) {
+          this.selectedVoice = best;
         }
-        console.log(`[CzechDub TTS] Selected voice: "${this.czechVoice.name}" (${this.czechVoice.lang}), local=${this.czechVoice.localService}`);
+        console.log(`[Dub TTS] Selected: "${this.selectedVoice.name}" (${this.selectedVoice.lang})`);
         this.voiceReady = true;
       } else {
-        console.warn('[CzechDub TTS] NO Czech voice found! TTS will use lang="cs-CZ" hint.');
+        console.warn(`[Dub TTS] No voice found for ${langConfig.name}! Using lang="${langConfig.bcp47}" hint.`);
         this.voiceReady = true;
       }
     };
 
-    // Voices may load asynchronously - try immediately and on change
     const voices = this.synth.getVoices();
-    if (voices.length > 0) {
-      findCzechVoice();
-    }
-    // Re-run on voiceschanged — premium voices may arrive later
-    this.synth.onvoiceschanged = () => {
-      findCzechVoice();
-    };
-
-    // Force voice loading with multiple retries
-    setTimeout(() => findCzechVoice(), 500);
-    setTimeout(() => findCzechVoice(), 1500);
-    setTimeout(() => findCzechVoice(), 3000);
+    if (voices.length > 0) findBestVoice();
+    this.synth.onvoiceschanged = () => findBestVoice();
+    setTimeout(() => findBestVoice(), 500);
+    setTimeout(() => findBestVoice(), 1500);
+    setTimeout(() => findBestVoice(), 3000);
   }
 
-  /**
-   * Wait until voices are loaded. Re-triggers voice selection to
-   * ensure premium voices that load late are picked up.
-   */
   async waitForVoice() {
-    if (this.voiceReady && this.czechVoice) return;
+    if (this.voiceReady && this.selectedVoice) return;
     return new Promise(resolve => {
       const check = () => {
-        if (this.voiceReady && this.czechVoice) {
-          resolve();
-          return;
-        }
+        if (this.voiceReady && this.selectedVoice) { resolve(); return; }
         const voices = this.synth.getVoices();
-        if (voices.length > 0) {
-          this._initVoice();
-          resolve();
-          return;
-        }
+        if (voices.length > 0) { this._initVoice(); resolve(); return; }
         setTimeout(check, 200);
       };
       check();
-      // Max wait 3 seconds
-      setTimeout(() => {
-        this.voiceReady = true;
-        resolve();
-      }, 3000);
+      setTimeout(() => { this.voiceReady = true; resolve(); }, 3000);
     });
   }
 
   /**
-   * Get list of available Czech/Slovak voices.
+   * Get list of available voices for the configured language.
    */
   getAvailableVoices() {
+    const fallbackLangs = this._langConfig.voiceFallbackLangs;
     return this.synth.getVoices().filter(v =>
-      v.lang.startsWith('cs') || v.lang.startsWith('sk')
+      fallbackLangs.some(lang => v.lang === lang || v.lang.startsWith(lang.split('-')[0]))
     );
   }
 
-  /**
-   * Set the voice to use by name.
-   */
   setVoice(voiceName) {
     const voices = this.synth.getVoices();
     const voice = voices.find(v => v.name === voiceName);
-    if (voice) {
-      this.czechVoice = voice;
-    }
+    if (voice) this.selectedVoice = voice;
   }
 
-  /**
-   * Check if Czech voice is available and return info.
-   */
   getVoiceInfo() {
-    if (this.czechVoice) {
+    if (this.selectedVoice) {
       return {
         available: true,
-        name: this.czechVoice.name,
-        lang: this.czechVoice.lang,
-        isCzech: this.czechVoice.lang.startsWith('cs')
+        name: this.selectedVoice.name,
+        lang: this.selectedVoice.lang,
+        isTargetLang: this.selectedVoice.lang.startsWith(this._targetLang)
       };
     }
     return {
       available: false,
       name: null,
-      lang: 'cs-CZ',
-      isCzech: false
+      lang: this._langConfig.bcp47,
+      isTargetLang: false
     };
   }
 
-  /**
-   * Speak a single text string.
-   * Returns a promise that resolves when speaking is complete.
-   */
+  // Back-compat alias
+  get czechVoice() { return this.selectedVoice; }
+
   speak(text, options = {}) {
     if (!text || text.trim().length === 0) return Promise.resolve();
 
-    // Use Azure TTS if configured
+    // Service mode: use centralized TTS API
+    if (this._serviceClient?.isServiceMode()) {
+      return this._speakService(text, options);
+    }
+
     if (this._ttsEngine === 'azure' && this._azureKey) {
       return this._speakAzure(text, options);
     }
-
     return this._speakBrowser(text, options);
   }
 
+  async _speakService(text, options) {
+    try {
+      this.isSpeaking = true;
+      if (this.onSpeakStart) this.onSpeakStart(text);
+
+      const audioBase64 = await this._serviceClient.synthesize(text, this._targetLang, this._azureVoice);
+      if (audioBase64) {
+        await this._playBase64Audio(audioBase64, options);
+        return;
+      }
+      // Fallback to browser TTS
+      return this._speakBrowser(text, options);
+    } catch (e) {
+      console.warn('[Dub TTS] Service TTS failed, falling back:', e);
+      return this._speakBrowser(text, options);
+    } finally {
+      this.isSpeaking = false;
+      this._currentAudio = null;
+      if (this.onSpeakEnd) this.onSpeakEnd(text);
+    }
+  }
+
   _speakBrowser(text, options) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = this._langConfig.bcp47;
 
-      // Always set Czech language
-      utterance.lang = 'cs-CZ';
-
-      if (this.czechVoice) {
-        utterance.voice = this.czechVoice;
-        utterance.lang = this.czechVoice.lang;
+      if (this.selectedVoice) {
+        utterance.voice = this.selectedVoice;
+        utterance.lang = this.selectedVoice.lang;
       }
 
       utterance.volume = options.volume ?? this.volume;
@@ -210,30 +233,23 @@ class TTSEngine {
         this.isSpeaking = true;
         if (this.onSpeakStart) this.onSpeakStart(text);
       };
-
       utterance.onend = () => {
         this.isSpeaking = false;
         this.currentUtterance = null;
         if (this.onSpeakEnd) this.onSpeakEnd(text);
         resolve();
       };
-
       utterance.onerror = (event) => {
         this.isSpeaking = false;
         this.currentUtterance = null;
-        if (event.error === 'canceled' || event.error === 'interrupted') {
-          resolve();
-        } else {
-          console.warn('[CzechDub TTS] Error:', event.error);
-          resolve();
+        if (event.error !== 'canceled' && event.error !== 'interrupted') {
+          console.warn('[Dub TTS] Error:', event.error);
         }
+        resolve();
       };
 
       this.currentUtterance = utterance;
-
-      // Chrome bug workaround: synthesis stops after ~15s
       this._keepAlive();
-
       this.synth.speak(utterance);
     });
   }
@@ -249,32 +265,20 @@ class TTSEngine {
         apiKey: this._azureKey,
         region: this._azureRegion,
         voice: this._azureVoice,
+        lang: this._langConfig.bcp47,
         rate: options.rate ?? this.rate,
         pitch: options.pitch ?? this.pitch
       });
 
       if (!response?.success) {
-        console.warn('[CzechDub TTS] Azure error:', response?.error);
-        // Fallback to browser TTS
+        console.warn('[Dub TTS] Azure error:', response?.error);
         return this._speakBrowser(text, options);
       }
 
-      // Play base64 audio
-      const audio = new Audio(`data:audio/mp3;base64,${response.audioBase64}`);
-      audio.volume = options.volume ?? this.volume;
-      this._currentAudio = audio;
-
-      await new Promise((resolve) => {
-        audio.onended = resolve;
-        audio.onerror = () => {
-          console.warn('[CzechDub TTS] Azure audio playback error');
-          resolve();
-        };
-        audio.play().catch(() => resolve());
-      });
+      await this._playBase64Audio(response.audioBase64, options);
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
-      console.warn('[CzechDub TTS] Azure TTS failed, falling back to browser:', e);
+      console.warn('[Dub TTS] Azure TTS failed, falling back to browser:', e);
       return this._speakBrowser(text, options);
     } finally {
       this.isSpeaking = false;
@@ -283,9 +287,18 @@ class TTSEngine {
     }
   }
 
-  /**
-   * Workaround for Chrome's SpeechSynthesis bug where it stops after ~15s.
-   */
+  async _playBase64Audio(audioBase64, options) {
+    const audio = new Audio(`data:audio/mp3;base64,${audioBase64}`);
+    audio.volume = options.volume ?? this.volume;
+    this._currentAudio = audio;
+
+    await new Promise((resolve) => {
+      audio.onended = resolve;
+      audio.onerror = () => { console.warn('[Dub TTS] Audio playback error'); resolve(); };
+      audio.play().catch(() => resolve());
+    });
+  }
+
   _keepAlive() {
     if (this._keepAliveInterval) return;
     this._keepAliveInterval = setInterval(() => {
@@ -299,48 +312,32 @@ class TTSEngine {
     }, 10000);
   }
 
-  /**
-   * Stop all speech immediately.
-   */
   stop() {
     this.synth.cancel();
     this.isSpeaking = false;
     this.currentUtterance = null;
     this.queue = [];
-    if (this._currentAudio) {
-      this._currentAudio.pause();
-      this._currentAudio = null;
-    }
-    if (this._keepAliveInterval) {
-      clearInterval(this._keepAliveInterval);
-      this._keepAliveInterval = null;
-    }
+    if (this._currentAudio) { this._currentAudio.pause(); this._currentAudio = null; }
+    if (this._keepAliveInterval) { clearInterval(this._keepAliveInterval); this._keepAliveInterval = null; }
   }
 
-  pause() {
-    this.synth.pause();
-  }
-
-  resume() {
-    this.synth.resume();
-  }
+  pause() { this.synth.pause(); }
+  resume() { this.synth.resume(); }
 
   setVolume(vol) { this.volume = Math.max(0, Math.min(1, vol)); }
   setRate(rate) { this.rate = Math.max(0.5, Math.min(2, rate)); }
   setPitch(pitch) { this.pitch = Math.max(0.5, Math.min(2, pitch)); }
 
-  isCzechSupported() {
-    const voices = this.synth.getVoices();
-    return voices.some(v => v.lang.startsWith('cs') || v.lang.startsWith('sk'));
+  isTargetLanguageSupported() {
+    const fallbackLangs = this._langConfig.voiceFallbackLangs;
+    return this.synth.getVoices().some(v =>
+      fallbackLangs.some(lang => v.lang === lang || v.lang.startsWith(lang.split('-')[0]))
+    );
   }
 
-  /**
-   * Estimate speech duration at current rate.
-   * ~150 words per minute for Czech.
-   */
   estimateDuration(text) {
     const words = text.split(/\s+/).length;
-    const wpm = 150 * this.rate;
+    const wpm = (this._langConfig.wordsPerMinute || 140) * this.rate;
     return (words / wpm) * 60;
   }
 }
