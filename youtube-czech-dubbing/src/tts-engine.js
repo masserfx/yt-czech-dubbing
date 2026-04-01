@@ -16,7 +16,28 @@ class TTSEngine {
     this.onSpeakStart = null;
     this.onSpeakEnd = null;
     this.voiceReady = false;
+
+    // Azure TTS settings
+    this._ttsEngine = 'browser'; // 'browser' or 'azure'
+    this._azureKey = null;
+    this._azureRegion = null;
+    this._azureVoice = 'cs-CZ-VlastaNeural';
+    this._currentAudio = null;
+
     this._initVoice();
+    this._loadTTSSettings();
+  }
+
+  async _loadTTSSettings() {
+    try {
+      const result = await chrome.storage.local.get('popupSettings');
+      if (result.popupSettings) {
+        this._ttsEngine = result.popupSettings.ttsEngine || 'browser';
+        this._azureKey = result.popupSettings.azureTtsKey || null;
+        this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
+        this._azureVoice = result.popupSettings.azureTtsVoice || 'cs-CZ-VlastaNeural';
+      }
+    } catch (e) {}
   }
 
   /**
@@ -159,12 +180,18 @@ class TTSEngine {
    * Returns a promise that resolves when speaking is complete.
    */
   speak(text, options = {}) {
-    return new Promise((resolve, reject) => {
-      if (!text || text.trim().length === 0) {
-        resolve();
-        return;
-      }
+    if (!text || text.trim().length === 0) return Promise.resolve();
 
+    // Use Azure TTS if configured
+    if (this._ttsEngine === 'azure' && this._azureKey) {
+      return this._speakAzure(text, options);
+    }
+
+    return this._speakBrowser(text, options);
+  }
+
+  _speakBrowser(text, options) {
+    return new Promise((resolve, reject) => {
       const utterance = new SpeechSynthesisUtterance(text);
 
       // Always set Czech language
@@ -211,6 +238,51 @@ class TTSEngine {
     });
   }
 
+  async _speakAzure(text, options) {
+    try {
+      this.isSpeaking = true;
+      if (this.onSpeakStart) this.onSpeakStart(text);
+
+      const response = await chrome.runtime.sendMessage({
+        type: 'synthesize-azure-tts',
+        text,
+        apiKey: this._azureKey,
+        region: this._azureRegion,
+        voice: this._azureVoice,
+        rate: options.rate ?? this.rate,
+        pitch: options.pitch ?? this.pitch
+      });
+
+      if (!response?.success) {
+        console.warn('[CzechDub TTS] Azure error:', response?.error);
+        // Fallback to browser TTS
+        return this._speakBrowser(text, options);
+      }
+
+      // Play base64 audio
+      const audio = new Audio(`data:audio/mp3;base64,${response.audioBase64}`);
+      audio.volume = options.volume ?? this.volume;
+      this._currentAudio = audio;
+
+      await new Promise((resolve) => {
+        audio.onended = resolve;
+        audio.onerror = () => {
+          console.warn('[CzechDub TTS] Azure audio playback error');
+          resolve();
+        };
+        audio.play().catch(() => resolve());
+      });
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return;
+      console.warn('[CzechDub TTS] Azure TTS failed, falling back to browser:', e);
+      return this._speakBrowser(text, options);
+    } finally {
+      this.isSpeaking = false;
+      this._currentAudio = null;
+      if (this.onSpeakEnd) this.onSpeakEnd(text);
+    }
+  }
+
   /**
    * Workaround for Chrome's SpeechSynthesis bug where it stops after ~15s.
    */
@@ -235,6 +307,10 @@ class TTSEngine {
     this.isSpeaking = false;
     this.currentUtterance = null;
     this.queue = [];
+    if (this._currentAudio) {
+      this._currentAudio.pause();
+      this._currentAudio = null;
+    }
     if (this._keepAliveInterval) {
       clearInterval(this._keepAliveInterval);
       this._keepAliveInterval = null;

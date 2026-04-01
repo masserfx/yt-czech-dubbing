@@ -263,8 +263,16 @@
       <div class="setting-label"><span>Překladač</span></div>
       <select id="translatorEngine">
         <option value="google">Google Translate (zdarma)</option>
+        <option value="deepl">DeepL (500k zn./měs. zdarma)</option>
         <option value="claude">Claude Haiku 4.5 (API klíč)</option>
       </select>
+    </div>
+
+    <div class="setting-group" id="deeplKeyGroup" style="display: none;">
+      <div class="setting-label"><span>DeepL API klíč</span></div>
+      <input type="password" id="deeplApiKey" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx"
+        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+      <div style="font-size:10px;color:#666;margin-top:4px;">Free: 500k zn./měs. Klíč z deepl.com/your-account</div>
     </div>
 
     <div class="setting-group" id="apiKeyGroup" style="display: none;">
@@ -272,6 +280,59 @@
       <input type="password" id="anthropicApiKey" placeholder="sk-ant-..."
         style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
       <div style="font-size:10px;color:#666;margin-top:4px;">~$0.003 za 30min video. Klíč z console.anthropic.com</div>
+    </div>
+
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+      <div class="setting-label"><span>Hlasový engine (TTS)</span></div>
+      <select id="ttsEngine">
+        <option value="browser">Systémový hlas (zdarma)</option>
+        <option value="azure">Azure TTS (500k zn./měs. zdarma)</option>
+      </select>
+    </div>
+
+    <div class="setting-group" id="azureTtsGroup" style="display: none;">
+      <div class="setting-label"><span>Azure Speech klíč</span></div>
+      <input type="password" id="azureTtsKey" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+      <div class="setting-label" style="margin-top:6px;"><span>Region</span></div>
+      <input type="text" id="azureTtsRegion" placeholder="westeurope" value="westeurope"
+        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+      <div class="setting-label" style="margin-top:6px;"><span>Hlas</span></div>
+      <select id="azureTtsVoice">
+        <option value="cs-CZ-VlastaNeural">Vlasta (cs-CZ, ženský)</option>
+        <option value="cs-CZ-AntoninNeural">Antonín (cs-CZ, mužský)</option>
+      </select>
+      <div style="font-size:10px;color:#666;margin-top:4px;">Free: 500k zn./měs. Klíč z portal.azure.com</div>
+    </div>
+
+    <!-- Srovnávací tabulka -->
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+      <details>
+        <summary style="font-size:12px; color:#aaa; cursor:pointer; user-select:none;">Srovnání dostupných engine</summary>
+        <table style="width:100%; font-size:10px; border-collapse:collapse; color:#ccc; margin-top:8px;">
+          <thead>
+            <tr style="color:#888; text-align:left; border-bottom:1px solid #0f3460;">
+              <th style="padding:4px;">Engine</th>
+              <th style="padding:4px;">Kvalita CZ</th>
+              <th style="padding:4px;">Cena</th>
+              <th style="padding:4px;">API klíč</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid #0a1a3a;">
+              <td colspan="4" style="padding:4px 4px 2px; color:#3498db; font-weight:600;">Překlad</td>
+            </tr>
+            <tr><td style="padding:3px 4px;">Google Translate</td><td style="padding:3px 4px;">dobrá</td><td style="padding:3px 4px; color:#2ecc71;">zdarma</td><td style="padding:3px 4px; color:#2ecc71;">ne</td></tr>
+            <tr><td style="padding:3px 4px;">DeepL</td><td style="padding:3px 4px; color:#2ecc71;">nejlepší</td><td style="padding:3px 4px; color:#2ecc71;">500k zn./měs.</td><td style="padding:3px 4px;">ano (free)</td></tr>
+            <tr><td style="padding:3px 4px;">Claude Haiku 4.5</td><td style="padding:3px 4px;">dobrá</td><td style="padding:3px 4px;">~$0.003/30min</td><td style="padding:3px 4px;">ano</td></tr>
+            <tr style="border-bottom:1px solid #0a1a3a;">
+              <td colspan="4" style="padding:6px 4px 2px; color:#3498db; font-weight:600;">Hlasový výstup (TTS)</td>
+            </tr>
+            <tr><td style="padding:3px 4px;">Systémový (Zuzana)</td><td style="padding:3px 4px;">OK</td><td style="padding:3px 4px; color:#2ecc71;">zdarma</td><td style="padding:3px 4px; color:#2ecc71;">ne</td></tr>
+            <tr><td style="padding:3px 4px;">Azure TTS</td><td style="padding:3px 4px; color:#2ecc71;">výborná</td><td style="padding:3px 4px; color:#2ecc71;">500k zn./měs.</td><td style="padding:3px 4px;">ano (free)</td></tr>
+          </tbody>
+        </table>
+      </details>
     </div>
   <div class="setting-group" id="usageSection" style="display:none; border-top: 1px solid #0f3460; padding-top: 12px; margin-top: 12px;">
     <div>
@@ -304,7 +365,7 @@
   </div>
 
   <div class="footer">
-    YouTube Czech Dubbing v1.0 | Zdarma & Open Source
+    YouTube Czech Dubbing v1.2 | Zdarma & Open Source
   </div>
 
   <script src="popup.js"></script>

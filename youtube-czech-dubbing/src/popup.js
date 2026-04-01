@@ -106,10 +106,27 @@ function updateSetting(setting, value) {
     case 'translatorEngine':
       settings.translatorEngine = value;
       document.getElementById('apiKeyGroup').style.display = value === 'claude' ? 'block' : 'none';
+      document.getElementById('deeplKeyGroup').style.display = value === 'deepl' ? 'block' : 'none';
       loadUsageStats();
       break;
     case 'anthropicApiKey':
       settings.anthropicApiKey = value;
+      break;
+    case 'deeplApiKey':
+      settings.deeplApiKey = value;
+      break;
+    case 'ttsEngine':
+      settings.ttsEngine = value;
+      document.getElementById('azureTtsGroup').style.display = value === 'azure' ? 'block' : 'none';
+      break;
+    case 'azureTtsKey':
+      settings.azureTtsKey = value;
+      break;
+    case 'azureTtsRegion':
+      settings.azureTtsRegion = value;
+      break;
+    case 'azureTtsVoice':
+      settings.azureTtsVoice = value;
       break;
   }
 
@@ -207,7 +224,12 @@ function saveSettings() {
     originalVolume: document.getElementById('originalVolume').value,
     muteOriginal: document.getElementById('muteOriginal').checked,
     translatorEngine: document.getElementById('translatorEngine').value,
-    anthropicApiKey: document.getElementById('anthropicApiKey').value
+    anthropicApiKey: document.getElementById('anthropicApiKey').value,
+    deeplApiKey: document.getElementById('deeplApiKey').value,
+    ttsEngine: document.getElementById('ttsEngine').value,
+    azureTtsKey: document.getElementById('azureTtsKey').value,
+    azureTtsRegion: document.getElementById('azureTtsRegion').value,
+    azureTtsVoice: document.getElementById('azureTtsVoice').value
   };
   chrome.storage.local.set({ popupSettings: settings });
 }
@@ -246,9 +268,26 @@ async function loadSettings() {
       if (s.translatorEngine) {
         document.getElementById('translatorEngine').value = s.translatorEngine;
         document.getElementById('apiKeyGroup').style.display = s.translatorEngine === 'claude' ? 'block' : 'none';
+        document.getElementById('deeplKeyGroup').style.display = s.translatorEngine === 'deepl' ? 'block' : 'none';
       }
       if (s.anthropicApiKey) {
         document.getElementById('anthropicApiKey').value = s.anthropicApiKey;
+      }
+      if (s.deeplApiKey) {
+        document.getElementById('deeplApiKey').value = s.deeplApiKey;
+      }
+      if (s.ttsEngine) {
+        document.getElementById('ttsEngine').value = s.ttsEngine;
+        document.getElementById('azureTtsGroup').style.display = s.ttsEngine === 'azure' ? 'block' : 'none';
+      }
+      if (s.azureTtsKey) {
+        document.getElementById('azureTtsKey').value = s.azureTtsKey;
+      }
+      if (s.azureTtsRegion) {
+        document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
+      }
+      if (s.azureTtsVoice) {
+        document.getElementById('azureTtsVoice').value = s.azureTtsVoice;
       }
     }
   } catch (e) {
@@ -335,8 +374,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Checkbox
   document.getElementById('muteOriginal').addEventListener('change', (e) => updateSetting('muteOriginal', e.target.checked));
 
-  // API key
+  // API keys
   document.getElementById('anthropicApiKey').addEventListener('change', (e) => updateSetting('anthropicApiKey', e.target.value));
+  document.getElementById('deeplApiKey').addEventListener('change', (e) => updateSetting('deeplApiKey', e.target.value));
+
+  // TTS engine
+  document.getElementById('ttsEngine').addEventListener('change', (e) => updateSetting('ttsEngine', e.target.value));
+  document.getElementById('azureTtsKey').addEventListener('change', (e) => updateSetting('azureTtsKey', e.target.value));
+  document.getElementById('azureTtsRegion').addEventListener('change', (e) => updateSetting('azureTtsRegion', e.target.value));
+  document.getElementById('azureTtsVoice').addEventListener('change', (e) => updateSetting('azureTtsVoice', e.target.value));
 
   // Reset usage
   document.getElementById('btnResetUsage').addEventListener('click', resetUsage);

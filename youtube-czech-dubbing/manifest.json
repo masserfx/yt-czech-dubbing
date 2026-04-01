@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Czech Dubbing",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Automatický český dabing pro YouTube videa - překlad a hlasový výstup v reálném čase",
   "permissions": [
     "activeTab",
@@ -15,7 +15,11 @@
     "https://translate.argosopentech.com/*",
     "https://translate.terraprint.co/*",
     "https://translate.googleapis.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://api-free.deepl.com/*",
+    "https://api.deepl.com/*",
+    "https://*.tts.speech.microsoft.com/*",
+    "https://*.api.cognitive.microsoft.com/*"
   ],
   "background": {
     "service_worker": "src/background.js"

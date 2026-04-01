@@ -10,8 +10,9 @@ class Translator {
     this.rateLimitDelay = 50; // ms between requests
     this.lastRequestTime = 0;
     this._contextInvalidated = false;
-    this._engine = 'google'; // 'google' or 'claude'
+    this._engine = 'google'; // 'google', 'claude', or 'deepl'
     this._anthropicApiKey = null;
+    this._deeplApiKey = null;
   }
 
   /**
@@ -23,6 +24,7 @@ class Translator {
       if (result.popupSettings) {
         this._engine = result.popupSettings.translatorEngine || 'google';
         this._anthropicApiKey = result.popupSettings.anthropicApiKey || null;
+        this._deeplApiKey = result.popupSettings.deeplApiKey || null;
       }
     } catch (e) {}
     console.log(`[CzechDub] Translation engine: ${this._engine}`);
@@ -49,6 +51,15 @@ class Translator {
     this.lastRequestTime = Date.now();
 
     let translated = null;
+
+    // Use DeepL if configured
+    if (this._engine === 'deepl' && this._deeplApiKey && !this._deeplDisabled) {
+      translated = await this._translateDeepL(text, sourceLang);
+      if (translated) {
+        this.cache.set(cacheKey, translated);
+        return translated;
+      }
+    }
 
     // Use Claude if configured and not disabled by previous error
     if (this._engine === 'claude' && this._anthropicApiKey && !this._claudeDisabled) {
@@ -265,6 +276,34 @@ class Translator {
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return null;
       console.warn('[CzechDub] Claude translation failed:', e);
+    }
+    return null;
+  }
+
+  /**
+   * DeepL translation via background worker.
+   */
+  async _translateDeepL(text, sourceLang) {
+    try {
+      const response = await this._sendMessage({
+        type: 'translate-deepl',
+        text,
+        sourceLang,
+        apiKey: this._deeplApiKey
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
+      }
+      if (response?.error) {
+        console.warn('[CzechDub] DeepL translation error:', response.error);
+        if (response.error.includes('Quota') || response.error.includes('403') || response.error.includes('456')) {
+          this._deeplDisabled = true;
+          console.warn('[CzechDub] DeepL disabled for this session (quota/auth), using Google Translate');
+        }
+      }
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return null;
+      console.warn('[CzechDub] DeepL translation failed:', e);
     }
     return null;
   }

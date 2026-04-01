@@ -91,6 +91,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'translate-deepl') {
+    translateDeepL(msg.text, msg.sourceLang, msg.apiKey)
+      .then(result => sendResponse({ success: true, translated: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'synthesize-azure-tts') {
+    synthesizeAzureTTS(msg.text, msg.apiKey, msg.region, msg.voice, msg.rate, msg.pitch)
+      .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'get-usage') {
     getUsageStats()
       .then(stats => sendResponse({ success: true, stats }))
@@ -663,6 +677,85 @@ ${text}`
   trackClaudeUsage(inputTokens, outputTokens);
 
   return translated;
+}
+
+/**
+ * DeepL Translation API (free tier: 500k chars/month)
+ */
+async function translateDeepL(text, sourceLang, apiKey) {
+  if (!apiKey) throw new Error('No DeepL API key');
+
+  // Free keys end with ':fx', use free endpoint
+  const isFree = apiKey.endsWith(':fx');
+  const baseUrl = isFree ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
+
+  const resp = await fetch(`${baseUrl}/v2/translate`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `DeepL-Auth-Key ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      text: [text],
+      source_lang: sourceLang.toUpperCase(),
+      target_lang: 'CS',
+      formality: 'default'
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`DeepL API ${resp.status}: ${err.substring(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  const translated = data.translations?.[0]?.text;
+  if (!translated) throw new Error('Empty response from DeepL');
+  return translated;
+}
+
+/**
+ * Azure Cognitive Services TTS
+ * Returns base64-encoded audio (MP3).
+ */
+async function synthesizeAzureTTS(text, apiKey, region, voice, rate, pitch) {
+  if (!apiKey || !region) throw new Error('No Azure TTS key or region');
+
+  const voiceName = voice || 'cs-CZ-VlastaNeural';
+  const rateStr = rate ? `${Math.round((rate - 1) * 100)}%` : '+0%';
+  const pitchStr = pitch ? `${Math.round((pitch - 1) * 50)}%` : '+0%';
+
+  const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="cs-CZ">
+  <voice name="${voiceName}">
+    <prosody rate="${rateStr}" pitch="${pitchStr}">${escapeXml(text)}</prosody>
+  </voice>
+</speak>`;
+
+  const resp = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+    method: 'POST',
+    headers: {
+      'Ocp-Apim-Subscription-Key': apiKey,
+      'Content-Type': 'application/ssml+xml',
+      'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3'
+    },
+    body: ssml
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Azure TTS ${resp.status}: ${err.substring(0, 200)}`);
+  }
+
+  const buffer = await resp.arrayBuffer();
+  // Convert to base64 for transfer to content script
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function escapeXml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // --- Usage tracking ---
