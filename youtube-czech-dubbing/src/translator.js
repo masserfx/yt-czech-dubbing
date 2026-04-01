@@ -7,7 +7,8 @@
 class Translator {
   constructor() {
     this.cache = new Map();
-    this.rateLimitDelay = 50; // ms between requests
+    this.rateLimitDelay = 50; // ms between requests (Google)
+    this._deeplRateLimitDelay = 300; // ms between DeepL requests (free tier: ~5/s)
     this.lastRequestTime = 0;
     this._contextInvalidated = false;
     this._engine = 'google'; // 'google', 'claude', or 'deepl'
@@ -42,11 +43,12 @@ class Translator {
       return this.cache.get(cacheKey);
     }
 
-    // Rate limiting
+    // Rate limiting — use engine-specific delay
+    const delay = (this._engine === 'deepl') ? this._deeplRateLimitDelay : this.rateLimitDelay;
     const now = Date.now();
     const elapsed = now - this.lastRequestTime;
-    if (elapsed < this.rateLimitDelay) {
-      await this._sleep(this.rateLimitDelay - elapsed);
+    if (elapsed < delay) {
+      await this._sleep(delay - elapsed);
     }
     this.lastRequestTime = Date.now();
 

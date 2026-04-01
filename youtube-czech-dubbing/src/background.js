@@ -689,29 +689,45 @@ async function translateDeepL(text, sourceLang, apiKey) {
   const isFree = apiKey.endsWith(':fx');
   const baseUrl = isFree ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
 
-  const resp = await fetch(`${baseUrl}/v2/translate`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `DeepL-Auth-Key ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      text: [text],
-      source_lang: sourceLang.toUpperCase(),
-      target_lang: 'CS',
-      formality: 'default'
-    })
-  });
+  const maxRetries = 3;
+  let lastError = null;
 
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`DeepL API ${resp.status}: ${err.substring(0, 200)}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const resp = await fetch(`${baseUrl}/v2/translate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `DeepL-Auth-Key ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text: [text],
+        source_lang: sourceLang.toUpperCase(),
+        target_lang: 'CS',
+        formality: 'default'
+      })
+    });
+
+    if (resp.status === 429) {
+      // Rate limited — exponential backoff: 1s, 2s, 4s
+      const backoff = Math.pow(2, attempt) * 1000;
+      console.warn(`[CzechDub] DeepL 429 rate limited, retrying in ${backoff}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, backoff));
+      lastError = new Error('DeepL API 429: Too Many Requests');
+      continue;
+    }
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`DeepL API ${resp.status}: ${err.substring(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    const translated = data.translations?.[0]?.text;
+    if (!translated) throw new Error('Empty response from DeepL');
+    return translated;
   }
 
-  const data = await resp.json();
-  const translated = data.translations?.[0]?.text;
-  if (!translated) throw new Error('Empty response from DeepL');
-  return translated;
+  throw lastError || new Error('DeepL API: max retries exceeded');
 }
 
 /**
