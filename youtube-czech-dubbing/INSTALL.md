@@ -10,7 +10,9 @@ Rozšíření pro Chrome, které automaticky překládá a dabuje YouTube videa 
 
 ## Stažení
 
-Stáhněte soubor `youtube-czech-dubbing-v*.zip` a rozbalte ho do libovolné složky.
+1. Přejděte na [Releases](https://github.com/masserfx/yt-czech-dubbing/releases/latest)
+2. Stáhněte soubor `youtube-czech-dubbing-v*.zip` (v sekci Assets)
+3. Rozbalte do libovolné složky
 
 ## Instalace (3 kroky)
 
