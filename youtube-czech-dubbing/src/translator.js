@@ -113,9 +113,10 @@ class Translator {
       }
 
       const SEP = 'XSEP9F3A';
+      const sepCleanRegex = /\s*X\s*S\s*E\s*P\s*9\s*F\s*3\s*A\s*/gi;
       const combinedText = batch.map(g => g.text).join(` ${SEP} `);
       const translatedCombined = await this.translate(combinedText, sourceLang);
-      const translatedParts = translatedCombined.split(new RegExp(`\\s*${SEP}\\s*`));
+      const translatedParts = translatedCombined.split(new RegExp(`\\s*${SEP}\\s*`, 'i'));
 
       if (translatedParts.length !== batch.length) {
         console.warn(`[CzechDub] Separator mismatch: expected ${batch.length} parts, got ${translatedParts.length}. Falling back to per-segment translation.`);
@@ -125,7 +126,7 @@ class Translator {
             start: group.start,
             duration: group.duration,
             originalText: group.text,
-            text: translatedText?.trim() || group.text
+            text: (translatedText || group.text).replace(sepCleanRegex, ' ').trim()
           });
         }
       } else {
@@ -135,7 +136,7 @@ class Translator {
             start: group.start,
             duration: group.duration,
             originalText: group.text,
-            text: translatedParts[j]?.trim() || group.text
+            text: (translatedParts[j] || group.text).replace(sepCleanRegex, ' ').trim()
           });
         }
       }

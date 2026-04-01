@@ -316,8 +316,31 @@ async function resetUsage() {
   loadUsageStats();
 }
 
-// Make resetUsage available to onclick
-window.resetUsage = resetUsage;
+// Initialize on load and bind all event listeners (no inline handlers — MV3 CSP)
+document.addEventListener('DOMContentLoaded', () => {
+  // Main toggle button
+  document.getElementById('btnToggle').addEventListener('click', toggleDubbing);
 
-// Initialize on load
-document.addEventListener('DOMContentLoaded', init);
+  // Range sliders
+  document.getElementById('ttsVolume').addEventListener('input', (e) => updateSetting('ttsVolume', e.target.value));
+  document.getElementById('ttsRate').addEventListener('input', (e) => updateSetting('ttsRate', e.target.value));
+  document.getElementById('ttsMaxRate').addEventListener('input', (e) => updateSetting('ttsMaxRate', e.target.value));
+  document.getElementById('ttsPitch').addEventListener('input', (e) => updateSetting('ttsPitch', e.target.value));
+  document.getElementById('originalVolume').addEventListener('input', (e) => updateSetting('originalVolume', e.target.value));
+
+  // Selects
+  document.getElementById('voiceSelect').addEventListener('change', (e) => setVoice(e.target.value));
+  document.getElementById('translatorEngine').addEventListener('change', (e) => updateSetting('translatorEngine', e.target.value));
+
+  // Checkbox
+  document.getElementById('muteOriginal').addEventListener('change', (e) => updateSetting('muteOriginal', e.target.checked));
+
+  // API key
+  document.getElementById('anthropicApiKey').addEventListener('change', (e) => updateSetting('anthropicApiKey', e.target.value));
+
+  // Reset usage
+  document.getElementById('btnResetUsage').addEventListener('click', resetUsage);
+
+  // Init popup state
+  init();
+});

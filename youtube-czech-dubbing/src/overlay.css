@@ -97,6 +97,92 @@
   font-family: 'Roboto', Arial, sans-serif;
 }
 
+/* Settings gear button */
+.czech-dub-gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s;
+  vertical-align: middle;
+}
+.czech-dub-gear:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Settings panel */
+.czech-dub-settings {
+  display: none;
+  background: #1a1a2e;
+  border: 1px solid #0f3460;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 8px 0;
+  max-width: 360px;
+  color: #e0e0e0;
+  font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+.czech-dub-settings.open { display: block; }
+.czech-dub-settings h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #fff;
+  border-bottom: 1px solid #0f3460;
+  padding-bottom: 8px;
+}
+.czech-dub-settings label {
+  display: block;
+  margin: 8px 0 4px;
+  color: #aaa;
+  font-size: 12px;
+}
+.czech-dub-settings select,
+.czech-dub-settings input[type="password"],
+.czech-dub-settings input[type="text"] {
+  width: 100%;
+  padding: 8px 10px;
+  background: #16213e;
+  color: #e0e0e0;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+.czech-dub-settings select:focus,
+.czech-dub-settings input:focus {
+  border-color: #3498db;
+}
+.czech-dub-settings .hint {
+  font-size: 10px;
+  color: #666;
+  margin-top: 4px;
+}
+.czech-dub-settings .api-key-group { display: none; }
+.czech-dub-settings .api-key-group.visible { display: block; }
+.czech-dub-settings .save-btn {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #11457e, #1a6bc4);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  width: 100%;
+}
+.czech-dub-settings .save-btn:hover { filter: brightness(1.15); }
+
 /* Status indicator */
 .czech-dub-status {
   position: fixed;

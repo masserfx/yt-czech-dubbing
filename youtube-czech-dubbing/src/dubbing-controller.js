@@ -630,6 +630,21 @@ class DubbingController {
     this.tts.setRate(this._settings.ttsRate);
     this.tts.setVolume(this._settings.ttsVolume);
     this.tts.setPitch(this._settings.ttsPitch);
+
+    // Re-optimize per-segment rates when base rate or max rate changes
+    if (('ttsRate' in settings || 'ttsMaxRate' in settings) && this._transcriptSegments) {
+      this._optimizeForTiming(this._transcriptSegments);
+    }
+
+    // Apply original volume change immediately during playback
+    if (('reducedOriginalVolume' in settings || 'muteOriginal' in settings) && this._isSpeaking && this.videoElement) {
+      if (this._settings.muteOriginal) {
+        this.videoElement.volume = 0;
+      } else {
+        this.videoElement.volume = this._settings.reducedOriginalVolume;
+      }
+    }
+
     this._saveSettings();
   }
 
