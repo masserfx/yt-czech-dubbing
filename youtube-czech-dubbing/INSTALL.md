@@ -8,54 +8,69 @@ Rozšíření pro Chrome, které automaticky překládá a dabuje YouTube videa 
 - Synchronizuje dabing s přehráváním videa
 - Zobrazuje české titulky přímo na videu
 
-## Instalace (Chrome)
+## Stažení
 
-1. **Otevřete Chrome** a přejděte na `chrome://extensions/`
-2. **Zapněte "Režim pro vývojáře"** (přepínač vpravo nahoře)
-3. **Klikněte na "Načíst rozbalené rozšíření"**
-4. **Vyberte složku** `youtube-czech-dubbing` z tohoto repozitáře
-5. Rozšíření se objeví v seznamu a ikona 🇨🇿 se zobrazí v panelu nástrojů
+Stáhněte soubor `youtube-czech-dubbing-v*.zip` a rozbalte ho do libovolné složky.
+
+## Instalace (3 kroky)
+
+### macOS i Windows — postup je stejný
+
+1. **Otevřete Chrome** a do adresního řádku zadejte:
+   ```
+   chrome://extensions/
+   ```
+
+2. **Zapněte "Režim pro vývojáře"** — přepínač vpravo nahoře na stránce
+
+3. **Klikněte na "Načíst rozbalené rozšíření"** (Load unpacked)
+   - Vyberte rozbalenou složku `youtube-czech-dubbing` (tu, která obsahuje soubor `manifest.json`)
+   - Rozšíření se objeví v seznamu a ikona se zobrazí v panelu nástrojů Chrome
+
+> **Tip:** Funguje i v prohlížečích **Edge**, **Brave** a **Chromium** — postup je stejný.
 
 ## Použití
 
-1. **Otevřete jakékoli YouTube video**
-2. **Klikněte na tlačítko "Český dabing"** pod videem (nad názvem)
+1. **Otevřete jakékoli YouTube video** s titulky
+2. **Klikněte na tlačítko "Český dabing"** pod videem
    - Nebo klikněte na ikonu rozšíření v panelu nástrojů Chrome
-3. **Počkejte na překlad** - rozšíření stáhne titulky a přeloží je
+3. **Počkejte na překlad** — rozšíření stáhne titulky a přeloží je
 4. **Dabing se automaticky spustí** a synchronizuje s videem
 
 ## Nastavení (v popup okně)
 
+Klikněte na ikonu rozšíření v panelu nástrojů a upravte:
+
 | Nastavení | Popis |
 |-----------|-------|
-| Hlasitost dabingu | Hlasitost českého hlasu (0-100%) |
-| Rychlost řeči | Jak rychle mluví český hlas (0.5x-2x) |
+| Hlasitost dabingu | Hlasitost českého hlasu (0–100%) |
+| Rychlost řeči | Jak rychle mluví český hlas (0.5x–2x) |
 | Výška hlasu | Výška českého hlasu |
 | Hlasitost originálu | Hlasitost původního zvuku během dabingu |
 | Ztlumit originál | Úplně ztlumit původní zvuk |
 | Hlas | Výběr z dostupných českých hlasů |
 
+## České hlasy na různých platformách
+
+### macOS
+Chrome na macOS automaticky nabízí české hlasy (Zuzana, Zuzana Premium). Není potřeba nic instalovat.
+
+### Windows
+Chrome na Windows obsahuje české hlasy přes Microsoft Speech API. Pokud český hlas chybí:
+1. Otevřete **Nastavení** → **Čas a jazyk** → **Jazyk a oblast**
+2. Přidejte **Čeština** jako jazyk
+3. Klikněte na čeština → **Možnosti** → stáhněte **Hlasový balíček**
+4. Restartujte Chrome
+
+### Linux
+```bash
+sudo apt install speech-dispatcher-espeak-ng
+```
+
 ## Požadavky
 
-- **Google Chrome** (verze 88+) nebo **Chromium** / **Edge** / **Brave**
+- **Google Chrome** (verze 88+) nebo **Edge** / **Brave** / **Chromium**
 - **Internetové připojení** (pro překlad)
-- **České hlasy** - Chrome na Windows/macOS obvykle obsahuje české hlasy.
-  Na Linuxu můžete potřebovat nainstalovat balíček `speech-dispatcher-espeak-ng`
-
-## Jak to funguje
-
-1. **Extrakce titulků**: Čte titulky z YouTube API (automatické nebo manuální)
-2. **Překlad**: Používá bezplatné překladové API (MyMemory, LibreTranslate, Google Translate)
-3. **Text-to-Speech**: Využívá Web Speech API zabudované v prohlížeči
-4. **Synchronizace**: Sleduje čas videa a spouští dabing ve správný moment
-
-## Omezení
-
-- Kvalita dabingu závisí na dostupných TTS hlasech v prohlížeči
-- Překlad nemusí být vždy perfektní (automatický strojový překlad)
-- Videa bez jakýchkoli titulků nelze dabovat
-- Bezplatné překladové API mají denní limity (~5000 znaků/den pro MyMemory)
-- TTS hlas zní synteticky (není to lidský dabing)
 
 ## Řešení problémů
 
@@ -63,12 +78,25 @@ Rozšíření pro Chrome, které automaticky překládá a dabuje YouTube videa 
 - Video nemá žádné titulky ani automaticky generované titulky
 
 **Neslyším český hlas**
-- Zkontrolujte, zda máte nainstalované české hlasy: `chrome://settings/languages`
-- Na Linuxu: `sudo apt install speech-dispatcher-espeak-ng`
+- Zkontrolujte, zda máte nainstalované české hlasy (viz sekce výše)
+- V nastavení rozšíření zkuste změnit hlas
 
 **Překlad nefunguje**
 - Zkontrolujte internetové připojení
 - Denní limit překladů mohl být vyčerpán, zkuste to zítra
+
+**Rozšíření zmizelo po restartu Chrome**
+- Při sideloadingu (Režim pro vývojáře) Chrome rozšíření zachová, ale může zobrazit varování — to je normální, stačí ho zavřít
+
+## Sdílení s ostatními
+
+1. Spusťte build skript:
+   ```bash
+   ./build.sh
+   ```
+2. Vznikne soubor `youtube-czech-dubbing-v*.zip`
+3. Pošlete .zip soubor příjemci
+4. Příjemce ho rozbalí a nainstaluje podle návodu výše
 
 ## Licence
 
