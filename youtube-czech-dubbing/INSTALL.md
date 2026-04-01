@@ -3,8 +3,8 @@
 ## Co to dělá?
 Rozšíření pro Chrome, které automaticky překládá a dabuje YouTube videa do češtiny.
 - Extrahuje titulky z YouTube videa (automatické i manuální)
-- Překládá je do češtiny pomocí bezplatných překladových API
-- Čte přeložený text českým hlasem (Web Speech API)
+- Překládá je do češtiny (Google Translate, DeepL nebo Claude Haiku)
+- Čte přeložený text českým hlasem (Web Speech API nebo Azure Neural TTS)
 - Synchronizuje dabing s přehráváním videa
 - Zobrazuje české titulky přímo na videu
 
@@ -39,9 +39,13 @@ Rozšíření pro Chrome, které automaticky překládá a dabuje YouTube videa 
 3. **Počkejte na překlad** — rozšíření stáhne titulky a přeloží je
 4. **Dabing se automaticky spustí** a synchronizuje s videem
 
-## Nastavení (v popup okně)
+## Nastavení
 
-Klikněte na ikonu rozšíření v panelu nástrojů a upravte:
+Nastavení je dostupné dvěma způsoby:
+- **Popup okno** — klikněte na ikonu rozšíření v panelu nástrojů Chrome
+- **Gear ikona** (⚙) — přímo pod videem vedle tlačítka "Český dabing"
+
+### Obecné
 
 | Nastavení | Popis |
 |-----------|-------|
@@ -51,6 +55,21 @@ Klikněte na ikonu rozšíření v panelu nástrojů a upravte:
 | Hlasitost originálu | Hlasitost původního zvuku během dabingu |
 | Ztlumit originál | Úplně ztlumit původní zvuk |
 | Hlas | Výběr z dostupných českých hlasů |
+
+### Překladové enginy
+
+| Engine | Kvalita | Cena | API klíč |
+|--------|---------|------|----------|
+| Google Translate | Dobrá | Zdarma | Ne |
+| DeepL | Velmi dobrá | 500k zn./měs. zdarma | Ano (deepl.com) |
+| Claude Haiku 4.5 | Výborná | ~$0.003/30min video | Ano (console.anthropic.com) |
+
+### TTS enginy (text-to-speech)
+
+| Engine | Kvalita | Cena | API klíč |
+|--------|---------|------|----------|
+| Browser (Web Speech API) | Dobrá (Zuzana na macOS) | Zdarma | Ne |
+| Azure Neural TTS | Výborná (Vlasta/Antonín) | 500k zn./měs. zdarma | Ano (azure.com) |
 
 ## České hlasy na různých platformách
 
@@ -85,7 +104,9 @@ sudo apt install speech-dispatcher-espeak-ng
 
 **Překlad nefunguje**
 - Zkontrolujte internetové připojení
-- Denní limit překladů mohl být vyčerpán, zkuste to zítra
+- Google Translate: denní limit mohl být vyčerpán, zkuste to zítra
+- DeepL: 500k znaků/měsíc na free tier, zkontrolujte kvótu na deepl.com
+- Claude: zkontrolujte kredit na console.anthropic.com
 
 **Rozšíření zmizelo po restartu Chrome**
 - Při sideloadingu (Režim pro vývojáře) Chrome rozšíření zachová, ale může zobrazit varování — to je normální, stačí ho zavřít
