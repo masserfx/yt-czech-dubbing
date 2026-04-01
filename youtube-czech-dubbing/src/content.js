@@ -37,7 +37,9 @@
    * Inject the "Czech Dubbing" activation button below the video player.
    */
   function injectActivationButton() {
-    // Remove existing button if any
+    // Remove existing button/container if any
+    const existingContainer = document.getElementById('czech-dub-container');
+    if (existingContainer) existingContainer.remove();
     const existing = document.getElementById('czech-dub-activate-btn');
     if (existing) existing.remove();
 
@@ -59,16 +61,102 @@
         `;
         btn.title = 'Aktivovat český dabing pro toto video';
 
+        // Gear button for settings
+        const gear = document.createElement('button');
+        gear.className = 'czech-dub-gear';
+        gear.textContent = '\u2699';
+        gear.title = 'Nastavení dabingu';
+
+        // Settings panel (built with DOM methods)
+        const settingsPanel = document.createElement('div');
+        settingsPanel.className = 'czech-dub-settings';
+
+        const heading = document.createElement('h3');
+        heading.textContent = '\u2699 Nastavení dabingu';
+        settingsPanel.appendChild(heading);
+
+        const engineLabel = document.createElement('label');
+        engineLabel.textContent = 'Překladač';
+        settingsPanel.appendChild(engineLabel);
+
+        const engineSelect = document.createElement('select');
+        engineSelect.id = 'czech-dub-engine';
+        const optGoogle = document.createElement('option');
+        optGoogle.value = 'google';
+        optGoogle.textContent = 'Google Translate (zdarma)';
+        const optClaude = document.createElement('option');
+        optClaude.value = 'claude';
+        optClaude.textContent = 'Claude Haiku 4.5 (API klíč)';
+        engineSelect.appendChild(optGoogle);
+        engineSelect.appendChild(optClaude);
+        settingsPanel.appendChild(engineSelect);
+
+        const apiKeyGroup = document.createElement('div');
+        apiKeyGroup.className = 'api-key-group';
+        const apiLabel = document.createElement('label');
+        apiLabel.textContent = 'Anthropic API klíč';
+        apiKeyGroup.appendChild(apiLabel);
+        const apiKeyInput = document.createElement('input');
+        apiKeyInput.type = 'password';
+        apiKeyInput.id = 'czech-dub-apikey';
+        apiKeyInput.placeholder = 'sk-ant-...';
+        apiKeyGroup.appendChild(apiKeyInput);
+        const apiHint = document.createElement('div');
+        apiHint.className = 'hint';
+        apiHint.textContent = '~$0.003 za 30min video \u2022 console.anthropic.com';
+        apiKeyGroup.appendChild(apiHint);
+        settingsPanel.appendChild(apiKeyGroup);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'save-btn';
+        saveBtn.textContent = 'Uložit nastavení';
+        settingsPanel.appendChild(saveBtn);
+
+        gear.addEventListener('click', (e) => {
+          e.stopPropagation();
+          settingsPanel.classList.toggle('open');
+        });
+
+        // Load saved settings into panel
+        chrome.storage.local.get('popupSettings', (result) => {
+          const s = result.popupSettings || {};
+          if (s.translatorEngine) engineSelect.value = s.translatorEngine;
+          if (s.anthropicApiKey) apiKeyInput.value = s.anthropicApiKey;
+          if (s.translatorEngine === 'claude') apiKeyGroup.classList.add('visible');
+
+          engineSelect.addEventListener('change', () => {
+            apiKeyGroup.classList.toggle('visible', engineSelect.value === 'claude');
+          });
+        });
+
+        // Save button
+        saveBtn.addEventListener('click', () => {
+          const engine = engineSelect.value;
+          const apiKey = apiKeyInput.value;
+          chrome.storage.local.get('popupSettings', (result) => {
+            const s = result.popupSettings || {};
+            s.translatorEngine = engine;
+            s.anthropicApiKey = apiKey;
+            chrome.storage.local.set({ popupSettings: s }, () => {
+              settingsPanel.classList.remove('open');
+              console.log('[CzechDub] Settings saved: engine=' + engine + ', apiKey=' + (apiKey ? 'set' : 'none'));
+            });
+          });
+        });
+
         btn.addEventListener('click', async () => {
-          if (controller.isActive) {
+          if (controller.isActive || controller._isStarting) {
             controller.stop();
-            btn.classList.remove('active');
+            controller._isStarting = false;
+            btn.classList.remove('active', 'loading');
             btn.querySelector('.czech-dub-btn-text').textContent = 'Český dabing';
           } else {
+            controller._isStarting = true;
             btn.classList.add('loading');
             btn.querySelector('.czech-dub-btn-text').textContent = 'Načítání...';
 
             const success = await controller.start();
+            controller._isStarting = false;
 
             btn.classList.remove('loading');
             if (success) {
@@ -96,7 +184,14 @@
           }
         };
 
-        infoArea.parentNode.insertBefore(btn, infoArea);
+        // Container for button + gear + settings
+        const container = document.createElement('div');
+        container.id = 'czech-dub-container';
+        container.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:0;';
+        container.appendChild(btn);
+        container.appendChild(gear);
+        container.appendChild(settingsPanel);
+        infoArea.parentNode.insertBefore(container, infoArea);
       }
     }, 1000);
 
@@ -137,16 +232,16 @@
     if (isVideoPage()) {
       setTimeout(injectActivationButton, 1500);
     } else {
-      // Remove button on non-video pages
-      const btn = document.getElementById('czech-dub-activate-btn');
-      if (btn) btn.remove();
+      // Remove button and settings on non-video pages
+      const container = document.getElementById('czech-dub-container');
+      if (container) container.remove();
     }
   }
 
   /**
    * Listen for messages from popup or background script.
    */
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  try { chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       case 'get-status':
         sendResponse(controller ? controller.getStatus() : { status: 'idle', message: '' });
@@ -193,7 +288,11 @@
         }
         break;
     }
-  });
+  }); } catch (e) {
+    if (e.message?.includes('Extension context invalidated')) {
+      console.warn('[CzechDub] Extension context invalidated — reload page');
+    }
+  }
 
   // Initialize when DOM is ready
   if (document.readyState === 'loading') {

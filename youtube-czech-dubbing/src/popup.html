@@ -10,7 +10,8 @@
       font-family: 'Segoe UI', Roboto, Arial, sans-serif;
       background: #1a1a2e;
       color: #e0e0e0;
-      overflow: hidden;
+      overflow-y: auto;
+      max-height: 600px;
     }
 
     .header {
@@ -197,7 +198,7 @@
   </div>
 
   <div class="controls" id="controlsSection">
-    <button class="btn-main btn-start" id="btnToggle" onclick="toggleDubbing()">
+    <button class="btn-main btn-start" id="btnToggle">
       <span>▶</span>
       <span id="btnText">Spustit český dabing</span>
     </button>
@@ -209,15 +210,25 @@
         <span>Hlasitost dabingu</span>
         <span class="setting-value" id="volumeValue">95%</span>
       </div>
-      <input type="range" id="ttsVolume" min="0" max="100" value="95" oninput="updateSetting('ttsVolume', this.value)">
+      <input type="range" id="ttsVolume" min="0" max="100" value="95">
     </div>
 
     <div class="setting-group">
       <div class="setting-label">
         <span>Rychlost řeči</span>
-        <span class="setting-value" id="rateValue">1.1x</span>
+        <span class="setting-value" id="rateValue">1.3x</span>
       </div>
-      <input type="range" id="ttsRate" min="50" max="200" value="110" oninput="updateSetting('ttsRate', this.value)">
+      <input type="range" id="ttsRate" min="50" max="200" value="125">
+      <div style="font-size:10px;color:#555;margin-top:2px;">Automaticky zrychlí až na max, pokud nestíhá</div>
+    </div>
+
+    <div class="setting-group">
+      <div class="setting-label">
+        <span>Max rychlost (auto-sync)</span>
+        <span class="setting-value" id="maxRateValue">1.8x</span>
+      </div>
+      <input type="range" id="ttsMaxRate" min="120" max="250" value="180">
+      <div style="font-size:10px;color:#555;margin-top:2px;">Limit auto-zrychlení pro delší věty</div>
     </div>
 
     <div class="setting-group">
@@ -225,7 +236,7 @@
         <span>Výška hlasu</span>
         <span class="setting-value" id="pitchValue">1.0</span>
       </div>
-      <input type="range" id="ttsPitch" min="50" max="200" value="100" oninput="updateSetting('ttsPitch', this.value)">
+      <input type="range" id="ttsPitch" min="50" max="200" value="100">
     </div>
 
     <div class="setting-group">
@@ -233,20 +244,63 @@
         <span>Hlasitost originálu při dabingu</span>
         <span class="setting-value" id="origVolValue">15%</span>
       </div>
-      <input type="range" id="originalVolume" min="0" max="100" value="15" oninput="updateSetting('originalVolume', this.value)">
+      <input type="range" id="originalVolume" min="0" max="100" value="15">
     </div>
 
     <div class="setting-group">
       <div class="setting-label"><span>Hlas</span></div>
-      <select id="voiceSelect" onchange="setVoice(this.value)">
+      <select id="voiceSelect">
         <option value="">Načítání hlasů...</option>
       </select>
     </div>
 
     <div class="checkbox-group">
-      <input type="checkbox" id="muteOriginal" onchange="updateSetting('muteOriginal', this.checked)">
+      <input type="checkbox" id="muteOriginal">
       <label for="muteOriginal">Úplně ztlumit originální zvuk</label>
     </div>
+
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+      <div class="setting-label"><span>Překladač</span></div>
+      <select id="translatorEngine">
+        <option value="google">Google Translate (zdarma)</option>
+        <option value="claude">Claude Haiku 4.5 (API klíč)</option>
+      </select>
+    </div>
+
+    <div class="setting-group" id="apiKeyGroup" style="display: none;">
+      <div class="setting-label"><span>Anthropic API klíč</span></div>
+      <input type="password" id="anthropicApiKey" placeholder="sk-ant-..."
+        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+      <div style="font-size:10px;color:#666;margin-top:4px;">~$0.003 za 30min video. Klíč z console.anthropic.com</div>
+    </div>
+  <div class="setting-group" id="usageSection" style="display:none; border-top: 1px solid #0f3460; padding-top: 12px; margin-top: 12px;">
+    <div>
+      <div class="setting-label" style="margin-bottom: 8px;">
+        <span style="font-size:13px; color:#e0e0e0; font-weight:500;">Claude API — Spotřeba</span>
+        <span class="setting-value" style="font-size:10px; cursor:pointer; color:#e74c3c;" id="btnResetUsage" title="Smazat historii">Reset</span>
+      </div>
+      <table style="width:100%; font-size:11px; border-collapse:collapse; color:#ccc;">
+        <thead>
+          <tr style="color:#888; text-align:left;">
+            <th style="padding:3px 4px;">Období</th>
+            <th style="padding:3px 4px; text-align:right;">Tokeny</th>
+            <th style="padding:3px 4px; text-align:right;">Cena</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:2px 4px;">Aktuální video</td><td style="padding:2px 4px; text-align:right;" id="usageVideo">—</td><td style="padding:2px 4px; text-align:right;" id="costVideo">—</td></tr>
+          <tr><td style="padding:2px 4px;">Dnes</td><td style="padding:2px 4px; text-align:right;" id="usageDay">—</td><td style="padding:2px 4px; text-align:right;" id="costDay">—</td></tr>
+          <tr><td style="padding:2px 4px;">Týden</td><td style="padding:2px 4px; text-align:right;" id="usageWeek">—</td><td style="padding:2px 4px; text-align:right;" id="costWeek">—</td></tr>
+          <tr><td style="padding:2px 4px;">Měsíc</td><td style="padding:2px 4px; text-align:right;" id="usageMonth">—</td><td style="padding:2px 4px; text-align:right;" id="costMonth">—</td></tr>
+          <tr><td style="padding:2px 4px;">Rok</td><td style="padding:2px 4px; text-align:right;" id="usageYear">—</td><td style="padding:2px 4px; text-align:right;" id="costYear">—</td></tr>
+          <tr style="border-top:1px solid #0f3460; font-weight:600; color:#e0e0e0;">
+            <td style="padding:4px 4px;">Celkem</td><td style="padding:4px 4px; text-align:right;" id="usageTotal">—</td><td style="padding:4px 4px; text-align:right;" id="costTotal">—</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="font-size:10px; color:#555; margin-top:6px;">Haiku 4.5: $0.80/1M input, $4.00/1M output</div>
+    </div>
+  </div>
   </div>
 
   <div class="footer">

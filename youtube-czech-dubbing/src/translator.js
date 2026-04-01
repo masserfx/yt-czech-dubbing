@@ -1,13 +1,31 @@
 /**
  * Translator - Translates text to Czech using free translation APIs.
+ * All API calls go through background.js service worker to bypass CSP.
  * Uses MyMemory Translation API (free, no API key needed, 5000 chars/day)
- * with fallback to LibreTranslate public instances.
+ * with fallback to LibreTranslate and Google Translate.
  */
 class Translator {
   constructor() {
     this.cache = new Map();
-    this.rateLimitDelay = 100; // ms between requests
+    this.rateLimitDelay = 50; // ms between requests
     this.lastRequestTime = 0;
+    this._contextInvalidated = false;
+    this._engine = 'google'; // 'google' or 'claude'
+    this._anthropicApiKey = null;
+  }
+
+  /**
+   * Load translation engine settings from storage.
+   */
+  async loadSettings() {
+    try {
+      const result = await chrome.storage.local.get('popupSettings');
+      if (result.popupSettings) {
+        this._engine = result.popupSettings.translatorEngine || 'google';
+        this._anthropicApiKey = result.popupSettings.anthropicApiKey || null;
+      }
+    } catch (e) {}
+    console.log(`[CzechDub] Translation engine: ${this._engine}`);
   }
 
   /**
@@ -15,6 +33,7 @@ class Translator {
    */
   async translate(text, sourceLang = 'en') {
     if (!text || text.trim().length === 0) return '';
+    if (this._contextInvalidated) return text;
 
     const cacheKey = `${sourceLang}:${text}`;
     if (this.cache.has(cacheKey)) {
@@ -31,17 +50,27 @@ class Translator {
 
     let translated = null;
 
-    // Try MyMemory API first (free, no key needed)
-    translated = await this._translateMyMemory(text, sourceLang);
-
-    // Fallback to LibreTranslate
-    if (!translated) {
-      translated = await this._translateLibre(text, sourceLang);
+    // Use Claude if configured and not disabled by previous error
+    if (this._engine === 'claude' && this._anthropicApiKey && !this._claudeDisabled) {
+      translated = await this._translateClaude(text, sourceLang);
+      if (translated) {
+        this.cache.set(cacheKey, translated);
+        return translated;
+      }
+      // Fall through to Google on Claude failure
     }
 
-    // Last resort: Google Translate unofficial endpoint
+    // Google Translate
+    translated = await this._translateGoogle(text, sourceLang);
+
+    // Fallback to MyMemory
     if (!translated) {
-      translated = await this._translateGoogle(text, sourceLang);
+      translated = await this._translateMyMemory(text, sourceLang);
+    }
+
+    // Last resort: LibreTranslate
+    if (!translated) {
+      translated = await this._translateLibre(text, sourceLang);
     }
 
     if (translated) {
@@ -49,116 +78,249 @@ class Translator {
       return translated;
     }
 
-    return text; // Return original if all translation fails
+    return text;
   }
 
   /**
-   * Translate an array of caption objects in batches.
-   * Returns new array with translated text.
+   * Translate caption segments: clean ASR errors, merge into sentences,
+   * translate as whole sentences, return sentence-level segments for TTS.
    */
   async translateCaptions(captions, sourceLang = 'en', onProgress = null) {
-    const translated = [];
-    const batchSize = 5;
+    // Step 1: Clean ASR errors in original text
+    const cleaned = captions.map(c => ({
+      ...c,
+      text: this._cleanASR(c.text)
+    }));
 
-    for (let i = 0; i < captions.length; i += batchSize) {
-      const batch = captions.slice(i, i + batchSize);
+    // Step 2: Merge into sentence groups for better translation
+    const groups = this._groupIntoSentences(cleaned);
+    console.log(`[CzechDub] ${captions.length} segments → ${groups.length} sentence groups`);
 
-      // Combine batch into single text for more efficient translation
-      const combinedText = batch.map(c => c.text).join(' ||| ');
+    // Step 3: Translate groups in batches
+    const maxCharsPerBatch = 4000;
+    const result = [];
+    let i = 0;
+
+    while (i < groups.length) {
+      if (this._contextInvalidated) break;
+
+      const batch = [];
+      let charCount = 0;
+      while (i < groups.length && (charCount + groups[i].text.length < maxCharsPerBatch || batch.length === 0)) {
+        batch.push(groups[i]);
+        charCount += groups[i].text.length + 5;
+        i++;
+      }
+
+      const SEP = 'XSEP9F3A';
+      const sepCleanRegex = /\s*X\s*S\s*E\s*P\s*9\s*F\s*3\s*A\s*/gi;
+      const combinedText = batch.map(g => g.text).join(` ${SEP} `);
       const translatedCombined = await this.translate(combinedText, sourceLang);
-      const translatedParts = translatedCombined.split(/\s*\|\|\|\s*/);
+      const translatedParts = translatedCombined.split(new RegExp(`\\s*${SEP}\\s*`, 'i'));
 
-      for (let j = 0; j < batch.length; j++) {
-        translated.push({
-          ...batch[j],
-          originalText: batch[j].text,
-          text: translatedParts[j] || batch[j].text
-        });
+      if (translatedParts.length !== batch.length) {
+        console.warn(`[CzechDub] Separator mismatch: expected ${batch.length} parts, got ${translatedParts.length}. Falling back to per-segment translation.`);
+        for (const group of batch) {
+          const translatedText = await this.translate(group.text, sourceLang);
+          result.push({
+            start: group.start,
+            duration: group.duration,
+            originalText: group.text,
+            text: (translatedText || group.text).replace(sepCleanRegex, ' ').trim()
+          });
+        }
+      } else {
+        for (let j = 0; j < batch.length; j++) {
+          const group = batch[j];
+          result.push({
+            start: group.start,
+            duration: group.duration,
+            originalText: group.text,
+            text: (translatedParts[j] || group.text).replace(sepCleanRegex, ' ').trim()
+          });
+        }
       }
 
       if (onProgress) {
-        onProgress(Math.min(i + batchSize, captions.length), captions.length);
+        onProgress(Math.min(i, groups.length), groups.length);
       }
     }
 
-    return translated;
+    console.log(`[CzechDub] Translated ${result.length} sentence groups`);
+    return result;
   }
 
   /**
-   * MyMemory Translation API - Free, no API key required.
-   * Limit: 5000 chars/day without key, 50000 with free key.
+   * Clean common ASR (auto-generated subtitle) errors.
    */
-  async _translateMyMemory(text, sourceLang) {
-    try {
-      const langPair = `${sourceLang}|cs`;
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langPair)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
+  _cleanASR(text) {
+    return text
+      // Remove speaker change markers (>> or >>)
+      .replace(/>{1,2}\s*/g, '')
+      // Remove [Music], [Applause], etc.
+      .replace(/\[.*?\]/g, '')
+      // Fix common misrecognitions
+      .replace(/\bclawed?\s*code\b/gi, 'Claude Code')
+      .replace(/\bcloud\s*code\b/gi, 'Claude Code')
+      .replace(/\bclaud\s*code\b/gi, 'Claude Code')
+      .replace(/\bopen\s*claw\b/gi, 'OpenClaw')
+      .replace(/\benropic\b/gi, 'Anthropic')
+      .replace(/\benthropic\b/gi, 'Anthropic')
+      .replace(/\bentropic\b/gi, 'Anthropic')
+      .replace(/\banthropic\b/gi, 'Anthropic')
+      // Remove filler words
+      .replace(/\b(uh|um|er|ah|like,?)\b/gi, '')
+      // Clean up double spaces and leading/trailing punctuation
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^\s*[,;]\s*/, '')
+      .trim();
+  }
 
-      if (data.responseStatus === 200 && data.responseData?.translatedText) {
-        const result = data.responseData.translatedText;
-        // MyMemory returns "MYMEMORY WARNING" when quota exceeded
-        if (result.includes('MYMEMORY WARNING') || result.includes('QUOTA')) {
-          return null;
+  /**
+   * Group segments into sentences (combine until sentence boundary).
+   * Each group has: text (combined), segments (original with timestamps).
+   */
+  _groupIntoSentences(segments) {
+    const groups = [];
+    let buffer = '';
+    let groupSegs = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg.text) continue;
+
+      groupSegs.push(seg);
+      buffer += (buffer ? ' ' : '') + seg.text;
+
+      const isSentenceEnd = /[.!?][""]?\s*$/.test(buffer);
+      const isLong = buffer.length > 150;
+      const isLast = i === segments.length - 1;
+
+      if (isSentenceEnd || isLong || isLast) {
+        groups.push({
+          text: buffer.trim(),
+          segments: [...groupSegs],
+          start: groupSegs[0].start,
+          duration: (seg.start + (seg.duration || 2)) - groupSegs[0].start
+        });
+        buffer = '';
+        groupSegs = [];
+      }
+    }
+
+    return groups;
+  }
+
+  /**
+   * MyMemory Translation API via background worker.
+   */
+  async _sendMessage(msg) {
+    if (this._contextInvalidated) return null;
+    try {
+      return await chrome.runtime.sendMessage(msg);
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) {
+        this._contextInvalidated = true;
+        this._showReloadBanner();
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  _showReloadBanner() {
+    if (document.getElementById('czech-dub-reload-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'czech-dub-reload-banner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#d32f2f;color:#fff;padding:12px 20px;font-size:15px;text-align:center;font-family:sans-serif;cursor:pointer;';
+    banner.textContent = '⚠️ Rozšíření Czech Dubbing bylo aktualizováno — klikněte zde pro reload stránky';
+    banner.addEventListener('click', () => location.reload());
+    document.body.appendChild(banner);
+  }
+
+  /**
+   * Claude Haiku 4.5 translation via background worker.
+   */
+  async _translateClaude(text, sourceLang) {
+    try {
+      const response = await this._sendMessage({
+        type: 'translate-claude',
+        text,
+        sourceLang,
+        apiKey: this._anthropicApiKey
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
+      }
+      if (response?.error) {
+        console.warn('[CzechDub] Claude translation error:', response.error);
+        // Disable Claude for this session on permanent errors
+        if (response.error.includes('credit balance') ||
+            response.error.includes('invalid x-api-key') ||
+            response.error.includes('authentication_error')) {
+          this._claudeDisabled = true;
+          console.warn('[CzechDub] Claude disabled for this session, using Google Translate');
         }
-        return result;
       }
     } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return null;
+      console.warn('[CzechDub] Claude translation failed:', e);
+    }
+    return null;
+  }
+
+  async _translateMyMemory(text, sourceLang) {
+    try {
+      const response = await this._sendMessage({
+        type: 'translate-mymemory',
+        text,
+        sourceLang
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
+      }
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return null;
       console.warn('[CzechDub] MyMemory translation failed:', e);
     }
     return null;
   }
 
   /**
-   * LibreTranslate - Free open source translation.
-   * Uses public instances.
+   * LibreTranslate via background worker.
    */
   async _translateLibre(text, sourceLang) {
-    const instances = [
-      'https://libretranslate.de',
-      'https://translate.argosopentech.com',
-      'https://translate.terraprint.co'
-    ];
-
-    for (const instance of instances) {
-      try {
-        const resp = await fetch(`${instance}/translate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            q: text,
-            source: sourceLang,
-            target: 'cs',
-            format: 'text'
-          })
-        });
-
-        if (!resp.ok) continue;
-
-        const data = await resp.json();
-        if (data.translatedText) {
-          return data.translatedText;
-        }
-      } catch (e) {
-        continue;
+    try {
+      const response = await this._sendMessage({
+        type: 'translate-libre',
+        text,
+        sourceLang
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
       }
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return null;
+      console.warn('[CzechDub] LibreTranslate translation failed:', e);
     }
     return null;
   }
 
   /**
-   * Google Translate unofficial endpoint (fallback).
+   * Google Translate via background worker.
    */
   async _translateGoogle(text, sourceLang) {
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=cs&dt=t&q=${encodeURIComponent(text)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
-
-      if (data && data[0]) {
-        return data[0].map(item => item[0]).join('');
+      const response = await this._sendMessage({
+        type: 'translate-google',
+        text,
+        sourceLang
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
       }
     } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return null;
       console.warn('[CzechDub] Google translate fallback failed:', e);
     }
     return null;

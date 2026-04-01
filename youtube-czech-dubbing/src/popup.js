@@ -36,8 +36,11 @@ async function init() {
   // Load voices
   loadVoices();
 
-  // Load saved settings
-  loadSettings();
+  // Load saved settings (must be before loadUsageStats so engine is set)
+  await loadSettings();
+
+  // Load usage stats
+  loadUsageStats();
 }
 
 /**
@@ -89,12 +92,24 @@ function updateSetting(setting, value) {
       settings.ttsPitch = parseInt(value) / 100;
       document.getElementById('pitchValue').textContent = (parseInt(value) / 100).toFixed(1);
       break;
+    case 'ttsMaxRate':
+      settings.ttsMaxRate = parseInt(value) / 100;
+      document.getElementById('maxRateValue').textContent = `${(parseInt(value) / 100).toFixed(1)}x`;
+      break;
     case 'originalVolume':
       settings.reducedOriginalVolume = parseInt(value) / 100;
       document.getElementById('origVolValue').textContent = `${value}%`;
       break;
     case 'muteOriginal':
       settings.muteOriginal = value;
+      break;
+    case 'translatorEngine':
+      settings.translatorEngine = value;
+      document.getElementById('apiKeyGroup').style.display = value === 'claude' ? 'block' : 'none';
+      loadUsageStats();
+      break;
+    case 'anthropicApiKey':
+      settings.anthropicApiKey = value;
       break;
   }
 
@@ -187,9 +202,12 @@ function saveSettings() {
   const settings = {
     ttsVolume: document.getElementById('ttsVolume').value,
     ttsRate: document.getElementById('ttsRate').value,
+    ttsMaxRate: document.getElementById('ttsMaxRate').value,
     ttsPitch: document.getElementById('ttsPitch').value,
     originalVolume: document.getElementById('originalVolume').value,
-    muteOriginal: document.getElementById('muteOriginal').checked
+    muteOriginal: document.getElementById('muteOriginal').checked,
+    translatorEngine: document.getElementById('translatorEngine').value,
+    anthropicApiKey: document.getElementById('anthropicApiKey').value
   };
   chrome.storage.local.set({ popupSettings: settings });
 }
@@ -210,6 +228,10 @@ async function loadSettings() {
         document.getElementById('ttsRate').value = s.ttsRate;
         document.getElementById('rateValue').textContent = `${(parseInt(s.ttsRate) / 100).toFixed(1)}x`;
       }
+      if (s.ttsMaxRate) {
+        document.getElementById('ttsMaxRate').value = s.ttsMaxRate;
+        document.getElementById('maxRateValue').textContent = `${(parseInt(s.ttsMaxRate) / 100).toFixed(1)}x`;
+      }
       if (s.ttsPitch) {
         document.getElementById('ttsPitch').value = s.ttsPitch;
         document.getElementById('pitchValue').textContent = (parseInt(s.ttsPitch) / 100).toFixed(1);
@@ -220,6 +242,13 @@ async function loadSettings() {
       }
       if (s.muteOriginal !== undefined) {
         document.getElementById('muteOriginal').checked = s.muteOriginal;
+      }
+      if (s.translatorEngine) {
+        document.getElementById('translatorEngine').value = s.translatorEngine;
+        document.getElementById('apiKeyGroup').style.display = s.translatorEngine === 'claude' ? 'block' : 'none';
+      }
+      if (s.anthropicApiKey) {
+        document.getElementById('anthropicApiKey').value = s.anthropicApiKey;
       }
     }
   } catch (e) {
@@ -236,5 +265,82 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Initialize on load
-document.addEventListener('DOMContentLoaded', init);
+// --- Usage stats ---
+
+function formatTokens(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return String(n);
+}
+
+function formatCost(usd) {
+  if (usd < 0.001) return '—';
+  if (usd < 0.01) return '$' + usd.toFixed(4);
+  if (usd < 1) return '$' + usd.toFixed(3);
+  return '$' + usd.toFixed(2);
+}
+
+async function loadUsageStats() {
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'get-usage' });
+    if (!resp?.success) return;
+    const s = resp.stats;
+
+    const rows = [
+      ['Video', s.currentVideo],
+      ['Day', s.today],
+      ['Week', s.week],
+      ['Month', s.month],
+      ['Year', s.year],
+      ['Total', s.total]
+    ];
+
+    for (const [key, data] of rows) {
+      const tokens = data.input + data.output;
+      document.getElementById('usage' + key).textContent = tokens > 0 ? formatTokens(tokens) : '—';
+      document.getElementById('cost' + key).textContent = data.cost > 0 ? formatCost(data.cost) : '—';
+    }
+
+    // Show section only if Claude is selected or there's usage data
+    const engine = document.getElementById('translatorEngine').value;
+    document.getElementById('usageSection').style.display =
+      (engine === 'claude' || s.total.requests > 0) ? 'block' : 'none';
+  } catch (e) {
+    // Background not available
+  }
+}
+
+async function resetUsage() {
+  if (!confirm('Smazat historii spotřeby tokenů?')) return;
+  await chrome.runtime.sendMessage({ type: 'reset-usage' });
+  loadUsageStats();
+}
+
+// Initialize on load and bind all event listeners (no inline handlers — MV3 CSP)
+document.addEventListener('DOMContentLoaded', () => {
+  // Main toggle button
+  document.getElementById('btnToggle').addEventListener('click', toggleDubbing);
+
+  // Range sliders
+  document.getElementById('ttsVolume').addEventListener('input', (e) => updateSetting('ttsVolume', e.target.value));
+  document.getElementById('ttsRate').addEventListener('input', (e) => updateSetting('ttsRate', e.target.value));
+  document.getElementById('ttsMaxRate').addEventListener('input', (e) => updateSetting('ttsMaxRate', e.target.value));
+  document.getElementById('ttsPitch').addEventListener('input', (e) => updateSetting('ttsPitch', e.target.value));
+  document.getElementById('originalVolume').addEventListener('input', (e) => updateSetting('originalVolume', e.target.value));
+
+  // Selects
+  document.getElementById('voiceSelect').addEventListener('change', (e) => setVoice(e.target.value));
+  document.getElementById('translatorEngine').addEventListener('change', (e) => updateSetting('translatorEngine', e.target.value));
+
+  // Checkbox
+  document.getElementById('muteOriginal').addEventListener('change', (e) => updateSetting('muteOriginal', e.target.checked));
+
+  // API key
+  document.getElementById('anthropicApiKey').addEventListener('change', (e) => updateSetting('anthropicApiKey', e.target.value));
+
+  // Reset usage
+  document.getElementById('btnResetUsage').addEventListener('click', resetUsage);
+
+  // Init popup state
+  init();
+});

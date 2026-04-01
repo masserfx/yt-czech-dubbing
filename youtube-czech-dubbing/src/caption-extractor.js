@@ -1,52 +1,333 @@
 /**
- * CaptionExtractor - Extracts captions/subtitles from YouTube videos.
- * Communicates with page-script.js (running in MAIN world) via postMessage
- * to access YouTube's internal player data.
+ * CaptionExtractor - Reads captions from YouTube's video player DOM.
+ *
+ * Strategy: YouTube shows rolling captions with multiple .caption-visual-line
+ * elements visible at once. Each line grows word-by-word, then eventually
+ * disappears from the DOM as new lines appear.
+ *
+ * We track visible lines by reference. When a line DISAPPEARS from the DOM,
+ * it's complete — we emit its final text. This guarantees:
+ * - No partial words (line is complete when emitted)
+ * - No duplicates (each line emitted exactly once on disappear)
+ * - Correct ordering (lines emitted in the order they disappear)
  */
 class CaptionExtractor {
   constructor() {
-    this.captions = [];
     this.currentVideoId = null;
+    this.captionObserver = null;
+    this.onCaption = null;
+    // Track currently visible lines: Map<element, text>
+    this._visibleLines = new Map();
+    // Track emitted texts to avoid rare duplicates
+    this._emittedTexts = new Set();
+    this._pollInterval = null;
   }
 
-  /**
-   * Get the current YouTube video ID from the URL.
-   */
   getVideoId() {
     const params = new URLSearchParams(window.location.search);
     return params.get('v');
   }
 
   /**
-   * Extract caption tracks by requesting them from the MAIN world page-script.
+   * Check if captions are available for this video.
    */
-  async getCaptionTracks() {
-    const videoId = this.getVideoId();
-    if (!videoId) return [];
+  async hasCaptions() {
+    const tracks = await this._requestTracksFromPageScript();
+    return tracks && tracks.length > 0;
+  }
 
-    try {
-      // Request tracks from page-script.js running in MAIN world
-      const tracks = await this._requestTracksFromPageScript();
-      if (tracks && tracks.length > 0) {
-        console.log(`[CzechDub] Found ${tracks.length} caption tracks via page script`);
-        return tracks;
+  /**
+   * Enable YouTube captions with Czech translation via player API.
+   */
+  async enableCzechCaptions() {
+    console.log('[CzechDub] Enabling Czech captions via player API...');
+
+    return new Promise((resolve) => {
+      const requestId = 'czechdub_enable_' + Date.now();
+
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data?.type !== 'CZECH_DUB_ENABLE_RESULT') return;
+        if (event.data?.requestId !== requestId) return;
+
+        window.removeEventListener('message', handler);
+        clearTimeout(timeout);
+        console.log(`[CzechDub] Enable captions result: ${event.data.success} - ${event.data.message}`);
+        resolve(event.data.success);
+      };
+      window.addEventListener('message', handler);
+
+      window.postMessage({
+        type: 'CZECH_DUB_ENABLE_CAPTIONS',
+        requestId: requestId,
+        targetLang: 'cs'
+      }, 'https://www.youtube.com');
+
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(false);
+      }, 5000);
+    });
+  }
+
+  /**
+   * Start observing YouTube's caption DOM.
+   * Uses the "emit on disappear" strategy.
+   */
+  startObserving(callback) {
+    this.stopObserving();
+
+    this.onCaption = callback;
+    this._visibleLines = new Map();
+    this._emittedTexts.clear();
+
+    const findCaptionContainer = () => {
+      const container = document.querySelector('.ytp-caption-window-container')
+        || document.querySelector('.caption-window')
+        || document.querySelector('#movie_player .captions-text');
+
+      if (container) {
+        console.log('[CzechDub] Found caption container');
+        this._setupObserver(container);
+        return true;
       }
+      return false;
+    };
 
-      // Fallback: re-fetch page HTML and parse caption data
-      console.log('[CzechDub] Page script returned no tracks, trying page fetch fallback...');
-      return await this._fetchCaptionTracksFromPage(videoId);
-    } catch (err) {
-      console.warn('[CzechDub] Failed to get caption tracks:', err);
-      return [];
+    if (!findCaptionContainer()) {
+      console.log('[CzechDub] Caption container not found yet, watching...');
+
+      const playerContainer = document.querySelector('#movie_player')
+        || document.querySelector('.html5-video-player')
+        || document.body;
+
+      this.captionObserver = new MutationObserver(() => {
+        findCaptionContainer();
+      });
+
+      this.captionObserver.observe(playerContainer, {
+        childList: true,
+        subtree: true
+      });
+
+      this._pollInterval = setInterval(() => {
+        this._checkLines();
+      }, 300);
     }
   }
 
   /**
-   * Request caption tracks from page-script.js via postMessage.
+   * Set up MutationObserver on the caption container.
+   */
+  _setupObserver(container) {
+    if (this.captionObserver) {
+      this.captionObserver.disconnect();
+    }
+
+    this.captionObserver = new MutationObserver(() => {
+      this._checkLines();
+    });
+
+    this.captionObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    if (this._pollInterval) clearInterval(this._pollInterval);
+    this._pollInterval = setInterval(() => {
+      this._checkLines();
+    }, 300);
+
+    console.log('[CzechDub] Caption observer started (emit-on-disappear mode)');
+  }
+
+  /**
+   * Core logic: track visible caption lines.
+   * When a line disappears from DOM, emit its text.
+   */
+  _checkLines() {
+    // Get all currently visible caption visual lines
+    const currentLineElements = document.querySelectorAll('.caption-visual-line');
+
+    // Build a set of currently visible elements
+    const currentSet = new Set();
+    const currentTexts = new Map();
+
+    currentLineElements.forEach(el => {
+      currentSet.add(el);
+      // Read text from segments within this line
+      const segments = el.querySelectorAll('.ytp-caption-segment');
+      let text = '';
+      segments.forEach(seg => {
+        const t = seg.textContent.trim();
+        if (t) text += (text ? ' ' : '') + t;
+      });
+      text = this._cleanText(text);
+      if (text) {
+        currentTexts.set(el, text);
+      }
+    });
+
+    // Check which previously visible lines have DISAPPEARED
+    for (const [el, oldText] of this._visibleLines) {
+      if (!currentSet.has(el)) {
+        // This line disappeared — emit its last known text
+        if (oldText && oldText.length >= 3 && !this._isDuplicate(oldText)) {
+          this._emittedTexts.add(oldText);
+          this._emitCaption(oldText);
+
+          // Keep emitted set bounded
+          if (this._emittedTexts.size > 50) {
+            const first = this._emittedTexts.values().next().value;
+            this._emittedTexts.delete(first);
+          }
+        }
+      }
+    }
+
+    // Update visible lines with current state
+    // Always update text for existing lines (they grow word-by-word)
+    this._visibleLines = currentTexts;
+  }
+
+  /**
+   * Check if text is a duplicate or prefix of recently emitted text.
+   * Handles ASR captions where lines grow word-by-word.
+   */
+  _isDuplicate(text) {
+    if (this._emittedTexts.has(text)) return true;
+
+    // Check if this text is a prefix of a recently emitted line
+    // or if a recently emitted line is a prefix of this text
+    for (const emitted of this._emittedTexts) {
+      // Skip if text is a short prefix of something we already emitted
+      if (emitted.startsWith(text) && text.length < emitted.length) return true;
+      // Skip if we already emitted a prefix and this is the full version
+      // (emit the full version, remove the prefix)
+      if (text.startsWith(emitted) && emitted.length < text.length) {
+        this._emittedTexts.delete(emitted);
+        return false; // Not a duplicate — it's the extended version
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Clean caption text — remove YouTube UI artifacts.
+   */
+  _cleanText(text) {
+    if (!text) return '';
+    text = text.replace(/\s*(Angličtina|Čeština|English)\s*\(.*?\)\s*>>\s*\S+/g, '').trim();
+    text = text.replace(/\s*Nastavení\s+můž.*/g, '').trim();
+    return text;
+  }
+
+  /**
+   * Emit a caption to the callback.
+   */
+  _emitCaption(text) {
+    if (!text || text.length < 3) return;
+    console.log(`[CzechDub] Caption: "${text.substring(0, 100)}"`);
+    if (this.onCaption) {
+      this.onCaption(text);
+    }
+  }
+
+  /**
+   * Stop observing.
+   */
+  stopObserving() {
+    if (this.captionObserver) {
+      this.captionObserver.disconnect();
+      this.captionObserver = null;
+    }
+    if (this._pollInterval) {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
+    }
+    this.onCaption = null;
+    this._visibleLines = new Map();
+    this._emittedTexts.clear();
+  }
+
+  /**
+   * Handle video seek — clear tracking state.
+   */
+  onSeek() {
+    this._visibleLines = new Map();
+    this._emittedTexts.clear();
+  }
+
+  /**
+   * Fetch the full transcript (all segments with timestamps) from the page-script.
+   * Returns an array of {start, duration, text} or null on failure.
+   */
+  /**
+   * Fetch full transcript. Strategy:
+   * 1. Ask page-script for transcript params from ytInitialData (no network call)
+   * 2. If params found, send to background.js for /get_transcript call
+   * 3. If no params, send videoId to background.js for full HTML-based extraction
+   */
+  async fetchFullTranscript() {
+    const videoId = this.getVideoId();
+    if (!videoId) return null;
+
+    console.log(`[CzechDub] Fetching transcript for video: ${videoId}`);
+
+    // Ask page-script to extract params from ytInitialData and call /get_transcript
+    // This runs in MAIN world (page context) with full YouTube cookies
+    const result = await this._getTranscriptFromPage();
+
+    if (result?.success && result.segments?.length > 0) {
+      const lang = result.detectedLang || 'en';
+      console.log(`[CzechDub] Got ${result.segments.length} transcript segments from page (lang: ${lang})`);
+      return {
+        segments: result.segments,
+        sourceLang: lang
+      };
+    }
+
+    console.warn('[CzechDub] Transcript from page failed:', result?.error || 'no segments');
+    return null;
+  }
+
+  /**
+   * Ask page-script to fetch transcript directly from YouTube (has cookies).
+   */
+  _getTranscriptFromPage() {
+    return new Promise((resolve) => {
+      const requestId = 'czechdub_params_' + Date.now();
+
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data?.type !== 'CZECH_DUB_TRANSCRIPT_PARAMS') return;
+        if (event.data?.requestId !== requestId) return;
+
+        window.removeEventListener('message', handler);
+        clearTimeout(timeout);
+        resolve(event.data);
+      };
+      window.addEventListener('message', handler);
+
+      window.postMessage({
+        type: 'CZECH_DUB_GET_TRANSCRIPT_PARAMS',
+        requestId: requestId
+      }, 'https://www.youtube.com');
+
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }, 5000); // fast timeout — quick XHR test, fall back to DOM mode
+    });
+  }
+
+  /**
+   * Request caption track list from page-script.
    */
   _requestTracksFromPageScript() {
     return new Promise((resolve) => {
-      const requestId = 'czechdub_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      const requestId = 'czechdub_tracks_' + Date.now();
 
       const handler = (event) => {
         if (event.source !== window) return;
@@ -59,215 +340,16 @@ class CaptionExtractor {
       };
       window.addEventListener('message', handler);
 
-      // Send request to page-script.js
       window.postMessage({
         type: 'CZECH_DUB_REQUEST_TRACKS',
         requestId: requestId
-      }, '*');
+      }, 'https://www.youtube.com');
 
-      // Timeout after 3 seconds
       const timeout = setTimeout(() => {
         window.removeEventListener('message', handler);
-        console.warn('[CzechDub] Page script request timed out');
         resolve([]);
       }, 3000);
     });
-  }
-
-  /**
-   * Fallback: re-fetch the page HTML and parse caption data.
-   */
-  async _fetchCaptionTracksFromPage(videoId) {
-    try {
-      const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-        credentials: 'include'
-      });
-      const html = await resp.text();
-      console.log(`[CzechDub] Fetched page HTML: ${html.length} chars`);
-
-      // Try to find ytInitialPlayerResponse JSON
-      const playerRespMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*(?:var|const|let|<\/script)/s);
-      if (playerRespMatch) {
-        try {
-          const playerResp = JSON.parse(playerRespMatch[1]);
-          const tracks = playerResp?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-          if (tracks && tracks.length > 0) {
-            console.log(`[CzechDub] Found ${tracks.length} tracks from ytInitialPlayerResponse`);
-            return tracks;
-          }
-        } catch (e) {
-          console.warn('[CzechDub] Failed to parse ytInitialPlayerResponse:', e.message);
-        }
-      }
-
-      // Fallback: narrower regex for captions block
-      const captionsMatch = html.match(/"captionTracks":\s*(\[.+?\])/s);
-      if (captionsMatch) {
-        try {
-          const tracks = JSON.parse(captionsMatch[1]);
-          console.log(`[CzechDub] Found ${tracks.length} tracks from captionTracks regex`);
-          return tracks;
-        } catch (e) {
-          console.warn('[CzechDub] Failed to parse captionTracks:', e.message);
-        }
-      }
-
-      console.warn('[CzechDub] No caption data found in page HTML');
-    } catch (e) {
-      console.warn('[CzechDub] Fallback caption fetch failed:', e);
-    }
-    return [];
-  }
-
-  /**
-   * Download and parse captions from a track URL.
-   * If targetLang is specified, uses YouTube's built-in translation.
-   * Retries on 429 (rate limit) with exponential backoff.
-   */
-  async downloadCaptions(trackUrl, targetLang = null) {
-    const url = new URL(trackUrl);
-    url.searchParams.set('fmt', 'json3');
-
-    if (targetLang) {
-      url.searchParams.set('tlang', targetLang);
-    }
-
-    console.log(`[CzechDub] Caption URL: ${url.toString().substring(0, 120)}...`);
-
-    const maxRetries = 3;
-    const delays = [2000, 4000, 8000];
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        if (attempt > 0) {
-          const delay = delays[attempt - 1] || 8000;
-          console.log(`[CzechDub] Retry ${attempt}/${maxRetries} after ${delay}ms...`);
-          await new Promise(r => setTimeout(r, delay));
-        }
-
-        console.log(`[CzechDub] Downloading captions (tlang=${targetLang || 'none'}, attempt ${attempt + 1})...`);
-
-        const resp = await fetch(url.toString(), {
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json'
-          }
-        });
-
-        console.log(`[CzechDub] Response: status=${resp.status}, type=${resp.headers.get('content-type')}`);
-
-        if (resp.status === 429) {
-          console.warn(`[CzechDub] Rate limited (429), will retry...`);
-          if (attempt === maxRetries) {
-            console.error('[CzechDub] Max retries reached on 429');
-            return [];
-          }
-          continue;
-        }
-
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status}`);
-        }
-
-        const text = await resp.text();
-        console.log(`[CzechDub] Response body length: ${text.length}, first 200 chars: ${text.substring(0, 200)}`);
-
-        if (!text || text.trim().length === 0) {
-          console.warn('[CzechDub] Empty response body');
-          if (attempt < maxRetries) continue;
-          return [];
-        }
-
-        // Check if response is HTML (error page) instead of JSON
-        if (text.trim().startsWith('<!') || text.trim().startsWith('<html')) {
-          console.warn('[CzechDub] Got HTML instead of JSON - URL may be expired');
-          if (attempt < maxRetries) continue;
-          return [];
-        }
-
-        const data = JSON.parse(text);
-        if (!data.events) {
-          console.warn('[CzechDub] JSON parsed but no events found. Keys:', Object.keys(data).join(', '));
-          return [];
-        }
-
-        console.log(`[CzechDub] Got ${data.events.length} caption events`);
-
-        return data.events
-          .filter(event => event.segs && event.segs.length > 0)
-          .map(event => ({
-            start: (event.tStartMs || 0) / 1000,
-            duration: (event.dDurationMs || 0) / 1000,
-            text: event.segs.map(s => s.utf8 || '').join('').trim()
-          }))
-          .filter(caption => caption.text.length > 0);
-      } catch (err) {
-        console.error(`[CzechDub] Caption download error (attempt ${attempt + 1}):`, err.message);
-        if (attempt === maxRetries) return [];
-      }
-    }
-    return [];
-  }
-
-  /**
-   * Get the best available caption track, translated to Czech.
-   * Uses YouTube's built-in &tlang=cs for server-side translation.
-   */
-  async getBestCaptions() {
-    const tracks = await this.getCaptionTracks();
-    if (tracks.length === 0) return null;
-
-    console.log(`[CzechDub] Available tracks:`,
-      tracks.map(t => `${t.languageCode} (${t.kind || 'manual'})`).join(', '));
-
-    // Check if Czech manual captions exist
-    const czechManual = tracks.find(t =>
-      t.languageCode === 'cs' && t.kind !== 'asr'
-    );
-
-    if (czechManual) {
-      console.log('[CzechDub] Using Czech manual captions directly');
-      const captions = await this.downloadCaptions(czechManual.baseUrl);
-      return {
-        captions,
-        language: 'cs',
-        isAutoGenerated: false,
-        isCzech: true,
-        trackName: czechManual.name?.simpleText || 'cs'
-      };
-    }
-
-    // Select best source track for translation
-    const enManual = tracks.find(t => t.languageCode === 'en' && t.kind !== 'asr');
-    const enAuto = tracks.find(t => t.languageCode === 'en' && t.kind === 'asr');
-    const anyManual = tracks.find(t => t.kind !== 'asr');
-    const anyAuto = tracks.find(t => t.kind === 'asr');
-    const selectedTrack = enManual || enAuto || anyManual || anyAuto || tracks[0];
-
-    console.log(`[CzechDub] Source track: ${selectedTrack.languageCode} (${selectedTrack.kind || 'manual'}), translating to Czech via YouTube...`);
-
-    // Download with YouTube's built-in Czech translation
-    const captions = await this.downloadCaptions(selectedTrack.baseUrl, 'cs');
-
-    if (captions.length === 0) {
-      console.log('[CzechDub] YouTube translation empty, trying raw captions...');
-      const rawCaptions = await this.downloadCaptions(selectedTrack.baseUrl);
-      return {
-        captions: rawCaptions,
-        language: selectedTrack.languageCode,
-        isAutoGenerated: selectedTrack.kind === 'asr',
-        isCzech: false,
-        trackName: selectedTrack.name?.simpleText || selectedTrack.languageCode
-      };
-    }
-
-    return {
-      captions,
-      language: selectedTrack.languageCode,
-      isAutoGenerated: selectedTrack.kind === 'asr',
-      isCzech: true,
-      trackName: selectedTrack.name?.simpleText || selectedTrack.languageCode
-    };
   }
 }
 

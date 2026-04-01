@@ -1,11 +1,10 @@
 /**
  * DubbingController - Main orchestrator for the Czech dubbing feature.
- * Coordinates caption extraction, translation, and TTS playback
- * synchronized with the YouTube video player.
  *
- * Two modes:
- * 1. Caption-based: Uses YouTube captions + YouTube's built-in translation to Czech
- * 2. Live transcription: Uses Web Speech API to transcribe audio in real-time (fallback)
+ * Strategy: Read English transcript segments from YouTube's Transcript panel,
+ * translate them to Czech via Google Translate, and speak them via TTS
+ * synchronized with video playback. This avoids all caption rollup
+ * duplication issues.
  */
 class DubbingController {
   constructor() {
@@ -14,24 +13,29 @@ class DubbingController {
     this.tts = new TTSEngine();
 
     this.isActive = false;
-    this.translatedCaptions = [];
-    this.currentIndex = -1;
     this.videoElement = null;
     this.originalVolume = 1;
-    this.syncInterval = null;
-    this.status = 'idle'; // idle, loading, translating, ready, playing, error
+    this.status = 'idle';
     this.statusMessage = '';
     this.onStatusChange = null;
-    this.muteOriginal = false;
-    this.originalVolumeLevel = 0.15;
 
-    // Live transcription mode
-    this.liveMode = false;
-    this.recognition = null;
-    this.liveTranslationQueue = [];
+    this._isSpeaking = false;
+    this._speechQueue = [];
+
+    // Transcript-based mode
+    this._transcriptSegments = null; // translated segments with timestamps
+    this._transcriptMode = false;
+    this._lastSpokenIndex = -1;
+    this._transcriptTimer = null;
+
+    // Sentence buffer for DOM caption mode — accumulates lines until sentence boundary
+    this._sentenceBuffer = '';
+    this._sentenceFlushTimer = null;
+    this._translationQueue = Promise.resolve(); // ensures translations are queued in order
 
     this._settings = {
-      ttsRate: 1.1,
+      ttsRate: 1.25,
+      ttsMaxRate: 1.8,
       ttsVolume: 0.95,
       ttsPitch: 1.0,
       reducedOriginalVolume: 0.15,
@@ -40,17 +44,30 @@ class DubbingController {
   }
 
   /**
-   * Initialize dubbing for the current video.
+   * Start Czech dubbing for the current video.
    */
   async start() {
     if (this.isActive) {
       this.stop();
     }
 
-    this._setStatus('loading', 'Načítání titulků...');
+    this._isStarting = true;
+    this._setStatus('loading', 'Načítání...');
 
     try {
-      // Find the video element
+      // Verify extension context is still valid
+      try {
+        await chrome.runtime.sendMessage({ type: 'ping' });
+      } catch (e) {
+        if (e.message?.includes('Extension context invalidated')) {
+          this.translator._contextInvalidated = true;
+          this.translator._showReloadBanner();
+          this._setStatus('error', 'Rozšíření bylo aktualizováno — reload stránky');
+          return false;
+        }
+      }
+
+      // Find video element
       this.videoElement = document.querySelector('video.html5-main-video') ||
                           document.querySelector('video');
 
@@ -61,38 +78,111 @@ class DubbingController {
 
       // Load settings
       await this._loadSettings();
+      await this.translator.loadSettings();
 
-      // Wait for TTS voices to load
+      // Wait for TTS voices
       await this.tts.waitForVoice();
 
-      // Log voice info
       const voiceInfo = this.tts.getVoiceInfo();
       console.log(`[CzechDub] TTS Voice: ${voiceInfo.name || 'none'} (${voiceInfo.lang}), isCzech: ${voiceInfo.isCzech}`);
-      if (!voiceInfo.available || !voiceInfo.isCzech) {
-        console.warn('[CzechDub] WARNING: No Czech TTS voice found! Audio will sound English.');
-        console.warn('[CzechDub] On macOS: System Settings > Accessibility > Spoken Content > Manage Voices > Czech (Zuzana)');
-      }
 
       // Apply TTS settings
       this.tts.setRate(this._settings.ttsRate);
       this.tts.setVolume(this._settings.ttsVolume);
       this.tts.setPitch(this._settings.ttsPitch);
 
-      // Try caption-based mode first
-      const captionData = await this.extractor.getBestCaptions();
+      // Step 1: Check if we already have captured timedtext
+      this._setStatus('loading', 'Načítám přepis videa...');
+      let transcriptData = await this.extractor.fetchFullTranscript();
 
-      if (captionData && captionData.captions.length > 0) {
-        return await this._startCaptionMode(captionData);
+      // Step 2: If no transcript yet, enable captions first (triggers player to load timedtext)
+      if (!transcriptData) {
+        this._setStatus('loading', 'Zapínám titulky...');
+        const hasCaptions = await this.extractor.hasCaptions();
+        if (hasCaptions) {
+          await this.extractor.enableCzechCaptions();
+          // Wait for player to load timedtext (our XHR hook captures it)
+          this._setStatus('loading', 'Čekám na přepis...');
+          await this._sleep(3000);
+          // Try again — timedtext should now be captured
+          transcriptData = await this.extractor.fetchFullTranscript();
+        }
       }
 
-      // Fallback: try live transcription via Web Speech API
-      console.log('[CzechDub] No captions found, trying live transcription...');
-      if (this._isSpeechRecognitionAvailable()) {
-        return await this._startLiveMode();
+      this.isActive = true;
+      this.originalVolume = this.videoElement.volume;
+
+      if (transcriptData && transcriptData.segments.length > 0) {
+        let translated;
+        const isCzech = transcriptData.sourceLang === 'cs';
+        console.log(`[CzechDub] Transcript sourceLang: ${transcriptData.sourceLang}, isCzech: ${isCzech}`);
+
+        if (isCzech) {
+          // Already in Czech (from YouTube auto-translate) — group into sentences, no re-translation
+          console.log(`[CzechDub] Got ${transcriptData.segments.length} Czech segments, grouping into sentences...`);
+          this._setStatus('translating', 'Přepis již v češtině, seskupuji do vět...');
+          translated = this._groupSegmentsIntoSentences(transcriptData.segments);
+          console.log(`[CzechDub] Grouped into ${translated.length} sentences`);
+        } else {
+          // Translate from source language to Czech
+          console.log(`[CzechDub] Got ${transcriptData.segments.length} transcript segments, translating...`);
+          this._setStatus('translating', `Překládám přepis (${transcriptData.segments.length} segmentů)...`);
+
+          translated = await this.translator.translateCaptions(
+            transcriptData.segments,
+            transcriptData.sourceLang,
+            (done, total) => {
+              if (!this._isStarting) return; // cancelled during translation
+              this._setStatus('translating', `Překládám: ${done}/${total}`);
+            }
+          );
+        }
+
+        // Check if stopped during translation
+        if (!this._isStarting) {
+          this.isActive = false;
+          return false;
+        }
+
+        // Validate and optimize translations against time constraints
+        this._transcriptSegments = this._optimizeForTiming(translated);
+        this._transcriptMode = true;
+        this._lastSpokenIndex = -1;
+
+        this.videoElement.addEventListener('pause', this._onVideoPause);
+        this.videoElement.addEventListener('play', this._onVideoPlay);
+        this.videoElement.addEventListener('seeked', this._onVideoSeeked);
+
+        this._startTranscriptPlayback();
+
+        this._setStatus('playing', 'Český dabing aktivní (přepis)');
+        console.log('[CzechDub] Dubbing started - TRANSCRIPT mode');
+        return true;
       }
 
-      this._setStatus('error', 'Titulky nejsou k dispozici a live přepis není podporován');
-      return false;
+      // Fallback: DOM-based caption mode
+      console.log('[CzechDub] Transcript not available, using DOM caption mode');
+      this._transcriptMode = false;
+
+      // Enable captions if not already enabled
+      const hasCaptions = await this.extractor.hasCaptions();
+      if (!hasCaptions) {
+        this._setStatus('error', 'Titulky nejsou k dispozici pro toto video');
+        return false;
+      }
+
+      // Captions may already be enabled from step 2
+      this.extractor.startObserving((text) => {
+        this._onCaptionAppeared(text);
+      });
+
+      this.videoElement.addEventListener('pause', this._onVideoPause);
+      this.videoElement.addEventListener('play', this._onVideoPlay);
+      this.videoElement.addEventListener('seeked', this._onVideoSeeked);
+
+      this._setStatus('playing', 'Český dabing aktivní');
+      console.log('[CzechDub] Dubbing started - DOM caption mode (fallback)');
+      return true;
 
     } catch (err) {
       console.error('[CzechDub] Start failed:', err);
@@ -102,156 +192,304 @@ class DubbingController {
   }
 
   /**
-   * Start caption-based dubbing mode.
-   * Captions are already translated to Czech by YouTube or are Czech originals.
+   * Called when a caption line disappears from the DOM (complete line).
+   * Buffers lines and translates complete sentences for better quality.
    */
-  async _startCaptionMode(captionData) {
-    console.log(`[CzechDub] Caption mode: ${captionData.captions.length} captions, isCzech: ${captionData.isCzech}, lang: ${captionData.language}`);
-    // Log first 3 captions for debugging
-    captionData.captions.slice(0, 3).forEach((c, i) => {
-      console.log(`[CzechDub] Sample caption ${i}: "${c.text}"`);
-    });
+  _onCaptionAppeared(text) {
+    if (!this.isActive) return;
+    if (this.videoElement?.paused) return;
+    if (!text || text.trim().length < 3) return;
 
-    if (captionData.isCzech) {
-      // Captions are already in Czech (either original or YouTube-translated)
-      this.translatedCaptions = captionData.captions;
-      this._setStatus('ready', `${captionData.captions.length} českých titulků připraveno`);
+    // Skip YouTube UI text
+    if (text === 'Angličtina' || text === 'Čeština' || text.length < 5) return;
+
+    // Add to sentence buffer with space
+    if (this._sentenceBuffer) {
+      this._sentenceBuffer += ' ' + text;
     } else {
-      // Captions need translation via external API
-      this._setStatus('translating', `Překládám z ${captionData.language} do češtiny... 0%`);
-
-      this.translatedCaptions = await this.translator.translateCaptions(
-        captionData.captions,
-        captionData.language,
-        (done, total) => {
-          const pct = Math.round((done / total) * 100);
-          this._setStatus('translating', `Překládám... ${pct}%`);
-        }
-      );
+      this._sentenceBuffer = text;
     }
 
-    this.liveMode = false;
-    this.isActive = true;
-    this._startSync();
+    // Clear any pending flush timer
+    if (this._sentenceFlushTimer) {
+      clearTimeout(this._sentenceFlushTimer);
+    }
 
-    // Listen for video events
-    this.videoElement.addEventListener('pause', this._onVideoPause);
-    this.videoElement.addEventListener('play', this._onVideoPlay);
-    this.videoElement.addEventListener('seeked', this._onVideoSeeked);
+    // Check if buffer ends with a sentence boundary
+    const endsWithSentence = /[.!?][""]?\s*$/.test(this._sentenceBuffer);
+    // Flush if buffer is getting long (over ~250 chars)
+    const bufferLong = this._sentenceBuffer.length > 250;
 
-    this._setStatus('playing', 'Český dabing aktivní');
-    return true;
+    if (endsWithSentence || bufferLong) {
+      this._flushSentenceBuffer();
+    } else {
+      // Wait for more text — captions arrive every ~3-4s
+      // Use longer timeout to combine more fragments
+      this._sentenceFlushTimer = setTimeout(() => {
+        this._flushSentenceBuffer();
+      }, 4000);
+    }
   }
 
   /**
-   * Start live transcription mode using Web Speech API.
-   * Transcribes audio in real-time, translates, and speaks in Czech.
+   * Flush the sentence buffer — translate the accumulated text and queue for TTS.
+   * Uses a sequential promise chain to guarantee translation order.
    */
-  async _startLiveMode() {
-    this._setStatus('loading', 'Spouštím živý přepis audia...');
+  _flushSentenceBuffer() {
+    if (this._sentenceFlushTimer) {
+      clearTimeout(this._sentenceFlushTimer);
+      this._sentenceFlushTimer = null;
+    }
 
-    this.liveMode = true;
-    this.isActive = true;
+    const fullText = this._sentenceBuffer.trim();
+    this._sentenceBuffer = '';
 
-    // Detect the video language - default to English
-    const sourceLang = 'en-US';
+    if (!fullText || fullText.length < 3) return;
+    if (!this.isActive) return;
 
-    this.recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    this.recognition.continuous = true;
-    this.recognition.interimResults = false;
-    this.recognition.lang = sourceLang;
-    this.recognition.maxAlternatives = 1;
-
-    this.recognition.onresult = async (event) => {
+    // Chain translation to ensure ordering
+    this._translationQueue = this._translationQueue.then(async () => {
       if (!this.isActive) return;
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          const transcript = event.results[i][0].transcript.trim();
-          if (transcript.length > 0) {
-            console.log(`[CzechDub] Live transcript: "${transcript}"`);
-            this._handleLiveTranscript(transcript);
+      const isCzech = /[ěščřžýáíéúůďťň]/i.test(fullText);
+
+      let czechText = fullText;
+      if (!isCzech) {
+        try {
+          const translated = await this.translator.translate(fullText, 'en');
+          if (translated && translated.length > 2) {
+            czechText = translated;
+            console.log(`[CzechDub] Translated: "${fullText.substring(0, 80)}" → "${czechText.substring(0, 80)}"`);
           }
+        } catch (e) {
+          console.warn('[CzechDub] Translation failed, using original:', e.message);
         }
       }
-    };
 
-    this.recognition.onerror = (event) => {
-      console.warn('[CzechDub] Speech recognition error:', event.error);
-      if (event.error === 'not-allowed') {
-        this._setStatus('error', 'Přístup k mikrofonu byl zamítnut. Povolte mikrofon pro živý přepis.');
-        this.stop();
-      } else if (event.error === 'no-speech') {
-        // Restart after no speech detected
-        if (this.isActive && this.liveMode) {
-          try { this.recognition.start(); } catch (e) {}
-        }
-      }
-    };
-
-    this.recognition.onend = () => {
-      // Auto-restart if still active
-      if (this.isActive && this.liveMode) {
-        try { this.recognition.start(); } catch (e) {}
-      }
-    };
-
-    try {
-      this.recognition.start();
-      this._setStatus('playing', 'Živý český dabing aktivní (mikrofon)');
-
-      // Reduce video volume
-      this.originalVolume = this.videoElement.volume;
-      if (this._settings.muteOriginal) {
-        this.videoElement.volume = 0;
-      } else {
-        this.videoElement.volume = this._settings.reducedOriginalVolume;
+      // Keep queue short — drop old items if backlogged
+      while (this._speechQueue.length > 2) {
+        this._speechQueue.shift();
       }
 
-      return true;
-    } catch (err) {
-      this._setStatus('error', `Nelze spustit přepis: ${err.message}`);
-      return false;
-    }
+      this._speechQueue.push(czechText);
+      this._processQueue();
+    });
   }
 
   /**
-   * Handle a live transcript chunk - translate and speak.
+   * Process the speech queue — speak one at a time.
    */
-  async _handleLiveTranscript(text) {
-    try {
-      // Translate to Czech
-      const czechText = await this.translator.translate(text, 'en');
-      if (!czechText || czechText === text) return;
+  async _processQueue() {
+    if (this._isSpeaking) return;
+    if (this._speechQueue.length === 0) return;
+    if (!this.isActive) return;
 
-      console.log(`[CzechDub] Translated: "${czechText}"`);
+    this._isSpeaking = true;
+    const text = this._speechQueue.shift();
+
+    try {
+      // Reduce video volume while speaking
+      if (this.videoElement) {
+        if (this._settings.muteOriginal) {
+          this.videoElement.volume = 0;
+        } else {
+          this.videoElement.volume = this._settings.reducedOriginalVolume;
+        }
+      }
 
       // Show subtitle overlay
-      this._showSubtitle(czechText, text);
+      this._showSubtitle(text);
 
-      // Speak in Czech (reduce original volume while speaking)
-      if (this._settings.muteOriginal) {
-        this.videoElement.volume = 0;
-      } else {
-        this.videoElement.volume = this._settings.reducedOriginalVolume;
+      // Speak
+      console.log(`[CzechDub] TTS: "${text.substring(0, 60)}", voice=${this.tts.czechVoice?.name}`);
+      await this.tts.speak(text);
+
+    } catch (e) {
+      console.warn('[CzechDub] TTS error:', e);
+    } finally {
+      // Always restore volume — even if stopped (isActive=false)
+      if (this.videoElement) {
+        this.videoElement.volume = this.originalVolume ?? 1.0;
       }
+      this._isSpeaking = false;
 
-      await this.tts.speak(czechText);
-
-      // Restore volume
-      if (this.isActive && this.videoElement) {
-        this.videoElement.volume = this.originalVolume;
+      // Process next in queue
+      if (this._speechQueue.length > 0) {
+        this._processQueue();
       }
-    } catch (err) {
-      console.warn('[CzechDub] Live translation error:', err);
     }
   }
 
   /**
-   * Check if Web Speech API SpeechRecognition is available.
+   * Optimize translated segments for TTS timing.
+   * Ensures translations fit within their time window.
+   * Group small ASR segments into natural sentences for smoother TTS playback.
+   * Merges consecutive segments until a sentence boundary (. ! ?) or 200 chars.
    */
-  _isSpeechRecognitionAvailable() {
-    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  _groupSegmentsIntoSentences(segments) {
+    const groups = [];
+    let buffer = '';
+    let groupSegs = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg.text || !seg.text.trim()) continue;
+
+      groupSegs.push(seg);
+      buffer += (buffer ? ' ' : '') + seg.text.trim();
+
+      // End group on sentence boundary, long buffer, or last segment
+      const isSentenceEnd = /[.!?]["»"]?\s*$/.test(buffer);
+      const isLong = buffer.length > 200;
+      const isLast = i === segments.length - 1;
+
+      if (isSentenceEnd || isLong || isLast) {
+        const firstSeg = groupSegs[0];
+        const lastSeg = groupSegs[groupSegs.length - 1];
+        groups.push({
+          start: firstSeg.start,
+          duration: (lastSeg.start + (lastSeg.duration || 2)) - firstSeg.start,
+          originalText: buffer.trim(),
+          text: buffer.trim()
+        });
+        buffer = '';
+        groupSegs = [];
+      }
+    }
+
+    return groups;
+  }
+
+  /**
+   * Splits overly long translations, trims trailing filler.
+   */
+  _optimizeForTiming(segments) {
+    const baseRate = this._settings.ttsRate || 1.25;
+    const maxRate = this._settings.ttsMaxRate || 1.8;
+    // Czech TTS: ~140 words/min at rate 1.0 (Czech words are longer than English)
+    const baseWordsPerSec = 140 / 60;
+
+    let speedAdjusted = 0;
+    let trimmed = 0;
+    for (const seg of segments) {
+      if (!seg.text || !seg.duration) continue;
+
+      const words = seg.text.split(/\s+/);
+      const estimatedDuration = words.length / (baseWordsPerSec * baseRate);
+      const availableTime = seg.duration * 1.2; // allow 20% overflow
+
+      if (estimatedDuration > availableTime) {
+        // Calculate required rate to fit text into available time
+        const requiredRate = (words.length / baseWordsPerSec) / availableTime;
+        // Cap at user-configured max rate to keep speech intelligible
+        seg._ttsRate = Math.min(maxRate, requiredRate);
+        speedAdjusted++;
+
+        // Only trim if even at max rate it won't fit
+        const maxRateDuration = words.length / (baseWordsPerSec * maxRate);
+        if (maxRateDuration > availableTime && words.length > 5) {
+          const maxWords = Math.max(5, Math.floor(words.length * (availableTime / maxRateDuration)));
+          seg.text = words.slice(0, maxWords).join(' ');
+          trimmed++;
+        }
+      }
+
+      // Clean trailing incomplete phrases
+      seg.text = seg.text.replace(/\s+(a|i|nebo|že|který|která|které|pro|na|v|s|z|k|do)\s*$/i, '');
+    }
+
+    if (speedAdjusted > 0 || trimmed > 0) {
+      console.log(`[CzechDub] Optimized timing: ${speedAdjusted} segments speed-adjusted, ${trimmed} trimmed`);
+    }
+    return segments;
+  }
+
+  /**
+   * Start transcript-based playback — check video time periodically
+   * and speak the appropriate segment.
+   */
+  _startTranscriptPlayback() {
+    if (this._transcriptTimer) clearInterval(this._transcriptTimer);
+
+    this._transcriptTimer = setInterval(() => {
+      if (!this.isActive || !this._transcriptMode) return;
+      if (!this.videoElement || this.videoElement.paused) return;
+      if (this._isSpeaking) return;
+
+      const currentTime = this.videoElement.currentTime;
+      const nextIndex = this._findNextSegment(currentTime);
+
+      if (nextIndex !== -1) {
+        this._lastSpokenIndex = nextIndex;
+        this._speakSegment(this._transcriptSegments[nextIndex]);
+      }
+    }, 200);
+  }
+
+  /**
+   * Find the next transcript segment to speak based on current video time.
+   * Segments are now sentence-level groups with wider time ranges.
+   */
+  _findNextSegment(currentTime) {
+    if (!this._transcriptSegments) return -1;
+
+    for (let i = this._lastSpokenIndex + 1; i < this._transcriptSegments.length; i++) {
+      const seg = this._transcriptSegments[i];
+      const segEnd = seg.start + (seg.duration || 5);
+      // Speak if current time is within the segment's time range
+      if (currentTime >= seg.start - 0.5 && currentTime <= segEnd) {
+        return i;
+      }
+      // Skip segments we've already passed
+      if (seg.start > currentTime + 2) break;
+    }
+    return -1;
+  }
+
+  /**
+   * Speak a single transcript segment with volume management.
+   */
+  async _speakSegment(segment) {
+    if (!this.isActive) return;
+
+    this._isSpeaking = true;
+    const czechText = segment.text;
+
+    try {
+      // Reduce video volume
+      if (this.videoElement) {
+        if (this._settings.muteOriginal) {
+          this.videoElement.volume = 0;
+        } else {
+          this.videoElement.volume = this._settings.reducedOriginalVolume;
+        }
+      }
+
+      this._showSubtitle(czechText);
+
+      // Use per-segment rate if timing optimization calculated one, otherwise default
+      const segRate = segment._ttsRate || this._settings.ttsRate || 1.1;
+      if (segment._ttsRate) {
+        this.tts.setRate(segRate);
+      }
+
+      console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s @${segRate.toFixed(1)}x]: "${czechText.substring(0, 100)}" (orig: "${(segment.originalText || '').substring(0, 80)}")`);
+      await this.tts.speak(czechText);
+
+      // Restore default rate if we changed it
+      if (segment._ttsRate) {
+        this.tts.setRate(this._settings.ttsRate || 1.1);
+      }
+
+    } catch (e) {
+      console.warn('[CzechDub] TTS error:', e);
+    } finally {
+      // Always restore volume — even if stopped (isActive=false)
+      if (this.videoElement) {
+        this.videoElement.volume = this.originalVolume ?? 1.0;
+      }
+      this._isSpeaking = false;
+    }
   }
 
   /**
@@ -259,23 +497,32 @@ class DubbingController {
    */
   stop() {
     this.isActive = false;
+    this._isStarting = false;
     this.tts.stop();
+    this.extractor.stopObserving();
 
-    if (this.syncInterval) {
-      clearInterval(this.syncInterval);
-      this.syncInterval = null;
+    this._speechQueue = [];
+    this._isSpeaking = false;
+
+    // Clear transcript mode state
+    this._transcriptMode = false;
+    this._transcriptSegments = null;
+    this._lastSpokenIndex = -1;
+    if (this._transcriptTimer) {
+      clearInterval(this._transcriptTimer);
+      this._transcriptTimer = null;
     }
 
-    // Stop live transcription
-    if (this.recognition) {
-      try { this.recognition.stop(); } catch (e) {}
-      this.recognition = null;
+    // Clear sentence buffer
+    this._sentenceBuffer = '';
+    if (this._sentenceFlushTimer) {
+      clearTimeout(this._sentenceFlushTimer);
+      this._sentenceFlushTimer = null;
     }
-    this.liveMode = false;
 
     // Restore original volume
     if (this.videoElement) {
-      this.videoElement.volume = this.originalVolume;
+      this.videoElement.volume = this.originalVolume ?? 1.0;
       this.videoElement.removeEventListener('pause', this._onVideoPause);
       this.videoElement.removeEventListener('play', this._onVideoPlay);
       this.videoElement.removeEventListener('seeked', this._onVideoSeeked);
@@ -285,78 +532,13 @@ class DubbingController {
     const overlay = document.getElementById('czech-dub-subtitle');
     if (overlay) overlay.style.display = 'none';
 
-    this.translatedCaptions = [];
-    this.currentIndex = -1;
     this._setStatus('idle', 'Dabing zastaven');
-  }
-
-  /**
-   * Start the synchronization loop that matches TTS to video playback.
-   */
-  _startSync() {
-    if (this.syncInterval) clearInterval(this.syncInterval);
-
-    this.originalVolume = this.videoElement.volume;
-
-    this.syncInterval = setInterval(() => {
-      if (!this.isActive || !this.videoElement) return;
-      if (this.videoElement.paused) return;
-
-      const currentTime = this.videoElement.currentTime;
-      this._processSync(currentTime);
-    }, 150); // Check every 150ms
-  }
-
-  /**
-   * Process sync - find and speak the caption for the current time.
-   */
-  _processSync(currentTime) {
-    // Find the caption that should be playing now
-    const captionIndex = this.translatedCaptions.findIndex(cap =>
-      currentTime >= cap.start &&
-      currentTime < cap.start + cap.duration + 0.5 // Small buffer
-    );
-
-    if (captionIndex === -1 || captionIndex === this.currentIndex) return;
-
-    // New caption to speak
-    this.currentIndex = captionIndex;
-    const caption = this.translatedCaptions[captionIndex];
-
-    // Stop any current speech
-    this.tts.stop();
-
-    // Reduce original audio volume
-    if (this._settings.muteOriginal) {
-      this.videoElement.volume = 0;
-    } else {
-      this.videoElement.volume = this._settings.reducedOriginalVolume;
-    }
-
-    // Calculate appropriate speech rate based on caption duration
-    const estimatedDuration = this.tts.estimateDuration(caption.text);
-    let adjustedRate = this._settings.ttsRate;
-    if (estimatedDuration > caption.duration * 1.5) {
-      // Speed up if text is too long for the time slot
-      adjustedRate = Math.min(2.0, this._settings.ttsRate * (estimatedDuration / caption.duration));
-    }
-
-    // Speak the translated text
-    this.tts.speak(caption.text, { rate: adjustedRate }).then(() => {
-      // Restore volume after speaking
-      if (this.isActive && this.videoElement) {
-        this.videoElement.volume = this.originalVolume;
-      }
-    });
-
-    // Show subtitle overlay
-    this._showSubtitle(caption.text, caption.originalText);
   }
 
   /**
    * Show a subtitle overlay on the video.
    */
-  _showSubtitle(czechText, originalText) {
+  _showSubtitle(czechText) {
     let overlay = document.getElementById('czech-dub-subtitle');
     if (!overlay) {
       overlay = document.createElement('div');
@@ -371,24 +553,19 @@ class DubbingController {
       }
     }
 
-    overlay.innerHTML = `
-      <div class="czech-dub-text-main">${this._escapeHtml(czechText)}</div>
-      ${originalText ? `<div class="czech-dub-text-original">${this._escapeHtml(originalText)}</div>` : ''}
-    `;
+    const mainDiv = document.createElement('div');
+    mainDiv.className = 'czech-dub-text-main';
+    mainDiv.textContent = czechText;
+
+    overlay.textContent = '';
+    overlay.appendChild(mainDiv);
     overlay.style.display = 'block';
     overlay.classList.add('czech-dub-visible');
 
-    // Auto-hide after caption duration
     clearTimeout(this._subtitleTimeout);
     this._subtitleTimeout = setTimeout(() => {
       overlay.classList.remove('czech-dub-visible');
     }, 5000);
-  }
-
-  _escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   /**
@@ -396,26 +573,52 @@ class DubbingController {
    */
   _onVideoPause = () => {
     if (this.isActive) {
-      this.tts.pause();
-      if (this.recognition && this.liveMode) {
-        try { this.recognition.stop(); } catch (e) {}
+      // Chrome's synth.pause() is unreliable — cancel speech instead
+      this.tts.stop();
+      this._isSpeaking = false;
+      // Restore volume while paused
+      if (this.videoElement) {
+        this.videoElement.volume = this.originalVolume;
       }
     }
   };
 
   _onVideoPlay = () => {
     if (this.isActive) {
-      this.tts.resume();
-      if (this.recognition && this.liveMode) {
-        try { this.recognition.start(); } catch (e) {}
-      }
+      // Speech was cancelled on pause — playback timer will pick up next segment
+      this._isSpeaking = false;
     }
   };
 
   _onVideoSeeked = () => {
     if (this.isActive) {
       this.tts.stop();
-      this.currentIndex = -1;
+      this._speechQueue = [];
+      this._isSpeaking = false;
+
+      if (this._transcriptMode) {
+        // Reset to find the right segment for new position
+        const currentTime = this.videoElement?.currentTime || 0;
+        // Find the segment just before current time
+        this._lastSpokenIndex = -1;
+        if (this._transcriptSegments) {
+          for (let i = this._transcriptSegments.length - 1; i >= 0; i--) {
+            if (this._transcriptSegments[i].start < currentTime - 1) {
+              this._lastSpokenIndex = i;
+              break;
+            }
+          }
+        }
+        console.log(`[CzechDub] Seeked to ${currentTime.toFixed(1)}s, resuming from segment ${this._lastSpokenIndex + 1}`);
+      } else {
+        this.extractor.onSeek();
+        // Clear sentence buffer on seek
+        this._sentenceBuffer = '';
+        if (this._sentenceFlushTimer) {
+          clearTimeout(this._sentenceFlushTimer);
+          this._sentenceFlushTimer = null;
+        }
+      }
     }
   };
 
@@ -427,32 +630,41 @@ class DubbingController {
     this.tts.setRate(this._settings.ttsRate);
     this.tts.setVolume(this._settings.ttsVolume);
     this.tts.setPitch(this._settings.ttsPitch);
+
+    // Re-optimize per-segment rates when base rate or max rate changes
+    if (('ttsRate' in settings || 'ttsMaxRate' in settings) && this._transcriptSegments) {
+      this._optimizeForTiming(this._transcriptSegments);
+    }
+
+    // Apply original volume change immediately during playback
+    if (('reducedOriginalVolume' in settings || 'muteOriginal' in settings) && this._isSpeaking && this.videoElement) {
+      if (this._settings.muteOriginal) {
+        this.videoElement.volume = 0;
+      } else {
+        this.videoElement.volume = this._settings.reducedOriginalVolume;
+      }
+    }
+
     this._saveSettings();
   }
 
-  /**
-   * Load settings from Chrome storage.
-   */
   async _loadSettings() {
     try {
       const result = await chrome.storage.local.get('czechDubSettings');
       if (result.czechDubSettings) {
         Object.assign(this._settings, result.czechDubSettings);
       }
-    } catch (e) {
-      // Storage may not be available
-    }
+    } catch (e) {}
   }
 
-  /**
-   * Save settings to Chrome storage.
-   */
   async _saveSettings() {
     try {
       await chrome.storage.local.set({ czechDubSettings: this._settings });
-    } catch (e) {
-      // Storage may not be available
-    }
+    } catch (e) {}
+  }
+
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   _setStatus(status, message) {
@@ -462,26 +674,23 @@ class DubbingController {
     if (this.onStatusChange) {
       this.onStatusChange(status, message);
     }
-    // Notify popup
     try {
-      chrome.runtime.sendMessage({
-        type: 'status-update',
-        status,
-        message
-      });
+      chrome.runtime.sendMessage({ type: 'status-update', status, message });
     } catch (e) {
-      // Popup may not be open
+      if (e.message?.includes('Extension context invalidated')) {
+        this.stop();
+        // Show reload banner via translator (it has the method)
+        if (this.translator?._showReloadBanner) {
+          this.translator._showReloadBanner();
+        }
+      }
     }
   }
 
-  /**
-   * Get current status.
-   */
   getStatus() {
     return {
       status: this.status,
-      message: this.statusMessage,
-      liveMode: this.liveMode
+      message: this.statusMessage
     };
   }
 }
