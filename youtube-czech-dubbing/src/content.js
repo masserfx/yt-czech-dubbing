@@ -36,7 +36,15 @@
   /**
    * Inject the "Czech Dubbing" activation button below the video player.
    */
+  let _injectInterval = null;
+
   function injectActivationButton() {
+    // Cancel any pending injection from previous call
+    if (_injectInterval) {
+      clearInterval(_injectInterval);
+      _injectInterval = null;
+    }
+
     // Remove existing button/container if any
     const existingContainer = document.getElementById('czech-dub-container');
     if (existingContainer) existingContainer.remove();
@@ -44,13 +52,21 @@
     if (existing) existing.remove();
 
     // Wait for the player controls to be available
-    const waitForPlayer = setInterval(() => {
+    _injectInterval = setInterval(() => {
+      // Guard: if button was already injected by a concurrent call, stop
+      if (document.getElementById('czech-dub-container')) {
+        clearInterval(_injectInterval);
+        _injectInterval = null;
+        return;
+      }
+
       const infoArea = document.querySelector('#above-the-fold #title') ||
                        document.querySelector('#info-contents') ||
                        document.querySelector('#top-row');
 
       if (infoArea) {
-        clearInterval(waitForPlayer);
+        clearInterval(_injectInterval);
+        _injectInterval = null;
 
         const btn = document.createElement('button');
         btn.id = 'czech-dub-activate-btn';
@@ -196,7 +212,7 @@
     }, 1000);
 
     // Clean up interval after 30 seconds
-    setTimeout(() => clearInterval(waitForPlayer), 30000);
+    setTimeout(() => { if (_injectInterval) { clearInterval(_injectInterval); _injectInterval = null; } }, 30000);
   }
 
   /**
@@ -220,22 +236,28 @@
   }
 
   /**
-   * Handle navigation to a new page.
+   * Handle navigation to a new page (debounced — MutationObserver + yt-navigate-finish fire together).
    */
+  let _navTimeout = null;
   function handleNavigation() {
-    // Stop current dubbing
-    if (controller && controller.isActive) {
-      controller.stop();
-    }
+    if (_navTimeout) clearTimeout(_navTimeout);
+    _navTimeout = setTimeout(() => {
+      _navTimeout = null;
 
-    // If new page is a video, inject button
-    if (isVideoPage()) {
-      setTimeout(injectActivationButton, 1500);
-    } else {
-      // Remove button and settings on non-video pages
-      const container = document.getElementById('czech-dub-container');
-      if (container) container.remove();
-    }
+      // Stop current dubbing
+      if (controller && controller.isActive) {
+        controller.stop();
+      }
+
+      // If new page is a video, inject button
+      if (isVideoPage()) {
+        injectActivationButton();
+      } else {
+        // Remove button and settings on non-video pages
+        const container = document.getElementById('czech-dub-container');
+        if (container) container.remove();
+      }
+    }, 500);
   }
 
   /**
