@@ -97,16 +97,37 @@
 
         const engineSelect = document.createElement('select');
         engineSelect.id = 'czech-dub-engine';
-        const optGoogle = document.createElement('option');
-        optGoogle.value = 'google';
-        optGoogle.textContent = 'Google Translate (zdarma)';
-        const optClaude = document.createElement('option');
-        optClaude.value = 'claude';
-        optClaude.textContent = 'Claude Haiku 4.5 (API klíč)';
-        engineSelect.appendChild(optGoogle);
-        engineSelect.appendChild(optClaude);
+        const engines = [
+          { value: 'google', label: 'Google Translate (zdarma)' },
+          { value: 'deepl', label: 'DeepL (500k zn./měs. zdarma)' },
+          { value: 'claude', label: 'Claude Haiku 4.5 (API klíč)' }
+        ];
+        engines.forEach(e => {
+          const opt = document.createElement('option');
+          opt.value = e.value;
+          opt.textContent = e.label;
+          engineSelect.appendChild(opt);
+        });
         settingsPanel.appendChild(engineSelect);
 
+        // DeepL API key group
+        const deeplKeyGroup = document.createElement('div');
+        deeplKeyGroup.className = 'api-key-group';
+        const deeplLabel = document.createElement('label');
+        deeplLabel.textContent = 'DeepL API klíč';
+        deeplKeyGroup.appendChild(deeplLabel);
+        const deeplKeyInput = document.createElement('input');
+        deeplKeyInput.type = 'password';
+        deeplKeyInput.id = 'czech-dub-deeplkey';
+        deeplKeyInput.placeholder = 'xxxxxxxx-xxxx:fx';
+        deeplKeyGroup.appendChild(deeplKeyInput);
+        const deeplHint = document.createElement('div');
+        deeplHint.className = 'hint';
+        deeplHint.textContent = 'Free: 500k zn./měs. \u2022 deepl.com/your-account';
+        deeplKeyGroup.appendChild(deeplHint);
+        settingsPanel.appendChild(deeplKeyGroup);
+
+        // Anthropic API key group
         const apiKeyGroup = document.createElement('div');
         apiKeyGroup.className = 'api-key-group';
         const apiLabel = document.createElement('label');
@@ -138,10 +159,13 @@
           const s = result.popupSettings || {};
           if (s.translatorEngine) engineSelect.value = s.translatorEngine;
           if (s.anthropicApiKey) apiKeyInput.value = s.anthropicApiKey;
+          if (s.deeplApiKey) deeplKeyInput.value = s.deeplApiKey;
           if (s.translatorEngine === 'claude') apiKeyGroup.classList.add('visible');
+          if (s.translatorEngine === 'deepl') deeplKeyGroup.classList.add('visible');
 
           engineSelect.addEventListener('change', () => {
             apiKeyGroup.classList.toggle('visible', engineSelect.value === 'claude');
+            deeplKeyGroup.classList.toggle('visible', engineSelect.value === 'deepl');
           });
         });
 
@@ -149,10 +173,12 @@
         saveBtn.addEventListener('click', () => {
           const engine = engineSelect.value;
           const apiKey = apiKeyInput.value;
+          const deeplKey = deeplKeyInput.value;
           chrome.storage.local.get('popupSettings', (result) => {
             const s = result.popupSettings || {};
             s.translatorEngine = engine;
             s.anthropicApiKey = apiKey;
+            s.deeplApiKey = deeplKey;
             chrome.storage.local.set({ popupSettings: s }, () => {
               settingsPanel.classList.remove('open');
               console.log('[CzechDub] Settings saved: engine=' + engine + ', apiKey=' + (apiKey ? 'set' : 'none'));
