@@ -5,7 +5,8 @@
   "description": "YouTube video dubbing - automatic translation and voice output in Czech, Slovak, Polish, Hungarian",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",

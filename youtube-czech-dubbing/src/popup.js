@@ -13,12 +13,25 @@ async function init() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
 
-  if (!tab || !tab.url || !tab.url.includes('youtube.com/watch')) {
-    document.getElementById('controlsSection').innerHTML =
-      '<div class="no-video">Otevřete YouTube video pro aktivaci dabingu.</div>';
+  const isYouTube = tab?.url?.includes('youtube.com/watch');
+  const isArticlePage = tab?.url && !tab.url.includes('youtube.com') && (tab.url.startsWith('https://') || tab.url.startsWith('http://'));
+
+  if (!isYouTube && !isArticlePage) {
+    const noVideoDiv = document.createElement('div');
+    noVideoDiv.className = 'no-video';
+    noVideoDiv.textContent = 'Otevřete YouTube video nebo článek pro aktivaci dabingu.';
+    const controlsSection = document.getElementById('controlsSection');
+    controlsSection.textContent = '';
+    controlsSection.appendChild(noVideoDiv);
     document.getElementById('settingsSection').style.display = 'none';
-    document.getElementById('statusText').textContent = 'Žádné YouTube video';
+    document.getElementById('statusText').textContent = 'Žádná stránka k dabingu';
     return;
+  }
+
+  // Article mode: show article-specific controls
+  if (isArticlePage) {
+    document.getElementById('btnText').textContent = 'Dabovat článek';
+    document.getElementById('btnToggle').onclick = () => toggleArticleDubbing(tab.id);
   }
 
   activeTabId = tab.id;
@@ -41,6 +54,35 @@ async function init() {
 
   // Load usage stats
   loadUsageStats();
+}
+
+/**
+ * Toggle article dubbing — injects scripts and starts article player.
+ */
+async function toggleArticleDubbing(tabId) {
+  const btn = document.getElementById('btnToggle');
+  const btnText = document.getElementById('btnText');
+
+  if (currentStatus === 'playing' || currentStatus === 'ready') {
+    btn.disabled = true;
+    await chrome.tabs.sendMessage(tabId, { type: 'article-stop' });
+    updateStatus('idle', 'Zastaveno');
+    btn.disabled = false;
+  } else {
+    btn.disabled = true;
+    btnText.textContent = 'Spouštím...';
+    updateStatus('loading', 'Injektuji skripty...');
+
+    // Inject article scripts via background
+    const resp = await chrome.runtime.sendMessage({ type: 'inject-article-scripts', tabId });
+    btn.disabled = false;
+
+    if (resp?.success) {
+      updateStatus('ready', 'Článek připraven');
+    } else {
+      updateStatus('error', resp?.error || 'Nepodařilo se spustit');
+    }
+  }
 }
 
 /**

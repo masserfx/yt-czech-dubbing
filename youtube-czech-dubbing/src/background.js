@@ -120,6 +120,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Article dubbing: programmatic injection of article scripts
+  if (msg.type === 'inject-article-scripts') {
+    const tabId = sender.tab?.id || msg.tabId;
+    if (!tabId) {
+      sendResponse({ success: false, error: 'No tab ID' });
+      return false;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId },
+      files: [
+        'src/language-config.js',
+        'src/translator.js',
+        'src/tts-engine.js',
+        'src/article-extractor.js',
+        'src/article-player.js',
+        'src/article-content.js'
+      ]
+    })
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'get-usage') {
     getUsageStats()
       .then(stats => sendResponse({ success: true, stats }))
