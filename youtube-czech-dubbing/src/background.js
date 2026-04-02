@@ -778,6 +778,38 @@ async function translateDeepL(text, sourceLang, apiKey, targetLang = 'CS') {
  * Azure Cognitive Services TTS
  * Returns base64-encoded audio (MP3).
  */
+/**
+ * Detect English segments in text for SSML <lang> tags.
+ * Same heuristic as tts-engine.js _detectLanguageSegments.
+ */
+function markEnglishForSSML(text) {
+  // Split on: quoted strings, capitalized multi-word phrases
+  const parts = text.split(
+    /(\"[^\"]+\"|„[^"]+"|\"[^\"]+\"|\u201E[^\u201C]+\u201C|(?:[A-Z][a-zA-Z'-]*(?:\s+(?:of|the|for|and|in|on|by|with|to|a|an|is|are|be|at|or|&)\s+|\s+)[A-Z][a-zA-Z'-]*(?:(?:\s+(?:of|the|for|and|in|on|by|with|to|a|an|is|are|be|at|or|&)\s+|\s+)[A-Za-z'-]+)*))/g
+  );
+
+  const enTerms = /\b(Highlights?|Overview|Features?|Updates?|Settings?|Download|Upload|Streaming|Podcast|Newsletter|Blog|Online|Offline|Smart|Share|Cloud|App|Screen|Display|Widget|Pixel|Gemini|Chrome|Android|iPhone|iPad|MacBook|Windows|Linux|Bluetooth|Wi-Fi|GPS|HDR|AI|API|SDK|URL|USB|NFC|QR|FAQ|VPN)\b/i;
+  const diacritics = /[ěščřžýáíéúůďťňľôĺŕąćęłńóśźżöőüű]/;
+
+  let ssml = '';
+  for (const part of parts) {
+    if (!part) continue;
+    const trimmed = part.trim();
+    const isEn = (
+      (/^[\"„"\u201E].*[\""\u201C\"]$/.test(trimmed)) ||
+      (/^[A-Z][a-zA-Z'-]+(\s+[A-Za-z'-]+){1,}$/.test(trimmed) && !diacritics.test(trimmed)) ||
+      (enTerms.test(trimmed) && trimmed.split(/\s+/).length <= 5 && !diacritics.test(trimmed))
+    );
+
+    if (isEn) {
+      ssml += `<lang xml:lang="en-US">${escapeXml(part)}</lang>`;
+    } else {
+      ssml += escapeXml(part);
+    }
+  }
+  return ssml;
+}
+
 async function synthesizeAzureTTS(text, apiKey, region, voice, rate, pitch, lang) {
   if (!apiKey || !region) throw new Error('No Azure TTS key or region');
 
@@ -786,9 +818,12 @@ async function synthesizeAzureTTS(text, apiKey, region, voice, rate, pitch, lang
   const rateStr = rate ? `${Math.round((rate - 1) * 100)}%` : '+0%';
   const pitchStr = pitch ? `${Math.round((pitch - 1) * 50)}%` : '+0%';
 
+  // Mark English segments with <lang> tags for proper pronunciation
+  const textSSML = markEnglishForSSML(text);
+
   const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${xmlLang}">
   <voice name="${voiceName}">
-    <prosody rate="${rateStr}" pitch="${pitchStr}">${escapeXml(text)}</prosody>
+    <prosody rate="${rateStr}" pitch="${pitchStr}">${textSSML}</prosody>
   </voice>
 </speak>`;
 

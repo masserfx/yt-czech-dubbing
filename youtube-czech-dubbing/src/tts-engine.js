@@ -215,7 +215,99 @@ class TTSEngine {
     }
   }
 
+  /**
+   * Detect English segments in translated text.
+   * Returns array of {text, lang} where lang is 'en' or target language code.
+   * English detection: proper nouns, brand names, quoted phrases, known EN words.
+   */
+  _detectLanguageSegments(text) {
+    const targetLang = this._targetLang;
+    const segments = [];
+
+    // Pattern: English segments are typically:
+    // 1. Quoted strings ("Be Internet Awesome")
+    // 2. Capitalized multi-word names (Google Pixel, Gemini Nano)
+    // 3. Known English terms that often stay untranslated
+    // 4. Words that are clearly not in target language (no diacritics, Latin-only patterns)
+
+    // Split text preserving the separators
+    // Regex matches: quoted strings, capitalized sequences (2+ words), or remaining text
+    const parts = text.split(
+      /(\"[^\"]+\"|„[^"]+"|\"[^\"]+\"|\u201E[^\u201C]+\u201C|(?:[A-Z][a-zA-Z'-]*(?:\s+(?:of|the|for|and|in|on|by|with|to|a|an|is|are|be|at|or|&)\s+|\s+)[A-Z][a-zA-Z'-]*(?:(?:\s+(?:of|the|for|and|in|on|by|with|to|a|an|is|are|be|at|or|&)\s+|\s+)[A-Za-z'-]+)*))/g
+    );
+
+    for (const part of parts) {
+      if (!part) continue;
+
+      // Check if this part is likely English
+      const isEnglish = this._isLikelyEnglish(part, targetLang);
+
+      if (segments.length > 0 && segments[segments.length - 1].lang === (isEnglish ? 'en' : targetLang)) {
+        // Merge with previous segment of same language
+        segments[segments.length - 1].text += part;
+      } else {
+        segments.push({ text: part, lang: isEnglish ? 'en' : targetLang });
+      }
+    }
+
+    return segments;
+  }
+
+  /**
+   * Heuristic: is this text fragment likely English?
+   */
+  _isLikelyEnglish(text, targetLang) {
+    const trimmed = text.trim();
+    if (trimmed.length < 2) return false;
+
+    // Quoted strings are likely English (names, titles)
+    if (/^[\"„"\u201E].*[\""\u201C\"]$/.test(trimmed)) return true;
+
+    // Capitalized multi-word phrase (2+ words starting with caps) = likely brand/name
+    if (/^[A-Z][a-zA-Z'-]+(\s+[A-Za-z'-]+){1,}$/.test(trimmed) && !/[ěščřžýáíéúůďťňľôĺŕąćęłńóśźżöőüű]/.test(trimmed)) {
+      return true;
+    }
+
+    // Known English tech/brand terms that stay untranslated
+    const enTerms = /\b(Highlights?|Overview|Features?|Updates?|Settings?|Download|Upload|Streaming|Podcast|Newsletter|Blog|Online|Offline|Smart|Share|Cloud|App|Screen|Display|Widget|Pixel|Gemini|Chrome|Android|iPhone|iPad|MacBook|Windows|Linux|Bluetooth|Wi-Fi|GPS|HDR|AI|API|SDK|URL|USB|NFC|QR|FAQ|VPN|DNS|CSS|HTML|RGB|LED|OLED|AMOLED|RAM|SSD|CPU|GPU)\b/i;
+    if (enTerms.test(trimmed) && trimmed.split(/\s+/).length <= 5 && !/[ěščřžýáíéúůďťňľôĺŕąćęłńóśźżöőüű]/.test(trimmed)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Find best English voice for mixed-language speech.
+   */
+  _getEnglishVoice() {
+    if (this._cachedEnVoice) return this._cachedEnVoice;
+    const voices = this.synth.getVoices();
+    // Prefer premium/enhanced English voices
+    this._cachedEnVoice = voices.find(v => v.lang === 'en-US' && /premium|enhanced/i.test(v.name))
+      || voices.find(v => v.lang === 'en-US')
+      || voices.find(v => v.lang === 'en-GB')
+      || voices.find(v => v.lang.startsWith('en'));
+    return this._cachedEnVoice;
+  }
+
   _speakBrowser(text, options) {
+    // Detect language segments for mixed CZ/EN pronunciation
+    const segments = this._detectLanguageSegments(text);
+    const hasEnglish = segments.some(s => s.lang === 'en');
+    const enVoice = hasEnglish ? this._getEnglishVoice() : null;
+
+    if (!hasEnglish || !enVoice) {
+      // Single-language: speak as before
+      return this._speakBrowserSingle(text, options);
+    }
+
+    // Multi-language: chain utterances with voice switching
+    console.log(`[Dub TTS] Mixed-language: ${segments.length} segments`, segments.map(s => `[${s.lang}] "${s.text.substring(0, 30)}"`));
+    return this._speakBrowserSegments(segments, enVoice, options);
+  }
+
+  _speakBrowserSingle(text, options) {
     return new Promise((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = this._langConfig.bcp47;
@@ -252,6 +344,51 @@ class TTSEngine {
       this._keepAlive();
       this.synth.speak(utterance);
     });
+  }
+
+  async _speakBrowserSegments(segments, enVoice, options) {
+    this.isSpeaking = true;
+    if (this.onSpeakStart) this.onSpeakStart(segments.map(s => s.text).join(''));
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg.text.trim()) continue;
+
+      await new Promise((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(seg.text);
+
+        if (seg.lang === 'en') {
+          utterance.voice = enVoice;
+          utterance.lang = enVoice.lang;
+        } else {
+          if (this.selectedVoice) {
+            utterance.voice = this.selectedVoice;
+            utterance.lang = this.selectedVoice.lang;
+          } else {
+            utterance.lang = this._langConfig.bcp47;
+          }
+        }
+
+        utterance.volume = options.volume ?? this.volume;
+        utterance.rate = options.rate ?? this.rate;
+        utterance.pitch = options.pitch ?? this.pitch;
+
+        utterance.onend = () => resolve();
+        utterance.onerror = (event) => {
+          if (event.error !== 'canceled' && event.error !== 'interrupted') {
+            console.warn(`[Dub TTS] Segment error [${seg.lang}]:`, event.error);
+          }
+          resolve();
+        };
+
+        this.currentUtterance = utterance;
+        this.synth.speak(utterance);
+      });
+    }
+
+    this.isSpeaking = false;
+    this.currentUtterance = null;
+    if (this.onSpeakEnd) this.onSpeakEnd('');
   }
 
   async _speakAzure(text, options) {
