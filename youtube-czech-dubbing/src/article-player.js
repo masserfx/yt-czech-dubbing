@@ -59,10 +59,11 @@ class ArticlePlayer {
       this._highlightParagraph(i);
 
       const para = this._paragraphs[i];
+      console.log(`[CzechDub] Article: playing ${i + 1}/${this._paragraphs.length} (${para.type}): "${para.text.substring(0, 60)}..."`);
 
       // Translate if not yet done
       if (!para.translatedText) {
-        this._setStatus(this._langConfig?.uiStrings?.translating || 'Překládám...');
+        this._setStatus(`${this._langConfig?.uiStrings?.translating || 'Překládám'} ${i + 1}/${this._paragraphs.length}...`);
         para.translatedText = await this._translator.translate(para.text);
       }
 
@@ -70,8 +71,9 @@ class ArticlePlayer {
       this._showTranslation(i, para.translatedText);
 
       // Speak
-      this._setStatus(this._langConfig?.uiStrings?.active || 'Dabing aktivní ✓');
+      this._setStatus(`${i + 1}/${this._paragraphs.length} — ${this._langConfig?.uiStrings?.active || 'Dabing aktivní'}`);
       await this._speakAndWait(para.translatedText);
+      console.log(`[CzechDub] Article: done speaking ${i + 1}/${this._paragraphs.length}`);
     }
 
     this._isPlaying = false;
@@ -155,21 +157,60 @@ class ArticlePlayer {
 
   // --- Private methods ---
 
-  _speakAndWait(text) {
-    return new Promise(resolve => {
-      if (!text || this._cancelled) { resolve(); return; }
+  async _speakAndWait(text) {
+    if (!text || this._cancelled) return;
 
-      // Use TTS engine's speak method with callback
-      if (this._tts?.speak) {
-        this._tts.speak(text, () => resolve());
-      } else {
-        // Fallback: Web Speech API directly
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.lang = this._langConfig?.bcp47 || 'cs-CZ';
-        utter.onend = () => resolve();
-        utter.onerror = () => resolve();
-        speechSynthesis.speak(utter);
+    // TTS engine.speak() returns a Promise that resolves when speech ends
+    if (this._tts?.speak) {
+      // Race: speak vs timeout (safety net for Chrome onend bug)
+      const estimatedMs = Math.max(3000, (text.length / 5) * 400); // ~5 chars/s
+      const timeout = new Promise(r => setTimeout(r, estimatedMs));
+      await Promise.race([this._tts.speak(text), timeout]);
+      // Ensure speech is done before moving on
+      if (this._tts.isSpeaking) {
+        await new Promise(r => {
+          const check = setInterval(() => {
+            if (!this._tts.isSpeaking || this._cancelled) {
+              clearInterval(check);
+              r();
+            }
+          }, 200);
+          // Hard timeout: 30s max per paragraph
+          setTimeout(() => { clearInterval(check); r(); }, 30000);
+        });
       }
+      return;
+    }
+
+    // Fallback: Web Speech API directly (with keepalive workaround)
+    await new Promise(resolve => {
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = this._langConfig?.bcp47 || 'cs-CZ';
+
+      let resolved = false;
+      const done = () => { if (!resolved) { resolved = true; resolve(); } };
+
+      utter.onend = done;
+      utter.onerror = done;
+
+      // Safety timeout: Chrome sometimes doesn't fire onend
+      const estimatedMs = Math.max(3000, (text.length / 5) * 400);
+      setTimeout(() => {
+        if (!resolved && !speechSynthesis.speaking) done();
+      }, estimatedMs);
+
+      // Chrome keepalive: pause/resume to prevent 15s cutoff
+      const keepAlive = setInterval(() => {
+        if (speechSynthesis.speaking) {
+          speechSynthesis.pause();
+          speechSynthesis.resume();
+        } else {
+          clearInterval(keepAlive);
+          done();
+        }
+      }, 10000);
+
+      speechSynthesis.speak(utter);
     });
   }
 
