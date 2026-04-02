@@ -61,6 +61,33 @@ class ArticlePlayer {
       const para = this._paragraphs[i];
       console.log(`[CzechDub] Article: playing ${i + 1}/${this._paragraphs.length} (${para.type}): "${para.text.substring(0, 60)}..."`);
 
+      // Handle media breaks — short pause, scroll to element, optionally read caption
+      if (para.type === 'break') {
+        this._highlightParagraph(i);
+        if (para.text) {
+          // Translate and speak image caption/alt text
+          const translatedCaption = await this._translator.translate(para.text);
+          this._setStatus(`${i + 1}/${this._paragraphs.length} — ${para.mediaType || 'media'}`);
+          await this._speakAndWait(translatedCaption);
+        } else {
+          // Just a pause for visual content
+          await new Promise(r => setTimeout(r, 800));
+        }
+        console.log(`[CzechDub] Article: passed media break ${i + 1}`);
+        continue;
+      }
+
+      // Handle figcaptions — read as brief note
+      if (para.type === 'caption') {
+        this._highlightParagraph(i);
+        const translatedCaption = await this._translator.translate(para.text);
+        this._showTranslation(i, translatedCaption);
+        this._setStatus(`${i + 1}/${this._paragraphs.length} — popisek`);
+        await this._speakAndWait(translatedCaption);
+        console.log(`[CzechDub] Article: done caption ${i + 1}`);
+        continue;
+      }
+
       // Translate if not yet done
       if (!para.translatedText) {
         this._setStatus(`${this._langConfig?.uiStrings?.translating || 'Překládám'} ${i + 1}/${this._paragraphs.length}...`);
@@ -148,6 +175,8 @@ class ArticlePlayer {
     for (let i = 0; i < this._paragraphs.length; i++) {
       if (this._cancelled) break;
       const para = this._paragraphs[i];
+      // Skip breaks without text, translate everything else
+      if (!para.text || para.type === 'break' && !para.text) continue;
       if (!para.translatedText) {
         para.translatedText = await this._translator.translate(para.text);
       }

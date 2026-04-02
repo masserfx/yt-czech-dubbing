@@ -126,35 +126,170 @@ class ArticleExtractor {
 
   /**
    * Extract structured paragraphs from the content root.
+   * Walks the DOM tree sequentially to preserve reading order and detect
+   * interruptions (images, videos, embeds) between text blocks.
    */
   _extractParagraphs(root) {
     const result = [];
     const seen = new Set();
+    const mediaAncestors = new Set(); // track media containers to skip their children
 
-    // Collect text-bearing elements
-    const elements = root.querySelectorAll('p, h2, h3, h4, blockquote, li');
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+      acceptNode: (node) => {
+        // Skip hidden elements (entire subtree)
+        const style = window.getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        // Skip nav/footer/aside/comments (entire subtree)
+        if (node.matches('nav, footer, aside, .comments, [role="navigation"], .social-share, .related-posts')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
 
-    for (const el of elements) {
-      const text = el.textContent.trim();
+    let node;
+    while ((node = walker.nextNode())) {
+      const tag = node.tagName;
+
+      // Check if we're inside a media ancestor → skip
+      let insideMedia = false;
+      for (const ancestor of mediaAncestors) {
+        if (ancestor.contains(node)) { insideMedia = true; break; }
+      }
+
+      // Detect media/embed interruptions
+      if (this._isMediaElement(node) && !insideMedia) {
+        mediaAncestors.add(node);
+        const desc = this._getMediaDescription(node);
+        if (result.length > 0 && result[result.length - 1].type !== 'break') {
+          result.push({
+            text: desc || '',
+            type: 'break',
+            element: node,
+            mediaType: this._getMediaType(node)
+          });
+        }
+        continue;
+      }
+
+      if (insideMedia) continue;
+
+      // Only process text-bearing elements
+      if (!this._isTextElement(tag)) continue;
+
+      const text = node.textContent.trim();
       if (text.length < 20) continue;
       if (seen.has(text)) continue;
       seen.add(text);
 
-      // Skip hidden elements
-      const style = window.getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      const type = tag.match(/^H[2-6]$/) ? 'heading' :
+                   tag === 'BLOCKQUOTE' ? 'quote' :
+                   tag === 'LI' ? 'list-item' :
+                   tag === 'FIGCAPTION' ? 'caption' : 'paragraph';
 
-      // Skip elements inside nav/footer/aside
-      if (el.closest('nav, footer, aside, .comments, [role="navigation"]')) continue;
-
-      const type = el.tagName.match(/^H[2-4]$/) ? 'heading' :
-                   el.tagName === 'BLOCKQUOTE' ? 'quote' :
-                   el.tagName === 'LI' ? 'list-item' : 'paragraph';
-
-      result.push({ text, type, element: el });
+      result.push({ text, type, element: node });
     }
 
-    return result;
+    // Clean up trailing/consecutive breaks
+    return this._cleanResults(result);
+  }
+
+  /**
+   * Check if an element is a media/embed that interrupts text flow.
+   */
+  _isMediaElement(node) {
+    const tag = node.tagName;
+    if (['IMG', 'VIDEO', 'AUDIO', 'IFRAME', 'CANVAS', 'SVG'].includes(tag)) return true;
+    if (tag === 'FIGURE') return true;
+
+    // Common media container patterns
+    const cl = (node.className || '') + ' ' + (node.id || '');
+    if (/video|player|embed|chart|graph|infographic|gallery|carousel|slider/i.test(cl)) {
+      // Only if it's a container (has minimal direct text)
+      const directText = this._getDirectTextLength(node);
+      if (directText < 50) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Get a human-readable description of a media element for TTS.
+   */
+  _getMediaDescription(node) {
+    const tag = node.tagName;
+
+    if (tag === 'IMG' || tag === 'FIGURE') {
+      const img = tag === 'IMG' ? node : node.querySelector('img');
+      const alt = img?.alt?.trim();
+      const caption = node.querySelector('figcaption')?.textContent?.trim();
+      return caption || (alt && alt.length > 5 ? alt : null);
+    }
+
+    if (tag === 'VIDEO' || tag === 'AUDIO') {
+      return null; // skip description, just mark as break
+    }
+
+    if (tag === 'IFRAME') {
+      const src = node.src || '';
+      if (/youtube|vimeo/i.test(src)) return null;
+    }
+
+    return null;
+  }
+
+  /**
+   * Classify media type for the break marker.
+   */
+  _getMediaType(node) {
+    const tag = node.tagName;
+    if (tag === 'IMG' || tag === 'FIGURE') return 'image';
+    if (tag === 'VIDEO') return 'video';
+    if (tag === 'AUDIO') return 'audio';
+    if (tag === 'IFRAME') return 'embed';
+    if (tag === 'SVG' || tag === 'CANVAS') return 'graphic';
+    const cl = (node.className || '').toLowerCase();
+    if (/chart|graph/i.test(cl)) return 'chart';
+    return 'media';
+  }
+
+  _isTextElement(tag) {
+    return ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI', 'FIGCAPTION'].includes(tag);
+  }
+
+  /**
+   * Get only the direct text content length (not from child elements).
+   */
+  _getDirectTextLength(node) {
+    let len = 0;
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        len += child.textContent.trim().length;
+      }
+    }
+    return len;
+  }
+
+  /**
+   * Clean extracted results: remove trailing breaks, merge consecutive breaks.
+   */
+  _cleanResults(items) {
+    const cleaned = [];
+    for (const item of items) {
+      if (item.type === 'break') {
+        // Skip consecutive breaks
+        if (cleaned.length > 0 && cleaned[cleaned.length - 1].type === 'break') continue;
+        // Only include breaks that have a description (image alt/caption)
+        if (!item.text) continue;
+      }
+      cleaned.push(item);
+    }
+    // Remove trailing breaks
+    while (cleaned.length > 0 && cleaned[cleaned.length - 1].type === 'break') {
+      cleaned.pop();
+    }
+    return cleaned;
   }
 
   /**
