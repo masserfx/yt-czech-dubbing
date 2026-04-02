@@ -107,6 +107,7 @@ function updateSetting(setting, value) {
       settings.translatorEngine = value;
       document.getElementById('apiKeyGroup').style.display = value === 'claude' ? 'block' : 'none';
       document.getElementById('deeplKeyGroup').style.display = value === 'deepl' ? 'block' : 'none';
+      document.getElementById('chromeAiNote').style.display = value === 'chromeai' ? 'block' : 'none';
       loadUsageStats();
       break;
     case 'anthropicApiKey':
@@ -293,6 +294,7 @@ async function loadSettings() {
         document.getElementById('translatorEngine').value = s.translatorEngine;
         document.getElementById('apiKeyGroup').style.display = s.translatorEngine === 'claude' ? 'block' : 'none';
         document.getElementById('deeplKeyGroup').style.display = s.translatorEngine === 'deepl' ? 'block' : 'none';
+        document.getElementById('chromeAiNote').style.display = s.translatorEngine === 'chromeai' ? 'block' : 'none';
       }
       if (s.anthropicApiKey) {
         document.getElementById('anthropicApiKey').value = s.anthropicApiKey;

@@ -126,6 +126,7 @@
         const engineSelect = document.createElement('select');
         engineSelect.id = 'czech-dub-engine';
         const engines = [
+          { value: 'chromeai', label: 'Chrome AI (on-device, zdarma)' },
           { value: 'google', label: 'Google Translate (zdarma)' },
           { value: 'deepl', label: 'DeepL (500k zn./měs. zdarma)' },
           { value: 'claude', label: 'Claude Haiku 4.5 (API klíč)' }

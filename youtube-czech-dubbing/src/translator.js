@@ -1,7 +1,8 @@
 /**
- * Translator - Translates text using free translation APIs.
- * All API calls go through background.js service worker to bypass CSP.
- * Supports multiple target languages (cs, sk, pl, hu).
+ * Translator - Translates text using multiple engines.
+ * Priority: Chrome AI (free, on-device) → DeepL/Claude (paid) → Google → MyMemory → Libre.
+ * All external API calls go through background.js service worker to bypass CSP.
+ * Chrome AI Translator runs directly in content script (on-device, no network).
  */
 class Translator {
   constructor() {
@@ -10,12 +11,22 @@ class Translator {
     this._deeplRateLimitDelay = 300; // ms between DeepL requests (free tier: ~5/s)
     this.lastRequestTime = 0;
     this._contextInvalidated = false;
-    this._engine = 'google'; // 'google', 'claude', or 'deepl'
+    this._engine = 'google'; // 'chromeai', 'google', 'claude', or 'deepl'
     this._anthropicApiKey = null;
     this._deeplApiKey = null;
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
     this._serviceClient = null; // injected by DubbingController for B2B mode
+
+    // Chrome AI Translator (on-device, free)
+    this._chromeAIAvailable = null; // null = unchecked, true/false
+    this._chromeAITranslator = null; // cached translator instance
+    this._chromeAITranslatorPair = null; // 'en→cs' key for cached instance
+    this._chromeAIDisabled = false;
+    this._chromeAIDetector = null; // LanguageDetector instance
+
+    // Status callback for model download progress
+    this.onStatusChange = null;
   }
 
   /**
@@ -32,6 +43,10 @@ class Translator {
         this._langConfig = getLanguageConfig(this._targetLang);
       }
     } catch (e) {}
+    // Pre-check Chrome AI availability when selected
+    if (this._engine === 'chromeai') {
+      this._checkChromeAIAvailability();
+    }
     console.log(`[CzechDub] Translation engine: ${this._engine}, target: ${this._targetLang}`);
   }
 
@@ -54,6 +69,19 @@ class Translator {
         this.cache.set(cacheKey, result);
         return result;
       }
+    }
+
+    // Chrome AI: highest priority free engine (on-device, no rate limit)
+    if (this._engine === 'chromeai' && !this._chromeAIDisabled) {
+      const available = await this._checkChromeAIAvailability();
+      if (available) {
+        const result = await this._translateChromeAI(text, sourceLang);
+        if (result) {
+          this.cache.set(cacheKey, result);
+          return result;
+        }
+      }
+      // Fall through to Google on Chrome AI failure
     }
 
     // Rate limiting — use engine-specific delay
@@ -382,6 +410,134 @@ class Translator {
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return null;
       console.warn('[CzechDub] Google translate fallback failed:', e);
+    }
+    return null;
+  }
+
+  /**
+   * Check if Chrome AI Translator API is available (Chrome 131+).
+   */
+  async _checkChromeAIAvailability() {
+    if (this._chromeAIAvailable !== null) return this._chromeAIAvailable;
+
+    try {
+      if (!self.translation?.canTranslate) {
+        this._chromeAIAvailable = false;
+        return false;
+      }
+      const result = await self.translation.canTranslate({
+        sourceLanguage: 'en',
+        targetLanguage: this._targetLang
+      });
+      // 'readily' = model loaded, 'after-download' = needs download, 'no' = unsupported
+      this._chromeAIAvailable = (result === 'readily' || result === 'after-download');
+      console.log(`[CzechDub] Chrome AI Translator: ${result} (en→${this._targetLang})`);
+      return this._chromeAIAvailable;
+    } catch (e) {
+      console.warn('[CzechDub] Chrome AI check failed:', e);
+      this._chromeAIAvailable = false;
+      return false;
+    }
+  }
+
+  /**
+   * Get or create a Chrome AI Translator instance for the given language pair.
+   * Caches the instance and reports model download progress via onStatusChange.
+   */
+  async _getChromeAITranslator(sourceLang) {
+    const pairKey = `${sourceLang}→${this._targetLang}`;
+    if (this._chromeAITranslator && this._chromeAITranslatorPair === pairKey) {
+      return this._chromeAITranslator;
+    }
+
+    // Destroy previous instance if language pair changed
+    if (this._chromeAITranslator?.destroy) {
+      this._chromeAITranslator.destroy();
+      this._chromeAITranslator = null;
+    }
+
+    const options = {
+      sourceLanguage: sourceLang,
+      targetLanguage: this._targetLang
+    };
+
+    // Check availability for this specific pair
+    const canTranslate = await self.translation.canTranslate(options);
+    if (canTranslate === 'no') {
+      console.warn(`[CzechDub] Chrome AI: pair ${pairKey} not supported`);
+      return null;
+    }
+
+    // Create translator — may trigger model download
+    if (canTranslate === 'after-download' && this.onStatusChange) {
+      this.onStatusChange('loading', `Stahuji AI model (${pairKey})...`);
+    }
+
+    const translator = await self.translation.createTranslator(options);
+
+    // Monitor download progress if available
+    if (translator.ondownloadprogress !== undefined) {
+      translator.ondownloadprogress = (e) => {
+        if (this.onStatusChange && e.total > 0) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          this.onStatusChange('loading', `AI model ${pairKey}: ${pct}%`);
+        }
+      };
+      // Wait for the translator to be ready
+      await translator.ready;
+    }
+
+    this._chromeAITranslator = translator;
+    this._chromeAITranslatorPair = pairKey;
+    console.log(`[CzechDub] Chrome AI Translator ready: ${pairKey}`);
+    return translator;
+  }
+
+  /**
+   * Translate text using Chrome AI on-device Translator.
+   */
+  async _translateChromeAI(text, sourceLang) {
+    try {
+      const translator = await this._getChromeAITranslator(sourceLang);
+      if (!translator) return null;
+
+      const result = await translator.translate(text);
+      return result || null;
+    } catch (e) {
+      console.warn('[CzechDub] Chrome AI translation failed:', e);
+      // Disable for this session on persistent errors
+      if (e.name === 'NotSupportedError' || e.message?.includes('not supported')) {
+        this._chromeAIDisabled = true;
+        console.warn('[CzechDub] Chrome AI disabled for this session');
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Detect source language using Chrome AI LanguageDetector (Chrome 129+).
+   * Returns BCP-47 language code or null.
+   */
+  async _detectLanguageChromeAI(text) {
+    try {
+      if (!self.translation?.createDetector && !self.LanguageDetector) return null;
+
+      if (!this._chromeAIDetector) {
+        if (self.LanguageDetector?.create) {
+          this._chromeAIDetector = await self.LanguageDetector.create();
+        } else if (self.translation?.createDetector) {
+          this._chromeAIDetector = await self.translation.createDetector();
+        } else {
+          return null;
+        }
+      }
+
+      const results = await this._chromeAIDetector.detect(text);
+      if (results?.length > 0 && results[0].confidence > 0.5) {
+        return results[0].detectedLanguage;
+      }
+    } catch (e) {
+      console.warn('[CzechDub] Chrome AI language detection failed:', e);
     }
     return null;
   }
