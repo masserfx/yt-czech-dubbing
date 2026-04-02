@@ -62,13 +62,25 @@ class Translator {
       return this.cache.get(cacheKey);
     }
 
+    let translated = await this._translateRaw(text, sourceLang);
+
+    if (translated) {
+      translated = this._phoneticize(translated, sourceLang);
+      this.cache.set(cacheKey, translated);
+      return translated;
+    }
+
+    return text;
+  }
+
+  /**
+   * Core translation dispatch — tries engines in priority order.
+   */
+  async _translateRaw(text, sourceLang) {
     // Service mode: delegate to centralized API
     if (this._serviceClient?.isServiceMode()) {
       const result = await this._serviceClient.translate(text, sourceLang, this._targetLang, this._engine);
-      if (result) {
-        this.cache.set(cacheKey, result);
-        return result;
-      }
+      if (result) return result;
     }
 
     // Chrome AI: highest priority free engine (on-device, no rate limit)
@@ -76,12 +88,8 @@ class Translator {
       const available = await this._checkChromeAIAvailability();
       if (available) {
         const result = await this._translateChromeAI(text, sourceLang);
-        if (result) {
-          this.cache.set(cacheKey, result);
-          return result;
-        }
+        if (result) return result;
       }
-      // Fall through to Google on Chrome AI failure
     }
 
     // Rate limiting — use engine-specific delay
@@ -93,46 +101,122 @@ class Translator {
     }
     this.lastRequestTime = Date.now();
 
-    let translated = null;
-
     // Use DeepL if configured
     if (this._engine === 'deepl' && this._deeplApiKey && !this._deeplDisabled) {
-      translated = await this._translateDeepL(text, sourceLang);
-      if (translated) {
-        this.cache.set(cacheKey, translated);
-        return translated;
-      }
+      const result = await this._translateDeepL(text, sourceLang);
+      if (result) return result;
     }
 
-    // Use Claude if configured and not disabled by previous error
+    // Use Claude if configured
     if (this._engine === 'claude' && this._anthropicApiKey && !this._claudeDisabled) {
-      translated = await this._translateClaude(text, sourceLang);
-      if (translated) {
-        this.cache.set(cacheKey, translated);
-        return translated;
-      }
-      // Fall through to Google on Claude failure
+      const result = await this._translateClaude(text, sourceLang);
+      if (result) return result;
     }
 
     // Google Translate
-    translated = await this._translateGoogle(text, sourceLang);
+    let translated = await this._translateGoogle(text, sourceLang);
+    if (translated) return translated;
 
     // Fallback to MyMemory
-    if (!translated) {
-      translated = await this._translateMyMemory(text, sourceLang);
-    }
+    translated = await this._translateMyMemory(text, sourceLang);
+    if (translated) return translated;
 
     // Last resort: LibreTranslate
-    if (!translated) {
-      translated = await this._translateLibre(text, sourceLang);
+    return await this._translateLibre(text, sourceLang);
+  }
+
+  /**
+   * Post-process translated text: replace English words/names
+   * with phonetic spelling for correct Czech TTS pronunciation.
+   */
+  _phoneticize(text, sourceLang) {
+    if (sourceLang === this._targetLang) return text;
+
+    // Static dictionary: English → Czech phonetic approximation
+    // Covers common tech terms, brand names, and words that stay untranslated
+    const phoneticMap = [
+      // Tech brands & products
+      [/\bGoogle\b/g, 'Gůgl'],
+      [/\bYouTube\b/g, 'Jútyúb'],
+      [/\bPixel\b/g, 'Piksl'],
+      [/\bGemini\b/g, 'Džemynaj'],
+      [/\bChrome\b/g, 'Króum'],
+      [/\bAndroid\b/g, 'Endrojd'],
+      [/\biPhone\b/g, 'Ajfoun'],
+      [/\biPad\b/g, 'Ajped'],
+      [/\bMacBook\b/g, 'Mekbuk'],
+      [/\bWindows\b/g, 'Vindous'],
+      [/\bLinux\b/g, 'Linuks'],
+      [/\bNetflix\b/g, 'Netfliks'],
+      [/\bSpotify\b/g, 'Spotifaj'],
+      [/\bOpenAI\b/g, 'Oupen ej aj'],
+      [/\bChatGPT\b/g, 'Čet džípítý'],
+      [/\bClaude\b/g, 'Klód'],
+      [/\bAnthropic\b/g, 'Entropik'],
+      [/\bTesla\b/g, 'Tezla'],
+      [/\bApple\b/g, 'Epl'],
+      [/\bMicrosoft\b/g, 'Majkrosoft'],
+      [/\bAmazon\b/g, 'Emezn'],
+      [/\bFacebook\b/g, 'Fejsbuk'],
+      [/\bInstagram\b/g, 'Instagrem'],
+      [/\bTikTok\b/g, 'Tiktok'],
+      [/\bTwitter\b/g, 'Tviter'],
+      [/\bSlack\b/g, 'Slek'],
+      [/\bZoom\b/g, 'Zúm'],
+      [/\bNotion\b/g, 'Noušn'],
+      [/\bFigma\b/g, 'Figma'],
+      [/\bGitHub\b/g, 'Githab'],
+      [/\bStack Overflow\b/g, 'Stek Ouvr-flou'],
+      [/\bNotebookLM\b/g, 'Noutbuk el em'],
+      [/\bDeepL\b/g, 'Dípl'],
+
+      // Common English terms in tech articles
+      [/\bhighlights?\b/gi, (m) => m[0] === 'H' ? 'Hajlajts' : 'hajlajts'],
+      [/\bfeatures?\b/gi, (m) => m[0] === 'F' ? 'Fíčrs' : 'fíčrs'],
+      [/\bupdates?\b/gi, (m) => m[0] === 'U' ? 'Apdejts' : 'apdejts'],
+      [/\bsettings?\b/gi, (m) => m[0] === 'S' ? 'Setynks' : 'setynks'],
+      [/\bdownload\b/gi, (m) => m[0] === 'D' ? 'Daunloud' : 'daunloud'],
+      [/\bupload\b/gi, (m) => m[0] === 'U' ? 'Aploud' : 'aploud'],
+      [/\bstreaming\b/gi, 'strímink'],
+      [/\bpodcast\b/gi, (m) => m[0] === 'P' ? 'Podkást' : 'podkást'],
+      [/\bnewsletter\b/gi, 'njúzletr'],
+      [/\bonline\b/gi, 'onlajn'],
+      [/\boffline\b/gi, 'oflajn'],
+      [/\bsmart\b/gi, 'smárt'],
+      [/\bscreenshot\b/gi, 'skrínšot'],
+      [/\bwidget\b/gi, 'vidžet'],
+      [/\bcloud\b/gi, (m) => m[0] === 'C' ? 'Klaud' : 'klaud'],
+      [/\bshare\b/gi, 'šér'],
+      [/\bfeedback\b/gi, 'fídbek'],
+      [/\bdesign\b/gi, 'dyzajn'],
+      [/\blayout\b/gi, 'lejaut'],
+      [/\bdashboard\b/gi, 'dešbórd'],
+      [/\bworkflow\b/gi, 'vorkflou'],
+      [/\bplaylist\b/gi, 'plejlist'],
+      [/\bawesome\b/gi, (m) => m[0] === 'A' ? 'Ósam' : 'ósam'],
+      [/\bcool\b/gi, 'kůl'],
+      [/\bnight\s*mode\b/gi, 'najt moud'],
+      [/\bdark\s*mode\b/gi, 'dárk moud'],
+      [/\bscroll\b/gi, 'skroul'],
+      [/\bswipe\b/gi, 'svajp'],
+      [/\btouchscreen\b/gi, 'tačskrín'],
+      [/\bbluetooth\b/gi, 'blútůs'],
+      [/\bwi-?fi\b/gi, 'vajfaj'],
+
+      // AI terms
+      [/\bAI\b/g, 'ej aj'],
+      [/\bmachine learning\b/gi, 'mašín lérnyng'],
+      [/\bdeep learning\b/gi, 'díp lérnyng'],
+      [/\bprompt\b/gi, (m) => m[0] === 'P' ? 'Promt' : 'promt'],
+      [/\bchatbot\b/gi, 'četbot'],
+    ];
+
+    let result = text;
+    for (const [pattern, replacement] of phoneticMap) {
+      result = result.replace(pattern, replacement);
     }
 
-    if (translated) {
-      this.cache.set(cacheKey, translated);
-      return translated;
-    }
-
-    return text;
+    return result;
   }
 
   /**
