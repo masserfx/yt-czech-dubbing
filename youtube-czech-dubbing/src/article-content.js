@@ -37,6 +37,15 @@
     }
 
     console.log(`[CzechDub] Article: "${article.title}" — ${article.paragraphs.length} paragraphs, ${article.audioElements.length} audio elements`);
+    if (article.summary?.sections?.length > 0) {
+      console.log(`[CzechDub] Summary: ${article.summary.sections.length} section(s)`, article.summary.sections.map(s => `${s.source}: "${s.title}"`));
+    }
+    if (article.summary?.hasAISummary) {
+      console.log('[CzechDub] AI summary detected on page');
+    }
+    if (article.meta?.description) {
+      console.log(`[CzechDub] Meta description: "${article.meta.description.substring(0, 80)}..."`);
+    }
 
     // Initialize translator
     translator = new Translator();
@@ -52,7 +61,8 @@
     player = new ArticlePlayer();
     await player.init(article, translator, tts, langConfig);
 
-    notifyPopup('ready', `Článek připraven (${article.paragraphs.length} odstavců)`);
+    const summaryInfo = article.summary?.sections?.length > 0 ? ' + shrnutí' : '';
+    notifyPopup('ready', `Článek připraven (${article.paragraphs.length} odstavců${summaryInfo})`);
 
     // Auto-start pre-translation in background
     player.preTranslate((done, total) => {

@@ -8,12 +8,16 @@ class ArticlePlayer {
     this._translator = null;
     this._tts = null;
     this._paragraphs = []; // [{text, type, element, translatedText}]
+    this._allParagraphs = []; // full article paragraphs (kept for mode switch)
+    this._summaryParagraphs = []; // summary-only paragraphs
     this._currentIndex = -1;
     this._isPlaying = false;
     this._isPaused = false;
     this._cancelled = false;
     this._highlightClass = 'czech-dub-highlight';
     this._langConfig = null;
+    this._mode = 'full'; // 'summary' or 'full'
+    this._articleData = null;
   }
 
   /**
@@ -23,14 +27,107 @@ class ArticlePlayer {
     this._translator = translator;
     this._tts = tts;
     this._langConfig = langConfig;
-    this._paragraphs = articleData.paragraphs.map(p => ({
+    this._articleData = articleData;
+
+    // Build full article paragraphs
+    this._allParagraphs = articleData.paragraphs.map(p => ({
       ...p,
       translatedText: null
     }));
 
+    // Build summary paragraphs from detected summaries + meta
+    this._summaryParagraphs = this._buildSummaryParagraphs(articleData);
+
+    // Choose initial mode: if summary is available, start with summary
+    const hasSummary = this._summaryParagraphs.length > 0;
+    this._mode = hasSummary ? 'summary' : 'full';
+    this._paragraphs = hasSummary ? this._summaryParagraphs : this._allParagraphs;
+
+    console.log(`[CzechDub] Article mode: ${this._mode} (${this._summaryParagraphs.length} summary items, ${this._allParagraphs.length} full paragraphs)`);
+
     this._injectStyles();
     this._createUI();
     this._updateProgress();
+    this._updateModeButtons();
+  }
+
+  /**
+   * Build summary paragraphs from extracted summary data + page meta.
+   */
+  _buildSummaryParagraphs(articleData) {
+    const items = [];
+    const summary = articleData.summary;
+    const meta = articleData.meta;
+
+    // Add meta description as intro if available
+    if (meta?.description && meta.description.length > 30) {
+      items.push({
+        text: meta.description,
+        type: 'summary-intro',
+        element: null,
+        translatedText: null,
+        source: 'meta'
+      });
+    }
+
+    // Add detected summary sections
+    if (summary?.sections) {
+      for (const section of summary.sections) {
+        // Skip empty NotebookLM markers
+        if (section.source === 'notebooklm' && !section.text) continue;
+
+        // Add section title as heading
+        if (section.title && section.items?.length > 1) {
+          items.push({
+            text: section.title,
+            type: 'heading',
+            element: section.element,
+            translatedText: null,
+            source: section.source
+          });
+        }
+
+        // Add individual items or full text
+        if (section.items?.length > 1) {
+          for (const itemText of section.items) {
+            items.push({
+              text: itemText,
+              type: 'summary-point',
+              element: section.element,
+              translatedText: null,
+              source: section.source
+            });
+          }
+        } else if (section.text) {
+          items.push({
+            text: section.text,
+            type: 'summary-text',
+            element: section.element,
+            translatedText: null,
+            source: section.source
+          });
+        }
+      }
+    }
+
+    return items;
+  }
+
+  /**
+   * Switch between summary and full article mode.
+   */
+  switchMode(mode) {
+    const wasPlaying = this._isPlaying;
+    if (wasPlaying) this.stop();
+
+    this._mode = mode;
+    this._currentIndex = -1;
+    this._paragraphs = mode === 'summary' ? this._summaryParagraphs : this._allParagraphs;
+    this._updateProgress();
+    this._updateModeButtons();
+    this._clearHighlight();
+
+    console.log(`[CzechDub] Switched to ${mode} mode (${this._paragraphs.length} items)`);
   }
 
   /**
@@ -391,6 +488,37 @@ class ArticlePlayer {
         text-align: center;
         margin-top: 8px;
       }
+      .czech-dub-player-mode {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+        justify-content: center;
+      }
+      .czech-dub-mode-btn {
+        background: #16213e;
+        border: 1px solid #0f3460;
+        color: #aaa;
+        padding: 4px 14px;
+        border-radius: 14px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .czech-dub-mode-btn:hover { color: #e0e0e0; border-color: #3498db; }
+      .czech-dub-mode-btn.active {
+        background: #11457e;
+        color: white;
+        border-color: #3498db;
+      }
+      .czech-dub-player-audio-info {
+        font-size: 10px;
+        color: #888;
+        text-align: center;
+        margin-top: 6px;
+        padding: 3px 8px;
+        background: rgba(52,152,219,0.1);
+        border-radius: 8px;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -477,6 +605,49 @@ class ArticlePlayer {
     controls.appendChild(stopBtn);
     body.appendChild(controls);
 
+    // Mode switcher (Summary / Full Article)
+    const modeRow = document.createElement('div');
+    modeRow.className = 'czech-dub-player-mode';
+
+    this._summaryBtn = document.createElement('button');
+    this._summaryBtn.className = 'czech-dub-mode-btn';
+    this._summaryBtn.textContent = 'Shrnut\u00ED';
+    this._summaryBtn.title = 'P\u0159e\u010D\u00EDst pouze shrnut\u00ED';
+    this._summaryBtn.addEventListener('click', () => this.switchMode('summary'));
+
+    this._fullBtn = document.createElement('button');
+    this._fullBtn.className = 'czech-dub-mode-btn';
+    this._fullBtn.textContent = 'Cel\u00FD \u010Dl\u00E1nek';
+    this._fullBtn.title = 'P\u0159e\u010D\u00EDst cel\u00FD \u010Dl\u00E1nek';
+    this._fullBtn.addEventListener('click', () => this.switchMode('full'));
+
+    modeRow.appendChild(this._summaryBtn);
+    modeRow.appendChild(this._fullBtn);
+
+    // Hide mode switcher if no summary available
+    if (this._summaryParagraphs.length === 0) {
+      modeRow.style.display = 'none';
+    }
+
+    body.appendChild(modeRow);
+
+    // Audio elements indicator
+    if (this._articleData?.audioElements?.length > 0) {
+      const audioInfo = document.createElement('div');
+      audioInfo.className = 'czech-dub-player-audio-info';
+      const audioCount = this._articleData.audioElements.length;
+      audioInfo.textContent = `\uD83C\uDFA7 ${audioCount} audio element${audioCount > 1 ? '\u016F' : ''} na str\u00E1nce`;
+      body.appendChild(audioInfo);
+    }
+
+    // Summary info
+    if (this._articleData?.summary?.hasAISummary) {
+      const aiInfo = document.createElement('div');
+      aiInfo.className = 'czech-dub-player-audio-info';
+      aiInfo.textContent = '\u2728 Detekována AI sumarizace na str\u00E1nce';
+      body.appendChild(aiInfo);
+    }
+
     // Counter
     this._counterEl = document.createElement('div');
     this._counterEl.className = 'czech-dub-player-counter';
@@ -499,13 +670,20 @@ class ArticlePlayer {
     }
   }
 
+  _updateModeButtons() {
+    if (!this._summaryBtn || !this._fullBtn) return;
+    this._summaryBtn.classList.toggle('active', this._mode === 'summary');
+    this._fullBtn.classList.toggle('active', this._mode === 'full');
+  }
+
   _updateProgress() {
     if (!this._progressBar || !this._counterEl) return;
     const total = this._paragraphs.length;
     const current = Math.max(0, this._currentIndex + 1);
     const pct = total > 0 ? (current / total) * 100 : 0;
     this._progressBar.style.width = pct + '%';
-    this._counterEl.textContent = `${current} / ${total} paragraphs`;
+    const modeLabel = this._mode === 'summary' ? 'shrnut\u00ED' : 'odstavc\u016F';
+    this._counterEl.textContent = `${current} / ${total} ${modeLabel}`;
   }
 
   _setStatus(text) {

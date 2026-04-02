@@ -36,20 +36,193 @@ class ArticleExtractor {
 
   /**
    * Extract the main article content from the page.
-   * Returns { title, paragraphs: [{text, element}], audioElements: [] }
+   * Returns { title, summary, paragraphs, audioElements, meta }
    */
   extract() {
     const title = this._extractTitle();
     const contentRoot = this._findContentRoot();
+    const meta = this._extractMeta();
+    const summary = this._extractSummary(contentRoot);
+    const audioElements = this._findAudioElements();
 
     if (!contentRoot) {
-      return { title, paragraphs: [], audioElements: [] };
+      return { title, summary, paragraphs: [], audioElements, meta };
     }
 
     const paragraphs = this._extractParagraphs(contentRoot);
-    const audioElements = this._findAudioElements();
 
-    return { title, paragraphs, audioElements };
+    return { title, summary, paragraphs, audioElements, meta };
+  }
+
+  /**
+   * Extract page metadata (OG, schema.org, meta description).
+   * Used as fallback summary or intro context.
+   */
+  _extractMeta() {
+    const meta = { description: null, author: null, publishDate: null, keywords: [] };
+
+    // Open Graph description
+    const ogDesc = document.querySelector('meta[property="og:description"]');
+    if (ogDesc) meta.description = ogDesc.content?.trim();
+
+    // Fallback: meta description
+    if (!meta.description) {
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) meta.description = metaDesc.content?.trim();
+    }
+
+    // Schema.org JSON-LD
+    for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        const data = JSON.parse(script.textContent);
+        const article = Array.isArray(data) ? data.find(d => d['@type']?.includes('Article')) :
+                        (data['@type']?.includes('Article') ? data : null);
+        if (article) {
+          if (!meta.description && article.description) meta.description = article.description;
+          if (article.author) meta.author = typeof article.author === 'string' ? article.author : article.author.name;
+          if (article.datePublished) meta.publishDate = article.datePublished;
+          if (article.keywords) meta.keywords = Array.isArray(article.keywords) ? article.keywords : article.keywords.split(',').map(k => k.trim());
+          break;
+        }
+      } catch (e) {}
+    }
+
+    return meta;
+  }
+
+  /**
+   * Detect and extract AI/editorial summary sections on the page.
+   * Looks for: TL;DR, Key Takeaways, Summary, Highlights, etc.
+   */
+  _extractSummary(contentRoot) {
+    const summaryData = {
+      sections: [],     // [{title, text, element, source}]
+      hasAISummary: false
+    };
+
+    // 1. Look for explicit summary/TLDR sections by heading + content
+    const summaryHeadingPatterns = /^(tl;?dr|summary|key\s*take\s*away|highlight|overview|at\s*a\s*glance|in\s*brief|what\s*you.*(know|learn)|quick\s*summary|shrnut|souhrn|přehled)/i;
+
+    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6, strong, b');
+    for (const heading of headings) {
+      const headingText = heading.textContent.trim();
+      if (!summaryHeadingPatterns.test(headingText)) continue;
+
+      // Collect text after this heading until next heading or media
+      const texts = [];
+      let sibling = heading.tagName.match(/^H[1-6]$/) ? heading.nextElementSibling : heading.closest('p, div')?.nextElementSibling;
+
+      while (sibling) {
+        if (sibling.tagName?.match(/^H[1-6]$/)) break;
+        if (this._isMediaElement(sibling)) break;
+        const text = sibling.textContent.trim();
+        if (text.length > 15) texts.push(text);
+        if (texts.length >= 8) break; // Cap at 8 items
+        sibling = sibling.nextElementSibling;
+      }
+
+      if (texts.length > 0) {
+        summaryData.sections.push({
+          title: headingText,
+          text: texts.join(' '),
+          items: texts,
+          element: heading,
+          source: 'heading-section'
+        });
+      }
+    }
+
+    // 2. Look for summary containers by class/id patterns
+    const summarySelectors = [
+      '.summary', '.article-summary', '.post-summary', '.tldr', '.tl-dr',
+      '.key-takeaways', '.key-points', '.highlights', '.quick-read',
+      '.executive-summary', '.brief', '[data-summary]', '[role="doc-abstract"]',
+      '.abstract', '.lead', '.lede', '.standfirst', '.dek', '.subheadline',
+      // AI-specific patterns
+      '.ai-summary', '.generated-summary', '.auto-summary',
+      '[data-ai-generated]', '[data-auto-generated]'
+    ];
+
+    for (const sel of summarySelectors) {
+      for (const el of document.querySelectorAll(sel)) {
+        const text = el.textContent.trim();
+        if (text.length < 30 || text.length > 3000) continue;
+
+        // Check for AI-generated markers
+        const isAI = /ai[- ]generated|auto[- ]generated|ai[- ]summary/i.test(
+          el.className + ' ' + (el.dataset?.aiGenerated || '') + ' ' + el.textContent.substring(0, 50)
+        );
+
+        summaryData.sections.push({
+          title: sel.replace(/^[.#]/, ''),
+          text,
+          items: this._splitIntoItems(el),
+          element: el,
+          source: isAI ? 'ai-generated' : 'page-component'
+        });
+
+        if (isAI) summaryData.hasAISummary = true;
+      }
+    }
+
+    // 3. Look for bullet-point lists near the top of the article (common summary pattern)
+    if (summaryData.sections.length === 0 && contentRoot) {
+      const firstChildren = Array.from(contentRoot.children).slice(0, 8);
+      for (const child of firstChildren) {
+        if (child.tagName === 'UL' || child.tagName === 'OL') {
+          const items = Array.from(child.querySelectorAll('li'))
+            .map(li => li.textContent.trim())
+            .filter(t => t.length > 15);
+          if (items.length >= 3 && items.length <= 10) {
+            summaryData.sections.push({
+              title: 'Key points',
+              text: items.join('. '),
+              items,
+              element: child,
+              source: 'top-list'
+            });
+            break;
+          }
+        }
+      }
+    }
+
+    // 4. Detect Google Blog / NotebookLM specific patterns
+    const notebookLmElements = document.querySelectorAll(
+      '[data-notebooklm], .notebooklm-player, iframe[src*="notebooklm"]'
+    );
+    if (notebookLmElements.length > 0) {
+      summaryData.hasAISummary = true;
+      for (const el of notebookLmElements) {
+        summaryData.sections.push({
+          title: 'NotebookLM AI Summary',
+          text: '',
+          items: [],
+          element: el,
+          source: 'notebooklm'
+        });
+      }
+    }
+
+    return summaryData;
+  }
+
+  /**
+   * Split a container element into individual text items (list items or paragraphs).
+   */
+  _splitIntoItems(el) {
+    // If it contains a list, use list items
+    const listItems = el.querySelectorAll('li');
+    if (listItems.length >= 2) {
+      return Array.from(listItems).map(li => li.textContent.trim()).filter(t => t.length > 10);
+    }
+    // Otherwise split by paragraphs
+    const paras = el.querySelectorAll('p');
+    if (paras.length >= 2) {
+      return Array.from(paras).map(p => p.textContent.trim()).filter(t => t.length > 10);
+    }
+    // Fallback: whole text
+    return [el.textContent.trim()];
   }
 
   /**
