@@ -311,6 +311,46 @@
     .token-cost { color: #27ae60; font-weight: 500; }
     .token-cost.paid { color: #e67e22; }
 
+    /* Chat action bar */
+    .chat-actions {
+      display: none;
+      padding: 4px 12px;
+      background: #16213e;
+      gap: 4px;
+      justify-content: flex-end;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .chat-actions.visible { display: flex; }
+    .chat-action-btn {
+      background: transparent;
+      border: 1px solid #0f3460;
+      color: #888;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .chat-action-btn:hover { color: #3498db; border-color: #3498db; }
+    .chat-action-btn.active { color: #e67e22; border-color: #e67e22; }
+    .chat-action-btn.flash { color: #27ae60; border-color: #27ae60; }
+
+    /* Pause banner */
+    .chat-paused-banner {
+      display: none;
+      padding: 6px 12px;
+      background: #7f3400;
+      color: #fdebd0;
+      font-size: 12px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .chat-paused-banner.visible { display: block; }
+
     /* TTS toggle */
     .chat-tts {
       background: #2c3e50;
@@ -626,6 +666,11 @@
     <symbol id="ico-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
     <symbol id="ico-prev" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></symbol>
     <symbol id="ico-next" viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></symbol>
+    <symbol id="ico-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></symbol>
+    <symbol id="ico-export" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></symbol>
+    <symbol id="ico-share" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 1 0 14 5c0 .24.04.47.09.7L7.04 9.81A2.99 2.99 0 0 0 4 12a3 3 0 0 0 3.04 3l7.05 4.11A2.98 2.98 0 0 0 18 22a3 3 0 1 0 0-5.92z"/></symbol>
+    <symbol id="ico-notes" viewBox="0 0 24 24"><path d="M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z"/></symbol>
+    <symbol id="ico-copy" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></symbol>
   </svg>
 </head>
 <body>
@@ -700,6 +745,14 @@
       <div class="token-bar" id="tokenBar">
         <span class="token-info" id="tokenInfo">0 tokenů</span>
         <span class="token-cost" id="tokenCost">$0.000</span>
+      </div>
+      <div class="chat-paused-banner" id="pausedBanner">Dialog pozastaven</div>
+      <div class="chat-actions" id="chatActions">
+        <button class="chat-action-btn" id="btnPause" title="Pozastavit dialog"><svg class="icon"><use href="#ico-pause"/></svg></button>
+        <button class="chat-action-btn" id="btnCopy" title="Kop&#xED;rovat konverzaci"><svg class="icon"><use href="#ico-copy"/></svg></button>
+        <button class="chat-action-btn" id="btnExport" title="Exportovat (Markdown)"><svg class="icon"><use href="#ico-export"/></svg></button>
+        <button class="chat-action-btn" id="btnNotes" title="Ulo&#x17E;it do Pozn&#xE1;mek"><svg class="icon"><use href="#ico-notes"/></svg></button>
+        <button class="chat-action-btn" id="btnShare" title="Sd&#xED;let"><svg class="icon"><use href="#ico-share"/></svg></button>
       </div>
       <div class="chat-input-area">
         <textarea class="chat-input" id="chatInput" placeholder="Zeptejte se... (dr&#x17E; mezern&#xED;k = hlas)" rows="1"></textarea>

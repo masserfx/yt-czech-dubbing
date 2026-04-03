@@ -12,6 +12,7 @@ let currentLang = 'cs';
 let ttsEnabled = false;
 let voiceDialogueListening = false; // true when auto-listening after TTS
 let voiceSilenceTimer = null;       // timer for silence detection
+let chatPaused = false;             // pauses voice dialogue loop
 
 // Session token tracking
 let sessionUsage = { input: 0, output: 0, cost: 0, requests: 0 };
@@ -50,6 +51,8 @@ const i18n = {
     getGemini: 'Získat Gemini API klíč (Google AI Studio)',
     getAzure: 'Získat Azure Speech klíč (portal.azure.com)',
     ttsOn: 'Hlasový dialog zapnut', ttsOff: 'Hlasový dialog vypnut',
+    copiedToClipboard: 'Zkopírováno do schránky', pasteInNotes: 'vložte do Poznámek',
+    dialogPaused: 'Dialog pozastaven',
   },
   sk: {
     tabDubbing: 'Dabing', tabChat: 'Chat AI', tabSettings: 'Nastavenia',
@@ -81,6 +84,8 @@ const i18n = {
     getGemini: 'Získať Gemini API kľúč (Google AI Studio)',
     getAzure: 'Získať Azure Speech kľúč (portal.azure.com)',
     ttsOn: 'Hlasový dialóg zapnutý', ttsOff: 'Hlasový dialóg vypnutý',
+    copiedToClipboard: 'Skopírované do schránky', pasteInNotes: 'vložte do Poznámok',
+    dialogPaused: 'Dialóg pozastavený',
   },
   pl: {
     tabDubbing: 'Dubbing', tabChat: 'Chat AI', tabSettings: 'Ustawienia',
@@ -112,6 +117,8 @@ const i18n = {
     getGemini: 'Uzyskaj klucz Gemini API (Google AI Studio)',
     getAzure: 'Uzyskaj klucz Azure Speech (portal.azure.com)',
     ttsOn: 'Dialog głosowy włączony', ttsOff: 'Dialog głosowy wyłączony',
+    copiedToClipboard: 'Skopiowano do schowka', pasteInNotes: 'wklej do Notatek',
+    dialogPaused: 'Dialog wstrzymany',
   },
   hu: {
     tabDubbing: 'Szinkron', tabChat: 'Chat AI', tabSettings: 'Beállítások',
@@ -143,6 +150,8 @@ const i18n = {
     getGemini: 'Gemini API kulcs beszerzése (Google AI Studio)',
     getAzure: 'Azure Speech kulcs beszerzése (portal.azure.com)',
     ttsOn: 'Hangos párbeszéd bekapcsolva', ttsOff: 'Hangos párbeszéd kikapcsolva',
+    copiedToClipboard: 'Másolva a vágólapra', pasteInNotes: 'illessze be a Jegyzetekbe',
+    dialogPaused: 'Párbeszéd szüneteltetve',
   },
   en: {
     tabDubbing: 'Dubbing', tabChat: 'Chat AI', tabSettings: 'Settings',
@@ -174,6 +183,8 @@ const i18n = {
     getGemini: 'Get Gemini API key (Google AI Studio)',
     getAzure: 'Get Azure Speech key (portal.azure.com)',
     ttsOn: 'Voice dialogue on', ttsOff: 'Voice dialogue off',
+    copiedToClipboard: 'Copied to clipboard', pasteInNotes: 'paste in Notes',
+    dialogPaused: 'Dialogue paused',
   },
 };
 
@@ -324,6 +335,7 @@ function bindEvents() {
   bindSettingsEvents();
   bindVoiceInput();
   bindTtsToggle();
+  bindChatActions();
 
   // API key links — open in new tab
   document.querySelectorAll('.api-link[data-url]').forEach(link => {
@@ -478,6 +490,17 @@ async function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const text = input.value.trim();
   if (!text) return;
+
+  // Show action bar after first message
+  document.getElementById('chatActions').classList.add('visible');
+
+  if (chatPaused) {
+    // Queue message visually but don't send
+    appendChatMessage('user', text);
+    input.value = '';
+    input.style.height = 'auto';
+    return;
+  }
 
   if (!geminiApiKey) {
     appendChatMessage('bot', t('noApiKey'), true);
@@ -1259,8 +1282,8 @@ function speakText(md) {
   btn.classList.add('speaking');
   utter.onend = () => {
     btn.classList.remove('speaking');
-    // Voice dialogue: auto-listen after TTS finishes
-    if (ttsEnabled && !isRecording) {
+    // Voice dialogue: auto-listen after TTS finishes (unless paused)
+    if (ttsEnabled && !isRecording && !chatPaused) {
       voiceDialogueListening = true;
       startRecording();
     }
@@ -1283,5 +1306,130 @@ function bindTtsToggle() {
       if (isRecording) stopRecording(true);
     }
   });
+}
 
+// ── Chat Actions (pause, export, notes, share, copy) ────
+
+function bindChatActions() {
+  // Pause
+  document.getElementById('btnPause').addEventListener('click', () => {
+    chatPaused = !chatPaused;
+    const btn = document.getElementById('btnPause');
+    btn.classList.toggle('active', chatPaused);
+    document.getElementById('pausedBanner').classList.toggle('visible', chatPaused);
+    if (chatPaused) {
+      // Stop voice dialogue loop
+      window.speechSynthesis.cancel();
+      document.getElementById('btnTts').classList.remove('speaking');
+      voiceDialogueListening = false;
+      if (isRecording) stopRecording(true);
+    }
+  });
+
+  // Copy conversation to clipboard
+  document.getElementById('btnCopy').addEventListener('click', () => {
+    const md = exportConversationMarkdown();
+    navigator.clipboard.writeText(md).then(() => {
+      flashBtn('btnCopy');
+    });
+  });
+
+  // Export as .md file download
+  document.getElementById('btnExport').addEventListener('click', () => {
+    const md = exportConversationMarkdown();
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const title = (pageContext?.title || 'chat').replace(/[^a-zA-Z0-9áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ ]/g, '').trim().substring(0, 50);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title} - AI Chat.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    flashBtn('btnExport');
+  });
+
+  // Save to Notes — copy to clipboard + open Notes app via applenotes: scheme
+  document.getElementById('btnNotes').addEventListener('click', () => {
+    const md = exportConversationMarkdown();
+    navigator.clipboard.writeText(md).then(() => {
+      // Try to open Apple Notes via URL scheme (works on macOS)
+      const noteUrl = 'applenotes://';
+      chrome.tabs.create({ url: noteUrl }).catch(() => {});
+      flashBtn('btnNotes');
+      showToast(t('copiedToClipboard') + ' — ' + t('pasteInNotes'));
+    });
+  });
+
+  // Share via Web Share API
+  document.getElementById('btnShare').addEventListener('click', async () => {
+    const md = exportConversationMarkdown();
+    const title = pageContext?.title || 'AI Chat';
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${title} - AI Chat`,
+          text: md
+        });
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          // Fallback: copy to clipboard
+          navigator.clipboard.writeText(md);
+          flashBtn('btnShare');
+        }
+      }
+    } else {
+      // Fallback: copy
+      navigator.clipboard.writeText(md);
+      flashBtn('btnShare');
+      showToast(t('copiedToClipboard'));
+    }
+  });
+}
+
+function exportConversationMarkdown() {
+  const title = pageContext?.title || 'Konverzace';
+  const url = pageContext?.url || '';
+  const lines = [`# ${title}`, ''];
+  if (url) lines.push(`> Zdroj: ${url}`, '');
+  lines.push(`> ${new Date().toLocaleString()}`, '');
+
+  const msgs = document.querySelectorAll('#chatMessages .chat-msg');
+  for (const msg of msgs) {
+    const isUser = msg.classList.contains('user');
+    const bubble = msg.querySelector('.chat-bubble');
+    if (!bubble) continue;
+    const text = bubble.textContent.trim();
+    if (isUser) {
+      lines.push(`**Já:** ${text}`, '');
+    } else {
+      lines.push(`**AI:** ${text}`, '');
+    }
+  }
+
+  // Token stats
+  if (sessionUsage.requests > 0) {
+    lines.push('---', '');
+    lines.push(`*${sessionUsage.requests} dotazů, ${fmtTokens(sessionUsage.input + sessionUsage.output)} tokenů, ${sessionUsage.cost < 0.001 ? 'free tier' : '$' + sessionUsage.cost.toFixed(4)}*`);
+  }
+
+  return lines.join('\n');
+}
+
+function flashBtn(id) {
+  const btn = document.getElementById(id);
+  btn.classList.add('flash');
+  setTimeout(() => btn.classList.remove('flash'), 1000);
+}
+
+function showToast(text) {
+  let toast = document.getElementById('toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toast';
+    toast.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#27ae60;color:white;padding:6px 16px;border-radius:16px;font-size:12px;z-index:9999;opacity:0;transition:opacity 0.3s;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.style.opacity = '1';
+  setTimeout(() => { toast.style.opacity = '0'; }, 2500);
 }
