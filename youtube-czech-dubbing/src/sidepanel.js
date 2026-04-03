@@ -360,57 +360,15 @@ function hideTypingIndicator() {
 let recognition = null;
 let isRecording = false;
 let spaceHeld = false;
+let micPermissionGranted = false;
 
 function bindVoiceInput() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
+    console.warn('[Voice] SpeechRecognition API not available');
     document.getElementById('btnVoice').style.display = 'none';
     return;
   }
-
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-
-  const langMap = { cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU' };
-
-  recognition.onresult = (event) => {
-    const input = document.getElementById('chatInput');
-    let interim = '';
-    let final = '';
-    for (let i = 0; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
-        final += transcript;
-      } else {
-        interim += transcript;
-      }
-    }
-    // Append final results, show interim in placeholder
-    if (final) {
-      input.value = (input.value ? input.value + ' ' : '') + final.trim();
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 100) + 'px';
-    }
-    if (interim) {
-      input.placeholder = interim + '...';
-    }
-  };
-
-  recognition.onend = () => {
-    // If space is still held, restart — browser may stop after silence
-    if (spaceHeld) {
-      try { recognition.start(); } catch (e) {}
-      return;
-    }
-    stopRecording();
-  };
-
-  recognition.onerror = (e) => {
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
-    console.warn('[Voice] error:', e.error);
-    stopRecording();
-  };
 
   // Button click — toggle
   document.getElementById('btnVoice').addEventListener('mousedown', () => startRecording());
@@ -433,10 +391,80 @@ function bindVoiceInput() {
   });
 }
 
-function startRecording() {
-  if (isRecording || !recognition) return;
-  isRecording = true;
+function initRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
 
+  recognition.onresult = (event) => {
+    const input = document.getElementById('chatInput');
+    let interim = '';
+    let final = '';
+    for (let i = 0; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        final += transcript;
+      } else {
+        interim += transcript;
+      }
+    }
+    if (final) {
+      input.value = (input.value ? input.value + ' ' : '') + final.trim();
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+    }
+    if (interim) {
+      input.placeholder = interim + '...';
+    }
+  };
+
+  recognition.onend = () => {
+    if (spaceHeld) {
+      try { recognition.start(); } catch (e) {}
+      return;
+    }
+    stopRecording();
+  };
+
+  recognition.onerror = (e) => {
+    console.warn('[Voice] recognition error:', e.error, e.message);
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    if (e.error === 'not-allowed') {
+      micPermissionGranted = false;
+      document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut — povolte v nastavení prohlížeče';
+    }
+    stopRecording();
+  };
+}
+
+async function requestMicPermission() {
+  if (micPermissionGranted) return true;
+  try {
+    // Extension pages need explicit getUserMedia to unlock mic for SpeechRecognition
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Stop tracks immediately — we just needed the permission grant
+    stream.getTracks().forEach(t => t.stop());
+    micPermissionGranted = true;
+    console.log('[Voice] Microphone permission granted');
+    return true;
+  } catch (e) {
+    console.warn('[Voice] Microphone permission denied:', e);
+    document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut — povolte v nastavení prohlížeče';
+    return false;
+  }
+}
+
+async function startRecording() {
+  if (isRecording) return;
+
+  // Request mic permission first (needed in extension context)
+  const allowed = await requestMicPermission();
+  if (!allowed) return;
+
+  if (!recognition) initRecognition();
+
+  isRecording = true;
   const lang = document.getElementById('targetLanguage').value;
   const langMap = { cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU' };
   recognition.lang = langMap[lang] || 'cs-CZ';
@@ -444,7 +472,14 @@ function startRecording() {
   document.getElementById('btnVoice').classList.add('recording');
   document.getElementById('chatInput').placeholder = 'Naslouchám...';
 
-  try { recognition.start(); } catch (e) {}
+  try {
+    recognition.start();
+    console.log('[Voice] Recording started, lang:', recognition.lang);
+  } catch (e) {
+    console.error('[Voice] Failed to start recognition:', e);
+    isRecording = false;
+    document.getElementById('btnVoice').classList.remove('recording');
+  }
 }
 
 function stopRecording() {
