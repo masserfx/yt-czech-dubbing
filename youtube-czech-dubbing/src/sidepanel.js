@@ -542,10 +542,113 @@ function appendChatMessage(role, text, isError = false) {
   msgDiv.className = 'chat-msg ' + role;
   const bubble = document.createElement('div');
   bubble.className = 'chat-bubble' + (isError ? ' error' : '');
-  bubble.textContent = text;
+
+  if (isError || role === 'user') {
+    bubble.textContent = text;
+  } else {
+    bubble.appendChild(renderMarkdown(text));
+  }
+
   msgDiv.appendChild(bubble);
   container.appendChild(msgDiv);
   container.scrollTop = container.scrollHeight;
+}
+
+/** Lightweight Markdown to DOM renderer (XSS-safe, no innerHTML) */
+function renderMarkdown(md) {
+  const frag = document.createDocumentFragment();
+  const lines = md.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Code block
+    if (line.trimStart().startsWith('```')) {
+      const codeLines = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++;
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.textContent = codeLines.join('\n');
+      pre.appendChild(code);
+      frag.appendChild(pre);
+      continue;
+    }
+
+    // Heading
+    const hm = line.match(/^(#{1,4})\s+(.+)/);
+    if (hm) {
+      const h = document.createElement('h' + Math.min(hm[1].length + 1, 5));
+      appendInlineFmt(h, hm[2]);
+      frag.appendChild(h);
+      i++;
+      continue;
+    }
+
+    // Unordered list
+    if (/^\s*[-*]\s+/.test(line)) {
+      const ul = document.createElement('ul');
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        const li = document.createElement('li');
+        appendInlineFmt(li, lines[i].replace(/^\s*[-*]\s+/, ''));
+        ul.appendChild(li);
+        i++;
+      }
+      frag.appendChild(ul);
+      continue;
+    }
+
+    // Ordered list
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const ol = document.createElement('ol');
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+        const li = document.createElement('li');
+        appendInlineFmt(li, lines[i].replace(/^\s*\d+[.)]\s+/, ''));
+        ol.appendChild(li);
+        i++;
+      }
+      frag.appendChild(ol);
+      continue;
+    }
+
+    // Empty line
+    if (line.trim() === '') { i++; continue; }
+
+    // Paragraph — collect consecutive text lines
+    const p = document.createElement('p');
+    const pLines = [];
+    while (i < lines.length && lines[i].trim() !== '' &&
+           !lines[i].trimStart().startsWith('```') &&
+           !/^#{1,4}\s/.test(lines[i]) &&
+           !/^\s*[-*]\s+/.test(lines[i]) &&
+           !/^\s*\d+[.)]\s+/.test(lines[i])) {
+      pLines.push(lines[i]);
+      i++;
+    }
+    appendInlineFmt(p, pLines.join(' '));
+    frag.appendChild(p);
+  }
+  return frag;
+}
+
+/** Render **bold**, *italic*, `code` as safe DOM nodes */
+function appendInlineFmt(el, text) {
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) { // eslint-disable-line
+    if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
+    if (m[2]) { const s = document.createElement('strong'); s.textContent = m[2]; el.appendChild(s); }
+    else if (m[3]) { const s = document.createElement('em'); s.textContent = m[3]; el.appendChild(s); }
+    else if (m[4]) { const s = document.createElement('code'); s.textContent = m[4]; el.appendChild(s); }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
 }
 
 function showTypingIndicator() {
@@ -655,51 +758,43 @@ function initRecognition() {
   };
 }
 
-async function requestMicPermission() {
-  if (micPermissionGranted && micStream) return true;
+async function ensureMicStream() {
+  if (micStream && micStream.active) return true;
+  micStream = null;
+  micPermissionGranted = false;
 
-  // Strategy 1: Direct getUserMedia in side panel
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     micPermissionGranted = true;
-    console.log('[Voice] Mic granted directly in side panel');
+    console.log('[Voice] Mic stream acquired');
     return true;
   } catch (e) {
-    console.log('[Voice] Direct mic failed:', e.name, '- trying offscreen');
+    console.warn('[Voice] getUserMedia failed:', e.name, e.message);
+    document.getElementById('chatInput').placeholder = t('micDeniedFull');
+    return false;
   }
-
-  // Strategy 2: Offscreen document (has USER_MEDIA capability)
-  try {
-    const resp = await chrome.runtime.sendMessage({ type: 'open-mic-permission' });
-    if (resp?.granted) {
-      // Permission was granted in offscreen context, retry in side panel
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        micPermissionGranted = true;
-        console.log('[Voice] Mic granted via offscreen');
-        return true;
-      } catch (e2) {
-        console.warn('[Voice] Side panel still denied after offscreen:', e2);
-      }
-    }
-  } catch (e) {
-    console.warn('[Voice] Offscreen failed:', e);
-  }
-
-  document.getElementById('chatInput').placeholder = t('micDeniedFull');
-  return false;
 }
 
 async function startRecording() {
   if (isRecording) return;
 
-  // Request mic permission first (needed in extension context)
-  const allowed = await requestMicPermission();
-  if (!allowed) return;
+  // Set recording state IMMEDIATELY to prevent race with stopRecording
+  isRecording = true;
+  document.getElementById('btnVoice').classList.add('recording');
+  document.getElementById('chatInput').placeholder = t('recording');
+
+  // Acquire mic stream (may show permission dialog)
+  const allowed = await ensureMicStream();
+  if (!allowed || !spaceHeld && !isRecording) {
+    // User released before permission granted, or permission denied
+    isRecording = false;
+    document.getElementById('btnVoice').classList.remove('recording');
+    document.getElementById('chatInput').placeholder = t('chatPlaceholder');
+    return;
+  }
 
   if (!recognition) initRecognition();
 
-  isRecording = true;
   const lang = document.getElementById('targetLanguage').value;
   const bcp47Map = {
     cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU', en: 'en-US',
@@ -711,9 +806,6 @@ async function startRecording() {
   };
   recognition.lang = bcp47Map[lang] || 'cs-CZ';
 
-  document.getElementById('btnVoice').classList.add('recording');
-  document.getElementById('chatInput').placeholder = t('recording');
-
   try {
     recognition.start();
     console.log('[Voice] Recording started, lang:', recognition.lang);
@@ -722,6 +814,7 @@ async function startRecording() {
     console.error('[Voice] Failed to start recognition:', e);
     isRecording = false;
     document.getElementById('btnVoice').classList.remove('recording');
+    document.getElementById('chatInput').placeholder = t('chatPlaceholder');
   }
 }
 
@@ -735,12 +828,7 @@ function stopRecording() {
   try { recognition.stop(); } catch (e) {}
   stopVisualizer();
 
-  // Release mic stream
-  if (micStream) {
-    micStream.getTracks().forEach(t => t.stop());
-    micStream = null;
-    micPermissionGranted = false;
-  }
+  // Keep micStream alive for reuse — only stop visualizer audio nodes
 
   // Auto-send if there's text
   const input = document.getElementById('chatInput');
