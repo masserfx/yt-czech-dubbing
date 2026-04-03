@@ -670,27 +670,29 @@ function hideTypingIndicator() {
   document.getElementById('typingIndicator')?.remove();
 }
 
-// ── Voice Input (SpeechRecognition) ─────────────────────
+// ── Voice Input (via offscreen SpeechRecognition) ───────
+// SpeechRecognition doesn't work in chrome-extension:// pages.
+// We run it in an offscreen document and relay results via messages.
 
-let recognition = null;
 let isRecording = false;
 let spaceHeld = false;
-let micPermissionGranted = false;
 let audioContext = null;
 let analyser = null;
 let micStream = null;
 let vizAnimFrame = null;
 let recordingStart = 0;
 
-function bindVoiceInput() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    console.warn('[Voice] SpeechRecognition API not available');
-    document.getElementById('btnVoice').style.display = 'none';
-    return;
-  }
+const bcp47Map = {
+  cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU', en: 'en-US',
+  de: 'de-DE', fr: 'fr-FR', es: 'es-ES', pt: 'pt-PT', it: 'it-IT',
+  nl: 'nl-NL', ru: 'ru-RU', uk: 'uk-UA', ja: 'ja-JP', ko: 'ko-KR',
+  zh: 'zh-CN', 'zh-TW': 'zh-TW', ar: 'ar-SA', hi: 'hi-IN', tr: 'tr-TR',
+  sv: 'sv-SE', da: 'da-DK', nb: 'nb-NO', fi: 'fi-FI', el: 'el-GR',
+  ro: 'ro-RO', bg: 'bg-BG', th: 'th-TH', vi: 'vi-VN', id: 'id-ID'
+};
 
-  // Button click — toggle
+function bindVoiceInput() {
+  // Button hold
   document.getElementById('btnVoice').addEventListener('mousedown', () => startRecording());
   document.getElementById('btnVoice').addEventListener('mouseup', () => stopRecording());
   document.getElementById('btnVoice').addEventListener('mouseleave', () => { if (isRecording) stopRecording(); });
@@ -709,113 +711,87 @@ function bindVoiceInput() {
       stopRecording();
     }
   });
-}
 
-function initRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-
-  recognition.onresult = (event) => {
-    const input = document.getElementById('chatInput');
-    let interim = '';
-    let final = '';
-    for (let i = 0; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
-        final += transcript;
-      } else {
-        interim += transcript;
+  // Listen for voice results from offscreen document (via background relay)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'voice-result') {
+      const input = document.getElementById('chatInput');
+      if (msg.final) {
+        input.value = (input.value ? input.value + ' ' : '') + msg.final.trim();
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+      }
+      if (msg.interim) {
+        input.placeholder = msg.interim + '...';
       }
     }
-    if (final) {
-      input.value = (input.value ? input.value + ' ' : '') + final.trim();
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+    if (msg.type === 'voice-started') {
+      console.log('[Voice] Recognition started in offscreen');
     }
-    if (interim) {
-      input.placeholder = interim + '...';
+    if (msg.type === 'voice-ended') {
+      // Offscreen recognition ended (e.g. silence timeout) — restart if still held
+      if (isRecording && spaceHeld) {
+        const lang = document.getElementById('targetLanguage').value;
+        chrome.runtime.sendMessage({
+          type: 'offscreen-start-recognition',
+          lang: bcp47Map[lang] || 'cs-CZ'
+        });
+      } else if (isRecording) {
+        stopRecording();
+      }
     }
-  };
-
-  recognition.onend = () => {
-    if (spaceHeld) {
-      try { recognition.start(); } catch (e) {}
-      return;
+    if (msg.type === 'voice-error') {
+      console.warn('[Voice] Error from offscreen:', msg.error);
+      if (msg.error === 'not-allowed') {
+        document.getElementById('chatInput').placeholder = t('micDeniedFull');
+      }
+      stopRecording();
     }
-    stopRecording();
-  };
-
-  recognition.onerror = (e) => {
-    console.warn('[Voice] recognition error:', e.error, e.message);
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
-    if (e.error === 'not-allowed') {
-      micPermissionGranted = false;
-      document.getElementById('chatInput').placeholder = t('micDeniedFull');
-    }
-    stopRecording();
-  };
-}
-
-async function ensureMicStream() {
-  if (micStream && micStream.active) return true;
-  micStream = null;
-  micPermissionGranted = false;
-
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    micPermissionGranted = true;
-    console.log('[Voice] Mic stream acquired');
-    return true;
-  } catch (e) {
-    console.warn('[Voice] getUserMedia failed:', e.name, e.message);
-    document.getElementById('chatInput').placeholder = t('micDeniedFull');
-    return false;
-  }
+  });
 }
 
 async function startRecording() {
   if (isRecording) return;
-
-  // Set recording state IMMEDIATELY to prevent race with stopRecording
   isRecording = true;
   document.getElementById('btnVoice').classList.add('recording');
   document.getElementById('chatInput').placeholder = t('recording');
 
-  // Acquire mic stream (may show permission dialog)
-  const allowed = await ensureMicStream();
-  if (!allowed || !spaceHeld && !isRecording) {
-    // User released before permission granted, or permission denied
+  // 1. Get mic permission via offscreen (so Chrome shows the dialog properly)
+  try {
+    const micResult = await chrome.runtime.sendMessage({ type: 'open-mic-permission' });
+    if (!micResult?.granted) {
+      console.warn('[Voice] Mic permission denied');
+      isRecording = false;
+      document.getElementById('btnVoice').classList.remove('recording');
+      document.getElementById('chatInput').placeholder = t('micDeniedFull');
+      return;
+    }
+  } catch (e) {
+    console.warn('[Voice] Mic permission error:', e);
     isRecording = false;
     document.getElementById('btnVoice').classList.remove('recording');
-    document.getElementById('chatInput').placeholder = t('chatPlaceholder');
     return;
   }
 
-  if (!recognition) initRecognition();
+  // Check user hasn't released while we were waiting for permission
+  if (!isRecording) return;
 
-  const lang = document.getElementById('targetLanguage').value;
-  const bcp47Map = {
-    cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU', en: 'en-US',
-    de: 'de-DE', fr: 'fr-FR', es: 'es-ES', pt: 'pt-PT', it: 'it-IT',
-    nl: 'nl-NL', ru: 'ru-RU', uk: 'uk-UA', ja: 'ja-JP', ko: 'ko-KR',
-    zh: 'zh-CN', 'zh-TW': 'zh-TW', ar: 'ar-SA', hi: 'hi-IN', tr: 'tr-TR',
-    sv: 'sv-SE', da: 'da-DK', nb: 'nb-NO', fi: 'fi-FI', el: 'el-GR',
-    ro: 'ro-RO', bg: 'bg-BG', th: 'th-TH', vi: 'vi-VN', id: 'id-ID'
-  };
-  recognition.lang = bcp47Map[lang] || 'cs-CZ';
-
+  // 2. Get local mic stream for visualizer
   try {
-    recognition.start();
-    console.log('[Voice] Recording started, lang:', recognition.lang);
+    if (!micStream || !micStream.active) {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
     startVisualizer();
   } catch (e) {
-    console.error('[Voice] Failed to start recognition:', e);
-    isRecording = false;
-    document.getElementById('btnVoice').classList.remove('recording');
-    document.getElementById('chatInput').placeholder = t('chatPlaceholder');
+    console.log('[Voice] Local mic for visualizer failed (non-fatal):', e.name);
   }
+
+  // 3. Start speech recognition in offscreen document
+  const lang = document.getElementById('targetLanguage').value;
+  chrome.runtime.sendMessage({
+    type: 'offscreen-start-recognition',
+    lang: bcp47Map[lang] || 'cs-CZ'
+  });
 }
 
 function stopRecording() {
@@ -825,10 +801,9 @@ function stopRecording() {
   document.getElementById('btnVoice').classList.remove('recording');
   document.getElementById('chatInput').placeholder = t('chatPlaceholder');
 
-  try { recognition.stop(); } catch (e) {}
+  // Stop recognition in offscreen
+  chrome.runtime.sendMessage({ type: 'offscreen-stop-recognition' });
   stopVisualizer();
-
-  // Keep micStream alive for reuse — only stop visualizer audio nodes
 
   // Auto-send if there's text
   const input = document.getElementById('chatInput');

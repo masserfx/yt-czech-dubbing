@@ -28,6 +28,18 @@ chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
+// Ensure offscreen document is running
+async function ensureOffscreen() {
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+  if (contexts.length === 0) {
+    await chrome.offscreen.createDocument({
+      url: 'src/offscreen.html',
+      reasons: ['USER_MEDIA'],
+      justification: 'SpeechRecognition and microphone access for voice input'
+    });
+  }
+}
+
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'ping') {
@@ -156,26 +168,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Mic permission via offscreen document (extension pages can't show mic dialog)
-  if (msg.type === 'open-mic-permission') {
+  // Voice: ensure offscreen document exists, then forward message to it
+  if (msg.type === 'open-mic-permission' ||
+      msg.type === 'offscreen-start-recognition' ||
+      msg.type === 'offscreen-stop-recognition') {
     (async () => {
       try {
-        // Create offscreen document if not already open
-        const existingContexts = await chrome.runtime.getContexts({
-          contextTypes: ['OFFSCREEN_DOCUMENT']
-        });
-        if (existingContexts.length === 0) {
-          await chrome.offscreen.createDocument({
-            url: 'src/offscreen.html',
-            reasons: ['USER_MEDIA'],
-            justification: 'Requesting microphone permission for voice input'
-          });
-        }
-        // Ask offscreen document to request mic
-        const result = await chrome.runtime.sendMessage({ type: 'offscreen-request-mic' });
+        await ensureOffscreen();
+        // Forward to offscreen using targeted messaging
+        const offscreenMsg = msg.type === 'open-mic-permission'
+          ? { type: 'offscreen-request-mic' }
+          : msg;
+        const result = await chrome.runtime.sendMessage(offscreenMsg);
         sendResponse(result || { granted: false });
       } catch (e) {
-        console.warn('[BG] Offscreen mic permission failed:', e);
+        console.warn('[BG] Offscreen operation failed:', e);
         sendResponse({ granted: false, error: e.message });
       }
     })();
