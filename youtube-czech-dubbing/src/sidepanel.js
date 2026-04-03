@@ -107,6 +107,7 @@ function bindEvents() {
   });
 
   bindSettingsEvents();
+  bindVoiceInput();
 
   // API key links — open in new tab
   document.querySelectorAll('.api-link[data-url]').forEach(link => {
@@ -352,6 +353,114 @@ function showTypingIndicator() {
 
 function hideTypingIndicator() {
   document.getElementById('typingIndicator')?.remove();
+}
+
+// ── Voice Input (SpeechRecognition) ─────────────────────
+
+let recognition = null;
+let isRecording = false;
+let spaceHeld = false;
+
+function bindVoiceInput() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    document.getElementById('btnVoice').style.display = 'none';
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  const langMap = { cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU' };
+
+  recognition.onresult = (event) => {
+    const input = document.getElementById('chatInput');
+    let interim = '';
+    let final = '';
+    for (let i = 0; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        final += transcript;
+      } else {
+        interim += transcript;
+      }
+    }
+    // Append final results, show interim in placeholder
+    if (final) {
+      input.value = (input.value ? input.value + ' ' : '') + final.trim();
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+    }
+    if (interim) {
+      input.placeholder = interim + '...';
+    }
+  };
+
+  recognition.onend = () => {
+    // If space is still held, restart — browser may stop after silence
+    if (spaceHeld) {
+      try { recognition.start(); } catch (e) {}
+      return;
+    }
+    stopRecording();
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    console.warn('[Voice] error:', e.error);
+    stopRecording();
+  };
+
+  // Button click — toggle
+  document.getElementById('btnVoice').addEventListener('mousedown', () => startRecording());
+  document.getElementById('btnVoice').addEventListener('mouseup', () => stopRecording());
+  document.getElementById('btnVoice').addEventListener('mouseleave', () => { if (isRecording) stopRecording(); });
+
+  // Hold spacebar — only when chat input is NOT focused
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && !spaceHeld && document.activeElement !== document.getElementById('chatInput')) {
+      e.preventDefault();
+      spaceHeld = true;
+      startRecording();
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' && spaceHeld) {
+      spaceHeld = false;
+      stopRecording();
+    }
+  });
+}
+
+function startRecording() {
+  if (isRecording || !recognition) return;
+  isRecording = true;
+
+  const lang = document.getElementById('targetLanguage').value;
+  const langMap = { cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU' };
+  recognition.lang = langMap[lang] || 'cs-CZ';
+
+  document.getElementById('btnVoice').classList.add('recording');
+  document.getElementById('chatInput').placeholder = 'Naslouchám...';
+
+  try { recognition.start(); } catch (e) {}
+}
+
+function stopRecording() {
+  if (!isRecording) return;
+  isRecording = false;
+
+  document.getElementById('btnVoice').classList.remove('recording');
+  document.getElementById('chatInput').placeholder = 'Zeptejte se... (drž mezerník = hlas)';
+
+  try { recognition.stop(); } catch (e) {}
+
+  // Auto-send if there's text
+  const input = document.getElementById('chatInput');
+  if (input.value.trim()) {
+    sendChatMessage();
+  }
 }
 
 // ── Settings ────────────────────────────────────────────

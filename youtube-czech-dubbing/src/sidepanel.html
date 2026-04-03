@@ -293,6 +293,47 @@
     .chat-send:hover { background: #2980b9; }
     .chat-send:disabled { background: #555; cursor: not-allowed; }
 
+    /* Voice button */
+    .chat-voice {
+      background: #2c3e50;
+      border: none;
+      color: #e0e0e0;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .chat-voice:hover { background: #34495e; }
+    .chat-voice.recording {
+      background: #e74c3c;
+      color: white;
+      animation: voice-pulse 1s infinite;
+    }
+    @keyframes voice-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+    }
+    .voice-hint {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      right: 0;
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
+      white-space: nowrap;
+      color: #aaa;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .chat-voice:hover .voice-hint { opacity: 1; }
+
     /* Settings panel */
     .settings-panel {
       padding: 12px 16px;
@@ -424,7 +465,8 @@
         </div>
       </div>
       <div class="chat-input-area">
-        <textarea class="chat-input" id="chatInput" placeholder="Zeptejte se..." rows="1"></textarea>
+        <textarea class="chat-input" id="chatInput" placeholder="Zeptejte se... (dr&#x17E; mezern&#xED;k = hlas)" rows="1"></textarea>
+        <button class="chat-voice" id="btnVoice" title="Hlasov&#xFD; vstup (dr&#x17E;te mezern&#xED;k)">&#x1F3A4;<span class="voice-hint">Dr&#x17E;te mezern&#xED;k</span></button>
         <button class="chat-send" id="btnSend" title="Odeslat">&#x27A4;</button>
       </div>
     </div>
