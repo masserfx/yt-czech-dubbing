@@ -10,6 +10,8 @@ let chatHistory = []; // [{role: 'user'|'model', parts: [{text}]}]
 let geminiApiKey = null;
 let currentLang = 'cs';
 let ttsEnabled = false;
+let voiceDialogueListening = false; // true when auto-listening after TTS
+let voiceSilenceTimer = null;       // timer for silence detection
 
 // Session token tracking
 let sessionUsage = { input: 0, output: 0, cost: 0, requests: 0 };
@@ -829,6 +831,11 @@ function bindVoiceInput() {
         input.value = (input.value ? input.value + ' ' : '') + msg.final.trim();
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+        // Reset silence timer — user is still talking
+        if (voiceSilenceTimer) {
+          clearTimeout(voiceSilenceTimer);
+          voiceSilenceTimer = null;
+        }
       }
       if (msg.interim) {
         input.placeholder = msg.interim + '...';
@@ -838,13 +845,34 @@ function bindVoiceInput() {
       console.log('[Voice] Recognition started in offscreen');
     }
     if (msg.type === 'voice-ended') {
-      // Offscreen recognition ended (e.g. silence timeout) — restart if still held
       if (isRecording && spaceHeld) {
+        // Manual PTT: restart while held
         const lang = document.getElementById('targetLanguage').value;
         chrome.runtime.sendMessage({
-          type: 'offscreen-start-recognition',
+          type: 'inject-voice-recognition',
+          tabId: activeTabId,
           lang: bcp47Map[lang] || 'cs-CZ'
         });
+      } else if (isRecording && voiceDialogueListening) {
+        // Voice dialogue: silence detected — wait 1.5s, then send or restart
+        if (voiceSilenceTimer) clearTimeout(voiceSilenceTimer);
+        const input = document.getElementById('chatInput');
+        if (input.value.trim()) {
+          // User said something — wait 1.5s for continuation, then send
+          voiceSilenceTimer = setTimeout(() => {
+            voiceSilenceTimer = null;
+            stopRecording();
+            // stopRecording auto-sends via sendChatMessage
+          }, 1500);
+        } else {
+          // No text yet — restart listening (keep waiting for user)
+          const lang = document.getElementById('targetLanguage').value;
+          chrome.runtime.sendMessage({
+            type: 'inject-voice-recognition',
+            tabId: activeTabId,
+            lang: bcp47Map[lang] || 'cs-CZ'
+          });
+        }
       } else if (isRecording) {
         stopRecording();
       }
@@ -854,6 +882,7 @@ function bindVoiceInput() {
       if (msg.error === 'not-allowed') {
         document.getElementById('chatInput').placeholder = t('micDeniedFull');
       }
+      voiceDialogueListening = false;
       stopRecording();
     }
   });
@@ -906,9 +935,17 @@ async function startRecording() {
   }
 }
 
-function stopRecording() {
+function stopRecording(cancelDialogue = false) {
   if (!isRecording) return;
   isRecording = false;
+
+  if (voiceSilenceTimer) {
+    clearTimeout(voiceSilenceTimer);
+    voiceSilenceTimer = null;
+  }
+  if (cancelDialogue) {
+    voiceDialogueListening = false;
+  }
 
   document.getElementById('btnVoice').classList.remove('recording');
   document.getElementById('chatInput').placeholder = t('chatPlaceholder');
@@ -923,6 +960,9 @@ function stopRecording() {
   const input = document.getElementById('chatInput');
   if (input.value.trim()) {
     sendChatMessage();
+  } else {
+    // No text and dialogue mode — stop the loop
+    voiceDialogueListening = false;
   }
 }
 
@@ -1208,7 +1248,14 @@ function speakText(md) {
 
   const btn = document.getElementById('btnTts');
   btn.classList.add('speaking');
-  utter.onend = () => btn.classList.remove('speaking');
+  utter.onend = () => {
+    btn.classList.remove('speaking');
+    // Voice dialogue: auto-listen after TTS finishes
+    if (ttsEnabled && !isRecording) {
+      voiceDialogueListening = true;
+      startRecording();
+    }
+  };
   utter.onerror = () => btn.classList.remove('speaking');
 
   window.speechSynthesis.speak(utter);
@@ -1223,6 +1270,8 @@ function bindTtsToggle() {
     if (!ttsEnabled) {
       window.speechSynthesis.cancel();
       btn.classList.remove('speaking');
+      voiceDialogueListening = false;
+      if (isRecording) stopRecording(true);
     }
   });
 
