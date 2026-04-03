@@ -334,6 +334,54 @@
     }
     .chat-voice:hover .voice-hint { opacity: 1; }
 
+    /* Voice visualizer overlay */
+    .voice-viz {
+      display: none;
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      background: linear-gradient(0deg, #16213e 0%, rgba(22,33,62,0.95) 100%);
+      border-top: 1px solid #e74c3c;
+      padding: 10px 16px 6px;
+      align-items: center;
+      gap: 10px;
+    }
+    .voice-viz.active { display: flex; }
+    .voice-viz-label {
+      font-size: 11px;
+      color: #e74c3c;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .voice-viz-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #e74c3c;
+      animation: voice-dot-blink 1s infinite;
+    }
+    @keyframes voice-dot-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.2; }
+    }
+    .voice-viz canvas {
+      flex: 1;
+      height: 32px;
+      border-radius: 4px;
+    }
+    .voice-viz-time {
+      font-size: 11px;
+      color: #aaa;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+      min-width: 28px;
+      text-align: right;
+    }
+
     /* Settings panel */
     .settings-panel {
       padding: 12px 16px;
@@ -462,6 +510,13 @@
             <span class="chat-suggestion" data-q="Shrn&#x16F; hlavn&#xED; body">Shrn&#x16F; hlavn&#xED; body</span>
             <span class="chat-suggestion" data-q="Co je nejd&#x16F;le&#x17E;it&#x11B;j&#x161;&#xED;?">Co je nejd&#x16F;le&#x17E;it&#x11B;j&#x161;&#xED;?</span>
           </div>
+        </div>
+      </div>
+      <div style="position:relative;">
+        <div class="voice-viz" id="voiceViz">
+          <div class="voice-viz-label"><div class="voice-viz-dot"></div>Nahr&#xE1;v&#xE1;m</div>
+          <canvas id="voiceCanvas"></canvas>
+          <div class="voice-viz-time" id="voiceTime">0s</div>
         </div>
       </div>
       <div class="chat-input-area">

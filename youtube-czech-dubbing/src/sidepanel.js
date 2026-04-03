@@ -361,6 +361,11 @@ let recognition = null;
 let isRecording = false;
 let spaceHeld = false;
 let micPermissionGranted = false;
+let audioContext = null;
+let analyser = null;
+let micStream = null;
+let vizAnimFrame = null;
+let recordingStart = 0;
 
 function bindVoiceInput() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -439,12 +444,11 @@ function initRecognition() {
 }
 
 async function requestMicPermission() {
-  if (micPermissionGranted) return true;
+  if (micPermissionGranted && micStream) return true;
   try {
     // Extension pages need explicit getUserMedia to unlock mic for SpeechRecognition
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // Stop tracks immediately — we just needed the permission grant
-    stream.getTracks().forEach(t => t.stop());
+    // Keep stream alive for visualizer
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     micPermissionGranted = true;
     console.log('[Voice] Microphone permission granted');
     return true;
@@ -475,6 +479,7 @@ async function startRecording() {
   try {
     recognition.start();
     console.log('[Voice] Recording started, lang:', recognition.lang);
+    startVisualizer();
   } catch (e) {
     console.error('[Voice] Failed to start recognition:', e);
     isRecording = false;
@@ -490,11 +495,104 @@ function stopRecording() {
   document.getElementById('chatInput').placeholder = 'Zeptejte se... (drž mezerník = hlas)';
 
   try { recognition.stop(); } catch (e) {}
+  stopVisualizer();
+
+  // Release mic stream
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+    micPermissionGranted = false;
+  }
 
   // Auto-send if there's text
   const input = document.getElementById('chatInput');
   if (input.value.trim()) {
     sendChatMessage();
+  }
+}
+
+// ── Audio Visualizer ────────────────────────────────────
+
+function startVisualizer() {
+  if (!micStream) return;
+
+  recordingStart = Date.now();
+  document.getElementById('voiceViz').classList.add('active');
+
+  // Set up Web Audio analyser
+  if (!audioContext) audioContext = new AudioContext();
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.7;
+
+  const source = audioContext.createMediaStreamSource(micStream);
+  source.connect(analyser);
+
+  const canvas = document.getElementById('voiceCanvas');
+  const ctx = canvas.getContext('2d');
+
+  function draw() {
+    if (!isRecording) return;
+    vizAnimFrame = requestAnimationFrame(draw);
+
+    // Update timer
+    const elapsed = Math.floor((Date.now() - recordingStart) / 1000);
+    document.getElementById('voiceTime').textContent = elapsed + 's';
+
+    // Get frequency data
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    const w = canvas.width = canvas.offsetWidth * 2;
+    const h = canvas.height = canvas.offsetHeight * 2;
+    ctx.clearRect(0, 0, w, h);
+
+    // Draw waveform bars
+    const barCount = 40;
+    const barWidth = (w / barCount) * 0.6;
+    const gap = (w / barCount) * 0.4;
+    const step = Math.floor(bufferLength / barCount);
+
+    for (let i = 0; i < barCount; i++) {
+      // Average a range of frequencies for each bar
+      let sum = 0;
+      for (let j = 0; j < step; j++) {
+        sum += dataArray[i * step + j] || 0;
+      }
+      const val = sum / step / 255;
+      const barH = Math.max(2, val * h * 0.9);
+
+      // Color gradient from blue to red based on intensity
+      const r = Math.floor(52 + val * 179);
+      const g = Math.floor(152 - val * 100);
+      const b = Math.floor(219 - val * 160);
+
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.beginPath();
+      ctx.roundRect(
+        i * (barWidth + gap) + gap / 2,
+        (h - barH) / 2,
+        barWidth,
+        barH,
+        barWidth / 2
+      );
+      ctx.fill();
+    }
+  }
+
+  draw();
+}
+
+function stopVisualizer() {
+  document.getElementById('voiceViz').classList.remove('active');
+  if (vizAnimFrame) {
+    cancelAnimationFrame(vizAnimFrame);
+    vizAnimFrame = null;
+  }
+  if (analyser) {
+    analyser.disconnect();
+    analyser = null;
   }
 }
 
