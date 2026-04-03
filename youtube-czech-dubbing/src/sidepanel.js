@@ -831,14 +831,22 @@ function bindVoiceInput() {
         input.value = (input.value ? input.value + ' ' : '') + msg.final.trim();
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 100) + 'px';
-        // Reset silence timer — user is still talking
-        if (voiceSilenceTimer) {
-          clearTimeout(voiceSilenceTimer);
-          voiceSilenceTimer = null;
+        // Voice dialogue: reset/start 2s auto-send timer after each final chunk
+        if (voiceSilenceTimer) clearTimeout(voiceSilenceTimer);
+        if (voiceDialogueListening && input.value.trim()) {
+          voiceSilenceTimer = setTimeout(() => {
+            voiceSilenceTimer = null;
+            if (isRecording) stopRecording();
+          }, 2000);
         }
       }
       if (msg.interim) {
         input.placeholder = msg.interim + '...';
+        // Reset silence timer while user is still speaking
+        if (voiceSilenceTimer) {
+          clearTimeout(voiceSilenceTimer);
+          voiceSilenceTimer = null;
+        }
       }
     }
     if (msg.type === 'voice-started') {
@@ -854,18 +862,19 @@ function bindVoiceInput() {
           lang: bcp47Map[lang] || 'cs-CZ'
         });
       } else if (isRecording && voiceDialogueListening) {
-        // Voice dialogue: silence detected — wait 1.5s, then send or restart
-        if (voiceSilenceTimer) clearTimeout(voiceSilenceTimer);
+        // Voice dialogue: recognition ended (silence/timeout)
         const input = document.getElementById('chatInput');
         if (input.value.trim()) {
-          // User said something — wait 1.5s for continuation, then send
-          voiceSilenceTimer = setTimeout(() => {
-            voiceSilenceTimer = null;
-            stopRecording();
-            // stopRecording auto-sends via sendChatMessage
-          }, 1500);
+          // Has text — if no silence timer running, send after short pause
+          if (!voiceSilenceTimer) {
+            voiceSilenceTimer = setTimeout(() => {
+              voiceSilenceTimer = null;
+              if (isRecording) stopRecording();
+            }, 1500);
+          }
+          // else: timer already ticking from voice-result, let it finish
         } else {
-          // No text yet — restart listening (keep waiting for user)
+          // No text yet — restart listening (keep waiting for user to speak)
           const lang = document.getElementById('targetLanguage').value;
           chrome.runtime.sendMessage({
             type: 'inject-voice-recognition',

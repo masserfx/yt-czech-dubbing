@@ -186,7 +186,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       target: { tabId },
       func: (lang) => {
         // This runs in the web page context — full mic + SpeechRecognition access
-        if (window._ytDubVoiceActive) return;
+        // Stop any previous recognition before starting new one
+        if (window._ytDubRecognition) {
+          try { window._ytDubRecognition.abort(); } catch (e) {}
+          window._ytDubRecognition = null;
+        }
         window._ytDubVoiceActive = true;
 
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -202,12 +206,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         rec.lang = lang;
         window._ytDubRecognition = rec;
 
+        let lastProcessed = 0;
         rec.onresult = (event) => {
           let interim = '', final = '';
-          for (let i = 0; i < event.results.length; i++) {
+          for (let i = lastProcessed; i < event.results.length; i++) {
             const tr = event.results[i][0].transcript;
-            if (event.results[i].isFinal) final += tr;
-            else interim += tr;
+            if (event.results[i].isFinal) {
+              final += tr;
+              lastProcessed = i + 1;
+            } else {
+              interim += tr;
+            }
           }
           chrome.runtime.sendMessage({ type: 'voice-result', final, interim });
         };
