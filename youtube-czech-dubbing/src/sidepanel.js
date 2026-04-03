@@ -171,11 +171,11 @@ function updateDubStatus(status, message) {
   if (status === 'playing' || status === 'ready') {
     btn.className = 'dub-btn stop';
     btnText.textContent = 'Zastavit';
-    btnIcon.textContent = '\u25A0';
+    setSvgIcon(btnIcon, '#ico-stop');
   } else {
     btn.className = 'dub-btn';
     btnText.textContent = pageContext?.isYouTube ? 'Spustit dabing' : 'Dabovat článek';
-    btnIcon.textContent = '\u25B6';
+    setSvgIcon(btnIcon, '#ico-play');
   }
 }
 
@@ -445,16 +445,37 @@ function initRecognition() {
 
 async function requestMicPermission() {
   if (micPermissionGranted && micStream) return true;
+
+  // Check current permission state
+  let permState = 'prompt';
   try {
-    // Extension pages need explicit getUserMedia to unlock mic for SpeechRecognition
-    // Keep stream alive for visualizer
+    const status = await navigator.permissions.query({ name: 'microphone' });
+    permState = status.state;
+  } catch (e) {}
+
+  if (permState === 'prompt') {
+    // Side panel permission dialog can hide behind windows.
+    // Ask background to open a focused popup for mic permission.
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'open-mic-permission' });
+      if (!resp?.granted) {
+        document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut';
+        return false;
+      }
+    } catch (e) {
+      console.warn('[Voice] Permission popup failed:', e);
+    }
+  }
+
+  // Now actually get the stream (should be auto-granted after popup)
+  try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     micPermissionGranted = true;
     console.log('[Voice] Microphone permission granted');
     return true;
   } catch (e) {
-    console.warn('[Voice] Microphone permission denied:', e);
-    document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut — povolte v nastavení prohlížeče';
+    console.warn('[Voice] Microphone denied:', e);
+    document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut — povolte v nastavení';
     return false;
   }
 }
@@ -692,6 +713,16 @@ function bindSettingsEvents() {
 }
 
 // ── Helpers ──────────────────────────────────────────────
+
+function setSvgIcon(container, href) {
+  container.textContent = '';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'icon');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', href);
+  svg.appendChild(use);
+  container.appendChild(svg);
+}
 
 async function sendToTab(msg) {
   if (!activeTabId) return null;

@@ -156,6 +156,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Mic permission — open focused popup window so dialog appears on top
+  if (msg.type === 'open-mic-permission') {
+    chrome.windows.create({
+      url: chrome.runtime.getURL('src/mic-permission.html'),
+      type: 'popup',
+      width: 420,
+      height: 220,
+      focused: true
+    }, (win) => {
+      const winId = win?.id;
+      const listener = (innerMsg) => {
+        if (innerMsg.type === 'mic-permission-result') {
+          chrome.runtime.onMessage.removeListener(listener);
+          if (winId) chrome.windows.remove(winId).catch(() => {});
+          sendResponse({ granted: innerMsg.granted });
+        }
+      };
+      chrome.runtime.onMessage.addListener(listener);
+      // Fallback: window closed without response
+      chrome.windows.onRemoved.addListener(function onClose(closedId) {
+        if (closedId === winId) {
+          chrome.windows.onRemoved.removeListener(onClose);
+          chrome.runtime.onMessage.removeListener(listener);
+          sendResponse({ granted: false });
+        }
+      });
+    });
+    return true;
+  }
+
   if (msg.type === 'get-usage') {
     getUsageStats()
       .then(stats => sendResponse({ success: true, stats }))
