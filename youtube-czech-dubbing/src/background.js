@@ -168,25 +168,79 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Voice: ensure offscreen document exists, then forward message to it
-  if (msg.type === 'open-mic-permission' ||
-      msg.type === 'offscreen-start-recognition' ||
-      msg.type === 'offscreen-stop-recognition') {
-    (async () => {
-      try {
-        await ensureOffscreen();
-        // Forward to offscreen using targeted messaging
-        const offscreenMsg = msg.type === 'open-mic-permission'
-          ? { type: 'offscreen-request-mic' }
-          : msg;
-        const result = await chrome.runtime.sendMessage(offscreenMsg);
-        sendResponse(result || { granted: false });
-      } catch (e) {
-        console.warn('[BG] Offscreen operation failed:', e);
-        sendResponse({ granted: false, error: e.message });
-      }
-    })();
+  // Voice: inject SpeechRecognition into the active tab
+  // (extension pages can't use SpeechRecognition or getUserMedia reliably)
+  if (msg.type === 'inject-voice-recognition') {
+    const tabId = msg.tabId;
+    if (!tabId) { sendResponse({ ok: false }); return false; }
+
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: (lang) => {
+        // This runs in the web page context — full mic + SpeechRecognition access
+        if (window._ytDubVoiceActive) return;
+        window._ytDubVoiceActive = true;
+
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+          chrome.runtime.sendMessage({ type: 'voice-error', error: 'SpeechRecognition not supported' });
+          window._ytDubVoiceActive = false;
+          return;
+        }
+
+        const rec = new SR();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = lang;
+        window._ytDubRecognition = rec;
+
+        rec.onresult = (event) => {
+          let interim = '', final = '';
+          for (let i = 0; i < event.results.length; i++) {
+            const tr = event.results[i][0].transcript;
+            if (event.results[i].isFinal) final += tr;
+            else interim += tr;
+          }
+          chrome.runtime.sendMessage({ type: 'voice-result', final, interim });
+        };
+
+        rec.onerror = (e) => {
+          if (e.error !== 'no-speech' && e.error !== 'aborted') {
+            chrome.runtime.sendMessage({ type: 'voice-error', error: e.error });
+          }
+        };
+
+        rec.onend = () => {
+          chrome.runtime.sendMessage({ type: 'voice-ended' });
+          window._ytDubVoiceActive = false;
+        };
+
+        rec.start();
+        chrome.runtime.sendMessage({ type: 'voice-started' });
+      },
+      args: [msg.lang || 'cs-CZ']
+    })
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
+  }
+
+  if (msg.type === 'stop-voice-recognition') {
+    const tabId = msg.tabId;
+    if (!tabId) { sendResponse({ ok: false }); return false; }
+
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        if (window._ytDubRecognition) {
+          window._ytDubRecognition.abort();
+          window._ytDubRecognition = null;
+        }
+        window._ytDubVoiceActive = false;
+      }
+    }).catch(() => {});
+    sendResponse({ ok: true });
+    return false;
   }
 
   if (msg.type === 'get-usage') {
