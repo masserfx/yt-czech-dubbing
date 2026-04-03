@@ -23,6 +23,11 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
+// Open side panel when clicking the extension icon
+chrome.action.onClicked.addListener((tab) => {
+  chrome.sidePanel.open({ tabId: tab.id });
+});
+
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'ping') {
@@ -116,6 +121,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'service-synthesize') {
     serviceSynthesize(msg.endpoint, msg.authToken, msg.organizationId, msg.text, msg.targetLang, msg.voice)
       .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Gemini AI Chat
+  if (msg.type === 'gemini-chat') {
+    geminiChat(msg.apiKey, msg.systemInstruction, msg.history, msg.message)
+      .then(text => sendResponse({ success: true, text }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
@@ -922,4 +935,47 @@ async function serviceSynthesize(endpoint, authToken, orgId, text, targetLang, v
   }
   const data = await resp.json();
   return data.audioBase64;
+}
+
+// --- Gemini AI Chat ---
+
+async function geminiChat(apiKey, systemInstruction, history, message) {
+  if (!apiKey) throw new Error('No Gemini API key');
+
+  const MODEL = 'gemini-3.1-flash-lite-preview';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+  const contents = [
+    ...history,
+    { role: 'user', parts: [{ text: message }] }
+  ];
+
+  const body = {
+    contents,
+    generationConfig: {
+      maxOutputTokens: 2048,
+      temperature: 0.7
+    }
+  };
+
+  if (systemInstruction) {
+    body.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini API ${resp.status}: ${err.substring(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Prázdná odpověď od Gemini');
+
+  return text;
 }
