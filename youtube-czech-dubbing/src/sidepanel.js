@@ -658,38 +658,36 @@ function initRecognition() {
 async function requestMicPermission() {
   if (micPermissionGranted && micStream) return true;
 
-  // Check current permission state
-  let permState = 'prompt';
-  try {
-    const status = await navigator.permissions.query({ name: 'microphone' });
-    permState = status.state;
-  } catch (e) {}
-
-  if (permState === 'prompt') {
-    // Side panel permission dialog can hide behind windows.
-    // Ask background to open a focused popup for mic permission.
-    try {
-      const resp = await chrome.runtime.sendMessage({ type: 'open-mic-permission' });
-      if (!resp?.granted) {
-        document.getElementById('chatInput').placeholder = t('micDenied');
-        return false;
-      }
-    } catch (e) {
-      console.warn('[Voice] Permission popup failed:', e);
-    }
-  }
-
-  // Now actually get the stream (should be auto-granted after popup)
+  // Strategy 1: Direct getUserMedia in side panel
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     micPermissionGranted = true;
-    console.log('[Voice] Microphone permission granted');
+    console.log('[Voice] Mic granted directly in side panel');
     return true;
   } catch (e) {
-    console.warn('[Voice] Microphone denied:', e);
-    document.getElementById('chatInput').placeholder = t('micDeniedFull');
-    return false;
+    console.log('[Voice] Direct mic failed:', e.name, '- trying offscreen');
   }
+
+  // Strategy 2: Offscreen document (has USER_MEDIA capability)
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'open-mic-permission' });
+    if (resp?.granted) {
+      // Permission was granted in offscreen context, retry in side panel
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micPermissionGranted = true;
+        console.log('[Voice] Mic granted via offscreen');
+        return true;
+      } catch (e2) {
+        console.warn('[Voice] Side panel still denied after offscreen:', e2);
+      }
+    }
+  } catch (e) {
+    console.warn('[Voice] Offscreen failed:', e);
+  }
+
+  document.getElementById('chatInput').placeholder = t('micDeniedFull');
+  return false;
 }
 
 async function startRecording() {

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body>
+<script>
+  // Offscreen document for microphone permission & stream access.
+  // Chrome extension pages can't show the mic permission dialog,
+  // but offscreen documents with USER_MEDIA reason can.
+
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'offscreen-request-mic') {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          // Keep stream alive briefly so permission sticks
+          setTimeout(() => stream.getTracks().forEach(t => t.stop()), 500);
+          sendResponse({ granted: true });
+        })
+        .catch(err => {
+          sendResponse({ granted: false, error: err.message });
+        });
+      return true; // async
+    }
+  });
+</script>
+</body>
+</html>

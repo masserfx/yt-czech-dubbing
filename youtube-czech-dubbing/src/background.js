@@ -156,33 +156,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Mic permission — open focused popup window so dialog appears on top
+  // Mic permission via offscreen document (extension pages can't show mic dialog)
   if (msg.type === 'open-mic-permission') {
-    chrome.windows.create({
-      url: chrome.runtime.getURL('src/mic-permission.html'),
-      type: 'popup',
-      width: 420,
-      height: 220,
-      focused: true
-    }, (win) => {
-      const winId = win?.id;
-      const listener = (innerMsg) => {
-        if (innerMsg.type === 'mic-permission-result') {
-          chrome.runtime.onMessage.removeListener(listener);
-          if (winId) chrome.windows.remove(winId).catch(() => {});
-          sendResponse({ granted: innerMsg.granted });
+    (async () => {
+      try {
+        // Create offscreen document if not already open
+        const existingContexts = await chrome.runtime.getContexts({
+          contextTypes: ['OFFSCREEN_DOCUMENT']
+        });
+        if (existingContexts.length === 0) {
+          await chrome.offscreen.createDocument({
+            url: 'src/offscreen.html',
+            reasons: ['USER_MEDIA'],
+            justification: 'Requesting microphone permission for voice input'
+          });
         }
-      };
-      chrome.runtime.onMessage.addListener(listener);
-      // Fallback: window closed without response
-      chrome.windows.onRemoved.addListener(function onClose(closedId) {
-        if (closedId === winId) {
-          chrome.windows.onRemoved.removeListener(onClose);
-          chrome.runtime.onMessage.removeListener(listener);
-          sendResponse({ granted: false });
-        }
-      });
-    });
+        // Ask offscreen document to request mic
+        const result = await chrome.runtime.sendMessage({ type: 'offscreen-request-mic' });
+        sendResponse(result || { granted: false });
+      } catch (e) {
+        console.warn('[BG] Offscreen mic permission failed:', e);
+        sendResponse({ granted: false, error: e.message });
+      }
+    })();
     return true;
   }
 
