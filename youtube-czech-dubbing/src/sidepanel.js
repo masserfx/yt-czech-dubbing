@@ -9,6 +9,10 @@ let pageContext = null; // { title, paragraphs, summary, meta, audioElements, is
 let chatHistory = []; // [{role: 'user'|'model', parts: [{text}]}]
 let geminiApiKey = null;
 let currentLang = 'cs';
+let ttsEnabled = false;
+
+// Session token tracking
+let sessionUsage = { input: 0, output: 0, cost: 0, requests: 0 };
 
 // ── Localization ────────────────────────────────────────
 
@@ -43,6 +47,7 @@ const i18n = {
     getClaude: 'Získat Claude API klíč (console.anthropic.com)',
     getGemini: 'Získat Gemini API klíč (Google AI Studio)',
     getAzure: 'Získat Azure Speech klíč (portal.azure.com)',
+    ttsOn: 'Hlasový dialog zapnut', ttsOff: 'Hlasový dialog vypnut',
   },
   sk: {
     tabDubbing: 'Dabing', tabChat: 'Chat AI', tabSettings: 'Nastavenia',
@@ -73,6 +78,7 @@ const i18n = {
     getClaude: 'Získať Claude API kľúč (console.anthropic.com)',
     getGemini: 'Získať Gemini API kľúč (Google AI Studio)',
     getAzure: 'Získať Azure Speech kľúč (portal.azure.com)',
+    ttsOn: 'Hlasový dialóg zapnutý', ttsOff: 'Hlasový dialóg vypnutý',
   },
   pl: {
     tabDubbing: 'Dubbing', tabChat: 'Chat AI', tabSettings: 'Ustawienia',
@@ -103,6 +109,7 @@ const i18n = {
     getClaude: 'Uzyskaj klucz Claude API (console.anthropic.com)',
     getGemini: 'Uzyskaj klucz Gemini API (Google AI Studio)',
     getAzure: 'Uzyskaj klucz Azure Speech (portal.azure.com)',
+    ttsOn: 'Dialog głosowy włączony', ttsOff: 'Dialog głosowy wyłączony',
   },
   hu: {
     tabDubbing: 'Szinkron', tabChat: 'Chat AI', tabSettings: 'Beállítások',
@@ -133,6 +140,7 @@ const i18n = {
     getClaude: 'Claude API kulcs beszerzése (console.anthropic.com)',
     getGemini: 'Gemini API kulcs beszerzése (Google AI Studio)',
     getAzure: 'Azure Speech kulcs beszerzése (portal.azure.com)',
+    ttsOn: 'Hangos párbeszéd bekapcsolva', ttsOff: 'Hangos párbeszéd kikapcsolva',
   },
   en: {
     tabDubbing: 'Dubbing', tabChat: 'Chat AI', tabSettings: 'Settings',
@@ -163,6 +171,7 @@ const i18n = {
     getClaude: 'Get Claude API key (console.anthropic.com)',
     getGemini: 'Get Gemini API key (Google AI Studio)',
     getAzure: 'Get Azure Speech key (portal.azure.com)',
+    ttsOn: 'Voice dialogue on', ttsOff: 'Voice dialogue off',
   },
 };
 
@@ -304,6 +313,7 @@ function bindEvents() {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.querySelector('[data-tab="settings"]').classList.add('active');
     document.getElementById('tab-settings').classList.add('active');
+    refreshUsageStats();
   });
   document.getElementById('btnRefresh').addEventListener('click', () => {
     extractPageContext();
@@ -311,6 +321,7 @@ function bindEvents() {
 
   bindSettingsEvents();
   bindVoiceInput();
+  bindTtsToggle();
 
   // API key links — open in new tab
   document.querySelectorAll('.api-link[data-url]').forEach(link => {
@@ -497,6 +508,18 @@ async function sendChatMessage() {
     if (response?.success && response.text) {
       appendChatMessage('bot', response.text);
       chatHistory.push({ role: 'model', parts: [{ text: response.text }] });
+      // Update token tracking
+      if (response.usage) {
+        sessionUsage.input += response.usage.input;
+        sessionUsage.output += response.usage.output;
+        sessionUsage.cost += response.usage.cost;
+        sessionUsage.requests++;
+        updateTokenBar();
+      }
+      // TTS: speak the response if voice dialogue is enabled
+      if (ttsEnabled) {
+        speakText(response.text);
+      }
     } else {
       appendChatMessage('bot', response?.error || t('chatError'), true);
       chatHistory.pop(); // remove failed user message
@@ -753,6 +776,11 @@ function bindVoiceInput() {
 async function startRecording() {
   if (isRecording || !activeTabId) return;
   isRecording = true;
+  // Barge-in: cancel TTS when user starts speaking
+  if (ttsEnabled) {
+    window.speechSynthesis.cancel();
+    document.getElementById('btnTts').classList.remove('speaking');
+  }
   document.getElementById('btnVoice').classList.add('recording');
   document.getElementById('chatInput').placeholder = t('recording');
 
@@ -1008,4 +1036,107 @@ async function sendToTab(msg) {
     console.warn('[SidePanel] sendToTab failed:', e);
     return null;
   }
+}
+
+// ── Token Bar ───────────────────────────────────────────
+
+function updateTokenBar() {
+  const bar = document.getElementById('tokenBar');
+  const info = document.getElementById('tokenInfo');
+  const costEl = document.getElementById('tokenCost');
+
+  bar.classList.add('visible');
+
+  const total = sessionUsage.input + sessionUsage.output;
+  if (total > 1000) {
+    info.textContent = (total / 1000).toFixed(1) + 'k tokenů';
+  } else {
+    info.textContent = total + ' tokenů';
+  }
+
+  if (sessionUsage.cost < 0.001) {
+    costEl.textContent = 'Free tier';
+    costEl.classList.remove('paid');
+  } else {
+    costEl.textContent = '$' + sessionUsage.cost.toFixed(4);
+    costEl.classList.add('paid');
+  }
+}
+
+function fmtTokens(n) {
+  if (n > 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n > 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
+}
+
+async function refreshUsageStats() {
+  // Session row
+  document.getElementById('usageSessTokens').textContent = fmtTokens(sessionUsage.input + sessionUsage.output);
+  document.getElementById('usageSessCost').textContent = sessionUsage.cost < 0.001 ? 'free' : '$' + sessionUsage.cost.toFixed(4);
+
+  // Persisted stats from background
+  try {
+    const stats = await chrome.runtime.sendMessage({ type: 'get-usage-stats' });
+    if (stats) {
+      document.getElementById('usageTodayTokens').textContent = fmtTokens((stats.today?.input || 0) + (stats.today?.output || 0));
+      document.getElementById('usageTodayCost').textContent = '$' + (stats.today?.cost || 0).toFixed(4);
+      document.getElementById('usageWeekTokens').textContent = fmtTokens((stats.week?.input || 0) + (stats.week?.output || 0));
+      document.getElementById('usageWeekCost').textContent = '$' + (stats.week?.cost || 0).toFixed(4);
+      document.getElementById('usageMonthTokens').textContent = fmtTokens((stats.month?.input || 0) + (stats.month?.output || 0));
+      document.getElementById('usageMonthCost').textContent = '$' + (stats.month?.cost || 0).toFixed(4);
+    }
+  } catch (e) {
+    console.warn('[Usage] Stats load failed:', e);
+  }
+}
+
+// ── Voice Dialogue (TTS output) ─────────────────────────
+
+function stripMarkdown(md) {
+  return md
+    .replace(/```[\s\S]*?```/g, '')     // code blocks
+    .replace(/`([^`]+)`/g, '$1')         // inline code
+    .replace(/#{1,6}\s+/g, '')           // headings
+    .replace(/\*\*([^*]+)\*\*/g, '$1')   // bold
+    .replace(/\*([^*]+)\*/g, '$1')       // italic
+    .replace(/^\s*[-*]\s+/gm, '')        // list items
+    .replace(/^\s*\d+\.\s+/gm, '')       // ordered list items
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
+    .replace(/\n{2,}/g, '. ')            // paragraph breaks → pause
+    .replace(/\n/g, ' ')
+    .trim();
+}
+
+function speakText(md) {
+  const text = stripMarkdown(md);
+  if (!text) return;
+
+  window.speechSynthesis.cancel(); // stop any previous
+
+  const utter = new SpeechSynthesisUtterance(text);
+  const lang = document.getElementById('targetLanguage').value;
+  utter.lang = bcp47Map[lang] || 'cs-CZ';
+  utter.rate = parseFloat((parseInt(document.getElementById('ttsRate')?.value || '100') / 100).toFixed(1));
+  utter.volume = parseFloat((parseInt(document.getElementById('ttsVolume')?.value || '80') / 100).toFixed(1));
+
+  const btn = document.getElementById('btnTts');
+  btn.classList.add('speaking');
+  utter.onend = () => btn.classList.remove('speaking');
+  utter.onerror = () => btn.classList.remove('speaking');
+
+  window.speechSynthesis.speak(utter);
+}
+
+function bindTtsToggle() {
+  const btn = document.getElementById('btnTts');
+  btn.addEventListener('click', () => {
+    ttsEnabled = !ttsEnabled;
+    btn.classList.toggle('active', ttsEnabled);
+    btn.title = ttsEnabled ? t('ttsOn') : t('ttsOff');
+    if (!ttsEnabled) {
+      window.speechSynthesis.cancel();
+      btn.classList.remove('speaking');
+    }
+  });
+
 }

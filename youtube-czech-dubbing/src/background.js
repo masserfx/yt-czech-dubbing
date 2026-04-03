@@ -137,10 +137,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Usage stats
+  if (msg.type === 'get-usage-stats') {
+    getUsageStats()
+      .then(stats => sendResponse(stats))
+      .catch(() => sendResponse(null));
+    return true;
+  }
+
   // Gemini AI Chat
   if (msg.type === 'gemini-chat') {
     geminiChat(msg.apiKey, msg.systemInstruction, msg.history, msg.message)
-      .then(text => sendResponse({ success: true, text }))
+      .then(result => sendResponse({ success: true, text: result.text, usage: result.usage }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
@@ -924,8 +932,13 @@ function escapeXml(text) {
 const HAIKU_INPUT_PRICE = 0.80;   // $ per 1M input tokens
 const HAIKU_OUTPUT_PRICE = 4.00;  // $ per 1M output tokens
 
-function calcCost(inputTokens, outputTokens) {
-  return (inputTokens * HAIKU_INPUT_PRICE + outputTokens * HAIKU_OUTPUT_PRICE) / 1_000_000;
+const GEMINI_INPUT_PRICE = 0.25;  // $ per 1M input tokens (Gemini 3.1 Flash-Lite)
+const GEMINI_OUTPUT_PRICE = 1.50; // $ per 1M output tokens
+
+function calcCost(inputTokens, outputTokens, provider = 'claude') {
+  const inputPrice = provider === 'gemini' ? GEMINI_INPUT_PRICE : HAIKU_INPUT_PRICE;
+  const outputPrice = provider === 'gemini' ? GEMINI_OUTPUT_PRICE : HAIKU_OUTPUT_PRICE;
+  return (inputTokens * inputPrice + outputTokens * outputPrice) / 1_000_000;
 }
 
 async function trackClaudeUsage(inputTokens, outputTokens) {
@@ -947,9 +960,39 @@ async function trackClaudeUsage(inputTokens, outputTokens) {
   await chrome.storage.local.set({ claudeUsage: usage });
 }
 
+async function trackGeminiUsage(inputTokens, outputTokens) {
+  const now = Date.now();
+  const cost = calcCost(inputTokens, outputTokens, 'gemini');
+
+  const result = await chrome.storage.local.get('geminiUsage');
+  const usage = result.geminiUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+
+  usage.requests.push({ ts: now, input: inputTokens, output: outputTokens, cost });
+  usage.totalInput += inputTokens;
+  usage.totalOutput += outputTokens;
+  usage.totalCost += cost;
+
+  // Keep only last 90 days
+  const cutoff = now - 90 * 24 * 60 * 60 * 1000;
+  usage.requests = usage.requests.filter(r => r.ts > cutoff);
+
+  await chrome.storage.local.set({ geminiUsage: usage });
+}
+
 async function getUsageStats() {
-  const result = await chrome.storage.local.get('claudeUsage');
-  const usage = result.claudeUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+  const result = await chrome.storage.local.get(['claudeUsage', 'geminiUsage']);
+  const claudeData = result.claudeUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+  const geminiData = result.geminiUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+
+  const usage = {
+    requests: [
+      ...claudeData.requests.map(r => ({ ...r, provider: 'claude' })),
+      ...geminiData.requests.map(r => ({ ...r, provider: 'gemini' }))
+    ],
+    totalInput: claudeData.totalInput + geminiData.totalInput,
+    totalOutput: claudeData.totalOutput + geminiData.totalOutput,
+    totalCost: claudeData.totalCost + geminiData.totalCost
+  };
 
   const now = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
@@ -1064,5 +1107,12 @@ async function geminiChat(apiKey, systemInstruction, history, message) {
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Prázdná odpověď od Gemini');
 
-  return text;
+  // Extract and track usage
+  const meta = data.usageMetadata;
+  const inputTokens = meta?.promptTokenCount || 0;
+  const outputTokens = meta?.candidatesTokenCount || 0;
+  const cost = calcCost(inputTokens, outputTokens, 'gemini');
+  trackGeminiUsage(inputTokens, outputTokens);
+
+  return { text, usage: { input: inputTokens, output: outputTokens, cost } };
 }
