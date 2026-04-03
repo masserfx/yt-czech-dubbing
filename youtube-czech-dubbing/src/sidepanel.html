@@ -62,7 +62,7 @@
       flex: 1;
       padding: 10px 8px;
       text-align: center;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 500;
       color: #888;
       cursor: pointer;
@@ -88,7 +88,7 @@
       flex-shrink: 0;
     }
     .context-title {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
       margin-bottom: 6px;
       white-space: nowrap;
@@ -96,7 +96,7 @@
       text-overflow: ellipsis;
     }
     .context-meta {
-      font-size: 11px;
+      font-size: 12px;
       color: #888;
       display: flex;
       flex-wrap: wrap;
@@ -107,7 +107,7 @@
       color: #3498db;
       padding: 2px 8px;
       border-radius: 10px;
-      font-size: 10px;
+      font-size: 11px;
     }
     .context-badge.ai { background: rgba(155,89,182,0.15); color: #9b59b6; }
     .context-badge.audio { background: rgba(46,204,113,0.15); color: #2ecc71; }
@@ -129,7 +129,7 @@
       color: white;
       padding: 8px 16px;
       border-radius: 8px;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       flex: 1;
@@ -147,7 +147,7 @@
       color: #aaa;
       padding: 6px 12px;
       border-radius: 6px;
-      font-size: 11px;
+      font-size: 12px;
       cursor: pointer;
     }
     .dub-btn-sm:hover { color: #e0e0e0; border-color: #3498db; }
@@ -167,7 +167,7 @@
       transition: width 0.3s;
     }
     .dub-status {
-      font-size: 11px;
+      font-size: 12px;
       color: #888;
       margin-top: 4px;
     }
@@ -195,7 +195,7 @@
       max-width: 85%;
       padding: 8px 12px;
       border-radius: 12px;
-      font-size: 13px;
+      font-size: 14px;
       line-height: 1.5;
       word-wrap: break-word;
     }
@@ -236,10 +236,10 @@
       text-align: center;
       padding: 24px 16px;
       color: #666;
-      font-size: 12px;
+      font-size: 13px;
       line-height: 1.6;
     }
-    .chat-welcome-icon { font-size: 32px; margin-bottom: 8px; }
+    .chat-welcome-icon { font-size: 36px; margin-bottom: 8px; }
     .chat-suggestion {
       display: inline-block;
       background: #16213e;
@@ -247,7 +247,7 @@
       color: #aaa;
       padding: 4px 10px;
       border-radius: 12px;
-      font-size: 11px;
+      font-size: 12px;
       cursor: pointer;
       margin: 3px;
     }
@@ -270,7 +270,7 @@
       border-radius: 8px;
       color: #e0e0e0;
       padding: 8px 12px;
-      font-size: 13px;
+      font-size: 14px;
       font-family: inherit;
       resize: none;
       outline: none;
@@ -404,7 +404,7 @@
     .setting-label {
       display: flex;
       justify-content: space-between;
-      font-size: 11px;
+      font-size: 12px;
       color: #888;
       margin-bottom: 4px;
     }
@@ -416,7 +416,7 @@
       color: #e0e0e0;
       border: 1px solid #0f3460;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: 13px;
       outline: none;
     }
     select:focus, input:focus { border-color: #3498db; }
@@ -440,7 +440,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
+      font-size: 13px;
     }
     .checkbox-group input { accent-color: #3498db; }
     .setting-divider {
@@ -448,12 +448,12 @@
       margin: 12px 0;
       padding-top: 12px;
     }
-    .hint { font-size: 10px; color: #555; margin-top: 3px; }
+    .hint { font-size: 11px; color: #555; margin-top: 3px; }
     .api-link {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      font-size: 10px;
+      font-size: 12px;
       color: #3498db;
       cursor: pointer;
       text-decoration: none;
@@ -533,8 +533,8 @@
           Pou&#x17E;&#xED;v&#xE1;m Gemini Flash-Lite pro rychl&#xE9; odpov&#x11B;di.</div>
           <div style="margin-top: 10px;">
             <span class="chat-suggestion" data-q="O &#x10D;em je tento &#x10D;l&#xE1;nek?">O &#x10D;em je tento &#x10D;l&#xE1;nek?</span>
-            <span class="chat-suggestion" data-q="Shrn&#x16F; hlavn&#xED; body">Shrn&#x16F; hlavn&#xED; body</span>
-            <span class="chat-suggestion" data-q="Co je nejd&#x16F;le&#x17E;it&#x11B;j&#x161;&#xED;?">Co je nejd&#x16F;le&#x17E;it&#x11B;j&#x161;&#xED;?</span>
+            <span class="chat-suggestion" data-q="Shrň hlavn&#xED; body">Shrň hlavn&#xED; body</span>
+            <span class="chat-suggestion" data-q="Co je nejdůležitější?">Co je nejdůležitější?</span>
           </div>
         </div>
       </div>
@@ -557,7 +557,7 @@
   <div class="tab-content" id="tab-settings">
     <div class="settings-panel">
       <div class="setting-group">
-        <div class="setting-label"><span>Jazyk dabingu</span></div>
+        <div class="setting-label"><span data-i18n="langLabel">Jazyk dabingu</span></div>
         <select id="targetLanguage">
           <option value="cs">&#x1F1E8;&#x1F1FF; &#x10C;e&#x161;tina</option>
           <option value="sk">&#x1F1F8;&#x1F1F0; Sloven&#x10D;ina</option>
@@ -567,7 +567,7 @@
       </div>
 
       <div class="setting-group">
-        <div class="setting-label"><span>P&#x159;eklada&#x10D;</span></div>
+        <div class="setting-label"><span data-i18n="translatorLabel">Překladač</span></div>
         <select id="translatorEngine">
           <option value="chromeai">Chrome AI (on-device, zdarma)</option>
           <option value="google">Google Translate (zdarma)</option>
@@ -577,13 +577,13 @@
       </div>
 
       <div class="setting-group" id="deeplKeyGroup" style="display:none;">
-        <div class="setting-label"><span>DeepL API kl&#xED;&#x10D;</span></div>
+        <div class="setting-label"><span data-i18n="deeplKey">DeepL API klíč</span></div>
         <input type="password" id="deeplApiKey" placeholder="xxxxxxxx-xxxx:fx">
         <a class="api-link" data-url="https://www.deepl.com/your-account/keys"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat DeepL API kl&#xED;&#x10D; (500k zn./m&#x11B;s. zdarma)</a>
       </div>
 
       <div class="setting-group" id="apiKeyGroup" style="display:none;">
-        <div class="setting-label"><span>Anthropic API kl&#xED;&#x10D;</span></div>
+        <div class="setting-label"><span data-i18n="claudeKey">Anthropic API klíč</span></div>
         <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
         <a class="api-link" data-url="https://console.anthropic.com/settings/keys"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat Claude API kl&#xED;&#x10D; (console.anthropic.com)</a>
       </div>
@@ -591,7 +591,7 @@
       <div class="setting-divider"></div>
 
       <div class="setting-group">
-        <div class="setting-label"><span>Gemini API kl&#xED;&#x10D; (Chat AI)</span></div>
+        <div class="setting-label"><span data-i18n="geminiKey">Gemini API klíč (Chat AI)</span></div>
         <input type="password" id="geminiApiKey" placeholder="AIza...">
         <a class="api-link" data-url="https://aistudio.google.com/apikey"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat Gemini API kl&#xED;&#x10D; (Google AI Studio)</a>
         <div class="hint">Flash-Lite: free tier k dispozici</div>
@@ -601,7 +601,7 @@
 
       <div class="setting-group">
         <div class="setting-label">
-          <span>Hlasitost dabingu</span>
+          <span data-i18n="volumeLabel">Hlasitost dabingu</span>
           <span class="setting-value" id="volumeValue">95%</span>
         </div>
         <input type="range" id="ttsVolume" min="0" max="100" value="95">
@@ -609,7 +609,7 @@
 
       <div class="setting-group">
         <div class="setting-label">
-          <span>Rychlost &#x159;e&#x10D;i</span>
+          <span data-i18n="rateLabel">Rychlost řeči</span>
           <span class="setting-value" id="rateValue">1.3x</span>
         </div>
         <input type="range" id="ttsRate" min="50" max="200" value="125">
@@ -617,7 +617,7 @@
 
       <div class="setting-group">
         <div class="setting-label">
-          <span>Hlasitost origin&#xE1;lu</span>
+          <span data-i18n="origVolLabel">Hlasitost originálu</span>
           <span class="setting-value" id="origVolValue">15%</span>
         </div>
         <input type="range" id="originalVolume" min="0" max="100" value="15">
@@ -625,13 +625,13 @@
 
       <div class="checkbox-group">
         <input type="checkbox" id="muteOriginal">
-        <label for="muteOriginal">&#xDA;pln&#x11B; ztlumit origin&#xE1;l</label>
+        <label for="muteOriginal" data-i18n="muteOrig">Úplně ztlumit originál</label>
       </div>
 
       <div class="setting-divider"></div>
 
       <div class="setting-group">
-        <div class="setting-label"><span>Hlasov&#xFD; engine (TTS)</span></div>
+        <div class="setting-label"><span data-i18n="ttsLabel">Hlasový engine (TTS)</span></div>
         <select id="ttsEngine">
           <option value="browser">Syst&#xE9;mov&#xFD; hlas (zdarma)</option>
           <option value="azure">Azure TTS (500k zn./m&#x11B;s. zdarma)</option>
@@ -639,7 +639,7 @@
       </div>
 
       <div class="setting-group" id="azureTtsGroup" style="display:none;">
-        <div class="setting-label"><span>Azure Speech kl&#xED;&#x10D;</span></div>
+        <div class="setting-label"><span data-i18n="azureKey">Azure Speech klíč</span></div>
         <input type="password" id="azureTtsKey" placeholder="xxxxxxxx...">
         <a class="api-link" data-url="https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat Azure Speech kl&#xED;&#x10D; (portal.azure.com)</a>
         <div class="setting-label" style="margin-top:6px;"><span>Region</span></div>

@@ -8,6 +8,176 @@ let activeTabId = null;
 let pageContext = null; // { title, paragraphs, summary, meta, audioElements, isYouTube }
 let chatHistory = []; // [{role: 'user'|'model', parts: [{text}]}]
 let geminiApiKey = null;
+let currentLang = 'cs';
+
+// ── Localization ────────────────────────────────────────
+
+const i18n = {
+  cs: {
+    tabDubbing: 'Dabing', tabChat: 'Chat AI', tabSettings: 'Nastavení',
+    loading: 'Načítání...', unsupported: 'Nepodporovaná stránka',
+    startDub: 'Spustit dabing', dubArticle: 'Dabovat článek',
+    starting: 'Spouštím...', stop: 'Zastavit', ready: 'Připraveno',
+    injecting: 'Injektuji skripty...', errorStart: 'Nepodařilo se spustit',
+    summary: 'Shrnutí', fullArticle: 'Celý článek',
+    chatWelcome: 'Zeptejte se na cokoliv o obsahu stránky.',
+    chatEngine: 'Používám Gemini Flash-Lite pro rychlé odpovědi.',
+    chatPlaceholder: 'Zeptejte se... (drž mezerník = hlas)',
+    chip1: 'O čem je tento článek?', chip2: 'Shrň hlavní body', chip3: 'Co je nejdůležitější?',
+    noApiKey: 'Nastavte Gemini API klíč v záložce Nastavení.',
+    chatError: 'Chyba komunikace s AI.',
+    recording: 'Naslouchám...', micDenied: 'Mikrofon zamítnut',
+    micDeniedFull: 'Mikrofon zamítnut — povolte v nastavení',
+    holdSpace: 'Držte mezerník',
+    // Settings
+    langLabel: 'Jazyk dabingu', translatorLabel: 'Překladač',
+    deeplKey: 'DeepL API klíč', claudeKey: 'Anthropic API klíč',
+    geminiKey: 'Gemini API klíč (Chat AI)', geminiHint: 'Flash-Lite: free tier k dispozici',
+    volumeLabel: 'Hlasitost dabingu', rateLabel: 'Rychlost řeči',
+    origVolLabel: 'Hlasitost originálu', muteOrig: 'Úplně ztlumit originál',
+    ttsLabel: 'Hlasový engine (TTS)', azureKey: 'Azure Speech klíč',
+    regionLabel: 'Region', voiceLabel: 'Hlas',
+    paragraphs: 'odstavců', aiSummary: 'AI shrnutí', audio: 'audio',
+    article: 'Článek',
+    getDeepL: 'Získat DeepL API klíč (500k zn./měs. zdarma)',
+    getClaude: 'Získat Claude API klíč (console.anthropic.com)',
+    getGemini: 'Získat Gemini API klíč (Google AI Studio)',
+    getAzure: 'Získat Azure Speech klíč (portal.azure.com)',
+  },
+  sk: {
+    tabDubbing: 'Dabing', tabChat: 'Chat AI', tabSettings: 'Nastavenia',
+    loading: 'Načítavam...', unsupported: 'Nepodporovaná stránka',
+    startDub: 'Spustiť dabing', dubArticle: 'Dabovať článok',
+    starting: 'Spúšťam...', stop: 'Zastaviť', ready: 'Pripravené',
+    injecting: 'Injektujem skripty...', errorStart: 'Nepodarilo sa spustiť',
+    summary: 'Zhrnutie', fullArticle: 'Celý článok',
+    chatWelcome: 'Spýtajte sa čokoľvek o obsahu stránky.',
+    chatEngine: 'Používam Gemini Flash-Lite pre rýchle odpovede.',
+    chatPlaceholder: 'Spýtajte sa... (drž medzerník = hlas)',
+    chip1: 'O čom je tento článok?', chip2: 'Zhrň hlavné body', chip3: 'Čo je najdôležitejšie?',
+    noApiKey: 'Nastavte Gemini API kľúč v záložke Nastavenia.',
+    chatError: 'Chyba komunikácie s AI.',
+    recording: 'Počúvam...', micDenied: 'Mikrofón zamietnutý',
+    micDeniedFull: 'Mikrofón zamietnutý — povoľte v nastaveniach',
+    holdSpace: 'Držte medzerník',
+    langLabel: 'Jazyk dabingu', translatorLabel: 'Prekladač',
+    deeplKey: 'DeepL API kľúč', claudeKey: 'Anthropic API kľúč',
+    geminiKey: 'Gemini API kľúč (Chat AI)', geminiHint: 'Flash-Lite: free tier k dispozícii',
+    volumeLabel: 'Hlasitosť dabingu', rateLabel: 'Rýchlosť reči',
+    origVolLabel: 'Hlasitosť originálu', muteOrig: 'Úplne stlmiť originál',
+    ttsLabel: 'Hlasový engine (TTS)', azureKey: 'Azure Speech kľúč',
+    regionLabel: 'Región', voiceLabel: 'Hlas',
+    paragraphs: 'odsekov', aiSummary: 'AI zhrnutie', audio: 'audio',
+    article: 'Článok',
+    getDeepL: 'Získať DeepL API kľúč (500k zn./mes. zadarmo)',
+    getClaude: 'Získať Claude API kľúč (console.anthropic.com)',
+    getGemini: 'Získať Gemini API kľúč (Google AI Studio)',
+    getAzure: 'Získať Azure Speech kľúč (portal.azure.com)',
+  },
+  pl: {
+    tabDubbing: 'Dubbing', tabChat: 'Chat AI', tabSettings: 'Ustawienia',
+    loading: 'Ładowanie...', unsupported: 'Nieobsługiwana strona',
+    startDub: 'Uruchom dubbing', dubArticle: 'Dubbinguj artykuł',
+    starting: 'Uruchamiam...', stop: 'Zatrzymaj', ready: 'Gotowe',
+    injecting: 'Wstrzykuję skrypty...', errorStart: 'Nie udało się uruchomić',
+    summary: 'Streszczenie', fullArticle: 'Cały artykuł',
+    chatWelcome: 'Zapytaj o cokolwiek dotyczącego treści strony.',
+    chatEngine: 'Używam Gemini Flash-Lite dla szybkich odpowiedzi.',
+    chatPlaceholder: 'Zapytaj... (przytrzymaj spację = głos)',
+    chip1: 'O czym jest ten artykuł?', chip2: 'Podsumuj główne punkty', chip3: 'Co jest najważniejsze?',
+    noApiKey: 'Ustaw klucz Gemini API w zakładce Ustawienia.',
+    chatError: 'Błąd komunikacji z AI.',
+    recording: 'Słucham...', micDenied: 'Mikrofon odrzucony',
+    micDeniedFull: 'Mikrofon odrzucony — zezwól w ustawieniach',
+    holdSpace: 'Przytrzymaj spację',
+    langLabel: 'Język dubbingu', translatorLabel: 'Tłumacz',
+    deeplKey: 'Klucz API DeepL', claudeKey: 'Klucz API Anthropic',
+    geminiKey: 'Klucz API Gemini (Chat AI)', geminiHint: 'Flash-Lite: darmowy tier dostępny',
+    volumeLabel: 'Głośność dubbingu', rateLabel: 'Szybkość mowy',
+    origVolLabel: 'Głośność oryginału', muteOrig: 'Całkowicie wycisz oryginał',
+    ttsLabel: 'Silnik głosowy (TTS)', azureKey: 'Klucz Azure Speech',
+    regionLabel: 'Region', voiceLabel: 'Głos',
+    paragraphs: 'akapitów', aiSummary: 'AI podsumowanie', audio: 'audio',
+    article: 'Artykuł',
+    getDeepL: 'Uzyskaj klucz DeepL API (500k zn./mies. za darmo)',
+    getClaude: 'Uzyskaj klucz Claude API (console.anthropic.com)',
+    getGemini: 'Uzyskaj klucz Gemini API (Google AI Studio)',
+    getAzure: 'Uzyskaj klucz Azure Speech (portal.azure.com)',
+  },
+  hu: {
+    tabDubbing: 'Szinkron', tabChat: 'Chat AI', tabSettings: 'Beállítások',
+    loading: 'Betöltés...', unsupported: 'Nem támogatott oldal',
+    startDub: 'Szinkron indítása', dubArticle: 'Cikk szinkronizálása',
+    starting: 'Indítás...', stop: 'Leállítás', ready: 'Kész',
+    injecting: 'Szkriptek injektálása...', errorStart: 'Nem sikerült elindítani',
+    summary: 'Összefoglaló', fullArticle: 'Teljes cikk',
+    chatWelcome: 'Kérdezzen bármit az oldal tartalmáról.',
+    chatEngine: 'Gemini Flash-Lite-ot használok a gyors válaszokhoz.',
+    chatPlaceholder: 'Kérdezzen... (tartsa a szóközt = hang)',
+    chip1: 'Miről szól ez a cikk?', chip2: 'Foglald össze a fő pontokat', chip3: 'Mi a legfontosabb?',
+    noApiKey: 'Állítsa be a Gemini API kulcsot a Beállítások fülön.',
+    chatError: 'Hiba az AI kommunikációban.',
+    recording: 'Hallgatom...', micDenied: 'Mikrofon megtagadva',
+    micDeniedFull: 'Mikrofon megtagadva — engedélyezze a beállításokban',
+    holdSpace: 'Tartsa a szóközt',
+    langLabel: 'Szinkron nyelve', translatorLabel: 'Fordító',
+    deeplKey: 'DeepL API kulcs', claudeKey: 'Anthropic API kulcs',
+    geminiKey: 'Gemini API kulcs (Chat AI)', geminiHint: 'Flash-Lite: ingyenes szint elérhető',
+    volumeLabel: 'Szinkron hangereje', rateLabel: 'Beszédsebesség',
+    origVolLabel: 'Eredeti hangereje', muteOrig: 'Eredeti teljes némítása',
+    ttsLabel: 'Hang motor (TTS)', azureKey: 'Azure Speech kulcs',
+    regionLabel: 'Régió', voiceLabel: 'Hang',
+    paragraphs: 'bekezdés', aiSummary: 'AI összefoglaló', audio: 'audio',
+    article: 'Cikk',
+    getDeepL: 'DeepL API kulcs beszerzése (500k kar./hó ingyen)',
+    getClaude: 'Claude API kulcs beszerzése (console.anthropic.com)',
+    getGemini: 'Gemini API kulcs beszerzése (Google AI Studio)',
+    getAzure: 'Azure Speech kulcs beszerzése (portal.azure.com)',
+  },
+};
+
+function t(key) { return (i18n[currentLang] || i18n.cs)[key] || i18n.cs[key] || key; }
+
+function applyLanguage(lang) {
+  currentLang = lang || 'cs';
+  document.documentElement.lang = currentLang;
+
+  // Tabs
+  document.querySelector('[data-tab="dubbing"]').lastChild.textContent = ' ' + t('tabDubbing');
+  document.querySelector('[data-tab="chat"]').lastChild.textContent = ' ' + t('tabChat');
+  document.querySelector('[data-tab="settings"]').lastChild.textContent = ' ' + t('tabSettings');
+
+  // Dubbing
+  document.getElementById('btnModeSummary').textContent = t('summary');
+  document.getElementById('btnModeFull').textContent = t('fullArticle');
+  document.getElementById('dubStatus').textContent = t('ready');
+
+  // Chat
+  const welcome = document.querySelector('.chat-welcome');
+  if (welcome) {
+    const textDiv = welcome.querySelectorAll('div')[1];
+    if (textDiv) {
+      textDiv.textContent = '';
+      textDiv.appendChild(document.createTextNode(t('chatWelcome')));
+      textDiv.appendChild(document.createElement('br'));
+      textDiv.appendChild(document.createTextNode(t('chatEngine')));
+    }
+  }
+  document.getElementById('chatInput').placeholder = t('chatPlaceholder');
+  const chips = document.querySelectorAll('.chat-suggestion');
+  if (chips[0]) { chips[0].textContent = t('chip1'); chips[0].dataset.q = t('chip1'); }
+  if (chips[1]) { chips[1].textContent = t('chip2'); chips[1].dataset.q = t('chip2'); }
+  if (chips[2]) { chips[2].textContent = t('chip3'); chips[2].dataset.q = t('chip3'); }
+
+  // Voice hint
+  const hint = document.querySelector('.voice-hint');
+  if (hint) hint.textContent = t('holdSpace');
+
+  // Settings labels (data-i18n mapped)
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+}
 
 // ── Initialization ──────────────────────────────────────
 
@@ -31,14 +201,14 @@ async function detectPage() {
   if (isYouTube) {
     setContextBadges([{ text: 'YouTube', cls: '' }]);
     pageContext = { isYouTube: true, title: tab.title, url: tab.url };
-    document.getElementById('btnDubText').textContent = 'Spustit dabing';
+    document.getElementById('btnDubText').textContent = t('startDub');
     // Try get status from content script
     try {
       const resp = await chrome.tabs.sendMessage(activeTabId, { type: 'get-status' });
       if (resp) updateDubStatus(resp.status, resp.message);
     } catch (e) {}
   } else if (isWeb) {
-    document.getElementById('btnDubText').textContent = 'Dabovat článek';
+    document.getElementById('btnDubText').textContent = t('dubArticle');
     // Try to get article context
     try {
       const resp = await chrome.tabs.sendMessage(activeTabId, { type: 'article-get-status' });
@@ -49,9 +219,9 @@ async function detectPage() {
       // Content script not yet injected — that's OK
     }
     pageContext = { isYouTube: false, title: tab.title, url: tab.url };
-    setContextBadges([{ text: 'Článek', cls: '' }]);
+    setContextBadges([{ text: t('article'), cls: '' }]);
   } else {
-    document.getElementById('contextTitle').textContent = 'Nepodporovaná stránka';
+    document.getElementById('contextTitle').textContent = t('unsupported');
     document.getElementById('btnDub').disabled = true;
   }
 }
@@ -136,24 +306,24 @@ async function toggleDubbing() {
 
   if (pageContext?.isYouTube) {
     btn.disabled = true;
-    btnText.textContent = 'Spouštím...';
+    btnText.textContent = t('starting');
     const resp = await sendToTab({ type: 'start-dubbing' });
     btn.disabled = false;
     if (resp?.success) {
-      updateDubStatus('playing', 'Dabing aktivní');
+      updateDubStatus('playing', t('tabDubbing'));
     } else {
-      updateDubStatus('error', 'Nepodařilo se spustit');
+      updateDubStatus('error', t('errorStart'));
     }
   } else {
     // Article: inject scripts first, then they auto-start
     btn.disabled = true;
-    btnText.textContent = 'Spouštím...';
-    updateDubStatus('loading', 'Injektuji skripty...');
+    btnText.textContent = t('starting');
+    updateDubStatus('loading', t('injecting'));
 
     const resp = await chrome.runtime.sendMessage({ type: 'inject-article-scripts', tabId: activeTabId });
     btn.disabled = false;
     if (resp?.success) {
-      updateDubStatus('ready', 'Článek připraven');
+      updateDubStatus('ready', t('ready'));
       // Request context extraction for chat
       setTimeout(() => extractPageContext(), 1000);
     } else {
@@ -170,11 +340,11 @@ function updateDubStatus(status, message) {
 
   if (status === 'playing' || status === 'ready') {
     btn.className = 'dub-btn stop';
-    btnText.textContent = 'Zastavit';
+    btnText.textContent = t('stop');
     setSvgIcon(btnIcon, '#ico-stop');
   } else {
     btn.className = 'dub-btn';
-    btnText.textContent = pageContext?.isYouTube ? 'Spustit dabing' : 'Dabovat článek';
+    btnText.textContent = pageContext?.isYouTube ? t('startDub') : t('dubArticle');
     setSvgIcon(btnIcon, '#ico-play');
   }
 }
@@ -220,7 +390,7 @@ async function extractPageContext() {
       document.getElementById('contextTitle').textContent = ctx.title;
 
       const badges = [];
-      if (ctx.paragraphCount > 0) badges.push({ text: `${ctx.paragraphCount} odstavců`, cls: '' });
+      if (ctx.paragraphCount > 0) badges.push({ text: `${ctx.paragraphCount} ${t('paragraphs')}`, cls: '' });
       if (ctx.description) badges.push({ text: 'Meta popis', cls: '' });
       setContextBadges(badges);
 
@@ -237,9 +407,9 @@ function receiveArticleContext(msg) {
   if (msg.paragraphs) {
     pageContext = { ...pageContext, ...msg };
     const badges = [];
-    badges.push({ text: `${msg.paragraphs} odstavců`, cls: '' });
-    if (msg.hasSummary) badges.push({ text: 'AI shrnutí', cls: 'ai' });
-    if (msg.audioCount > 0) badges.push({ text: `${msg.audioCount} audio`, cls: 'audio' });
+    badges.push({ text: `${msg.paragraphs} ${t('paragraphs')}`, cls: '' });
+    if (msg.hasSummary) badges.push({ text: t('aiSummary'), cls: 'ai' });
+    if (msg.audioCount > 0) badges.push({ text: `${msg.audioCount} ${t('audio')}`, cls: 'audio' });
     setContextBadges(badges);
   }
 }
@@ -263,7 +433,7 @@ async function sendChatMessage() {
   if (!text) return;
 
   if (!geminiApiKey) {
-    appendChatMessage('bot', 'Nastavte Gemini API klíč v záložce Nastavení.', true);
+    appendChatMessage('bot', t('noApiKey'), true);
     return;
   }
 
@@ -295,7 +465,7 @@ async function sendChatMessage() {
       appendChatMessage('bot', response.text);
       chatHistory.push({ role: 'model', parts: [{ text: response.text }] });
     } else {
-      appendChatMessage('bot', response?.error || 'Chyba komunikace s AI.', true);
+      appendChatMessage('bot', response?.error || t('chatError'), true);
       chatHistory.pop(); // remove failed user message
     }
   } catch (e) {
@@ -437,7 +607,7 @@ function initRecognition() {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
     if (e.error === 'not-allowed') {
       micPermissionGranted = false;
-      document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut — povolte v nastavení prohlížeče';
+      document.getElementById('chatInput').placeholder = t('micDeniedFull');
     }
     stopRecording();
   };
@@ -459,7 +629,7 @@ async function requestMicPermission() {
     try {
       const resp = await chrome.runtime.sendMessage({ type: 'open-mic-permission' });
       if (!resp?.granted) {
-        document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut';
+        document.getElementById('chatInput').placeholder = t('micDenied');
         return false;
       }
     } catch (e) {
@@ -475,7 +645,7 @@ async function requestMicPermission() {
     return true;
   } catch (e) {
     console.warn('[Voice] Microphone denied:', e);
-    document.getElementById('chatInput').placeholder = 'Mikrofon zamítnut — povolte v nastavení';
+    document.getElementById('chatInput').placeholder = t('micDeniedFull');
     return false;
   }
 }
@@ -495,7 +665,7 @@ async function startRecording() {
   recognition.lang = langMap[lang] || 'cs-CZ';
 
   document.getElementById('btnVoice').classList.add('recording');
-  document.getElementById('chatInput').placeholder = 'Naslouchám...';
+  document.getElementById('chatInput').placeholder = t('recording');
 
   try {
     recognition.start();
@@ -513,7 +683,7 @@ function stopRecording() {
   isRecording = false;
 
   document.getElementById('btnVoice').classList.remove('recording');
-  document.getElementById('chatInput').placeholder = 'Zeptejte se... (drž mezerník = hlas)';
+  document.getElementById('chatInput').placeholder = t('chatPlaceholder');
 
   try { recognition.stop(); } catch (e) {}
   stopVisualizer();
@@ -656,9 +826,8 @@ async function loadSettings() {
     if (s.azureTtsRegion) document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
     if (s.azureTtsVoice) document.getElementById('azureTtsVoice').value = s.azureTtsVoice;
 
-    // Update header flag
-    const flags = { cs: '\uD83C\uDDE8\uD83C\uDDFF', sk: '\uD83C\uDDF8\uD83C\uDDF0', pl: '\uD83C\uDDF5\uD83C\uDDF1', hu: '\uD83C\uDDED\uD83C\uDDFA' };
-    document.getElementById('headerFlag').textContent = flags[s.targetLanguage] || '\uD83C\uDDE8\uD83C\uDDFF';
+    // Apply UI language
+    applyLanguage(s.targetLanguage);
   } catch (e) {}
 }
 
@@ -680,10 +849,7 @@ function saveSettings() {
   };
   geminiApiKey = s.geminiApiKey;
   chrome.storage.local.set({ popupSettings: s });
-
-  // Update header flag
-  const flags = { cs: '\uD83C\uDDE8\uD83C\uDDFF', sk: '\uD83C\uDDF8\uD83C\uDDF0', pl: '\uD83C\uDDF5\uD83C\uDDF1', hu: '\uD83C\uDDED\uD83C\uDDFA' };
-  document.getElementById('headerFlag').textContent = flags[s.targetLanguage] || '\uD83C\uDDE8\uD83C\uDDFF';
+  applyLanguage(s.targetLanguage);
 }
 
 function bindSettingsEvents() {
