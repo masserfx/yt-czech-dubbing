@@ -134,9 +134,42 @@ const i18n = {
     getGemini: 'Gemini API kulcs beszerzése (Google AI Studio)',
     getAzure: 'Azure Speech kulcs beszerzése (portal.azure.com)',
   },
+  en: {
+    tabDubbing: 'Dubbing', tabChat: 'Chat AI', tabSettings: 'Settings',
+    loading: 'Loading...', unsupported: 'Unsupported page',
+    startDub: 'Start dubbing', dubArticle: 'Dub article',
+    starting: 'Starting...', stop: 'Stop', ready: 'Ready',
+    injecting: 'Injecting scripts...', errorStart: 'Failed to start',
+    summary: 'Summary', fullArticle: 'Full article',
+    chatWelcome: 'Ask anything about the page content.',
+    chatEngine: 'Using Gemini Flash-Lite for fast answers.',
+    chatPlaceholder: 'Ask... (hold spacebar = voice)',
+    chip1: 'What is this article about?', chip2: 'Summarize the main points', chip3: 'What is most important?',
+    noApiKey: 'Set Gemini API key in the Settings tab.',
+    chatError: 'AI communication error.',
+    recording: 'Listening...', micDenied: 'Microphone denied',
+    micDeniedFull: 'Microphone denied — allow in browser settings',
+    holdSpace: 'Hold spacebar',
+    langLabel: 'Dubbing language', translatorLabel: 'Translator',
+    deeplKey: 'DeepL API key', claudeKey: 'Anthropic API key',
+    geminiKey: 'Gemini API key (Chat AI)', geminiHint: 'Flash-Lite: free tier available',
+    volumeLabel: 'Dubbing volume', rateLabel: 'Speech rate',
+    origVolLabel: 'Original volume', muteOrig: 'Completely mute original',
+    ttsLabel: 'Voice engine (TTS)', azureKey: 'Azure Speech key',
+    regionLabel: 'Region', voiceLabel: 'Voice',
+    paragraphs: 'paragraphs', aiSummary: 'AI summary', audio: 'audio',
+    article: 'Article',
+    getDeepL: 'Get DeepL API key (500k chars/mo free)',
+    getClaude: 'Get Claude API key (console.anthropic.com)',
+    getGemini: 'Get Gemini API key (Google AI Studio)',
+    getAzure: 'Get Azure Speech key (portal.azure.com)',
+  },
 };
 
-function t(key) { return (i18n[currentLang] || i18n.cs)[key] || i18n.cs[key] || key; }
+// Fallback chain: exact lang → en → cs
+function t(key) {
+  return (i18n[currentLang] || {})[key] || i18n.en[key] || i18n.cs[key] || key;
+}
 
 function applyLanguage(lang) {
   currentLang = lang || 'cs';
@@ -477,7 +510,16 @@ async function sendChatMessage() {
 
 function buildSystemPrompt() {
   const lang = document.getElementById('targetLanguage').value;
-  const langNames = { cs: 'česky', sk: 'slovensky', pl: 'po polsku', hu: 'maďarsky' };
+  const langNames = {
+    cs: 'česky', sk: 'slovensky', pl: 'po polsku', hu: 'maďarsky',
+    en: 'in English', de: 'auf Deutsch', fr: 'en français', es: 'en español',
+    pt: 'em português', it: 'in italiano', nl: 'in het Nederlands',
+    ru: 'по-русски', uk: 'українською', ja: '日本語で', ko: '한국어로',
+    zh: '用中文', 'zh-TW': '用繁體中文', ar: 'بالعربية', hi: 'हिंदी में',
+    tr: 'Türkçe', sv: 'på svenska', da: 'på dansk', nb: 'på norsk',
+    fi: 'suomeksi', el: 'στα ελληνικά', ro: 'în română', bg: 'на български',
+    th: 'เป็นภาษาไทย', vi: 'bằng tiếng Việt', id: 'dalam Bahasa Indonesia'
+  };
 
   let prompt = `Jsi AI asistent integrovaný do Chrome rozšíření pro dabing a překlad článků. Odpovídej ${langNames[lang] || 'česky'}, stručně a přesně.`;
 
@@ -661,8 +703,15 @@ async function startRecording() {
 
   isRecording = true;
   const lang = document.getElementById('targetLanguage').value;
-  const langMap = { cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU' };
-  recognition.lang = langMap[lang] || 'cs-CZ';
+  const bcp47Map = {
+    cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU', en: 'en-US',
+    de: 'de-DE', fr: 'fr-FR', es: 'es-ES', pt: 'pt-PT', it: 'it-IT',
+    nl: 'nl-NL', ru: 'ru-RU', uk: 'uk-UA', ja: 'ja-JP', ko: 'ko-KR',
+    zh: 'zh-CN', 'zh-TW': 'zh-TW', ar: 'ar-SA', hi: 'hi-IN', tr: 'tr-TR',
+    sv: 'sv-SE', da: 'da-DK', nb: 'nb-NO', fi: 'fi-FI', el: 'el-GR',
+    ro: 'ro-RO', bg: 'bg-BG', th: 'th-TH', vi: 'vi-VN', id: 'id-ID'
+  };
+  recognition.lang = bcp47Map[lang] || 'cs-CZ';
 
   document.getElementById('btnVoice').classList.add('recording');
   document.getElementById('chatInput').placeholder = t('recording');
