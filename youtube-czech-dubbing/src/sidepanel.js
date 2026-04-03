@@ -422,6 +422,7 @@ async function extractPageContext() {
           title,
           description: metaDesc,
           url: location.href,
+          paragraphs,
           textContent: paragraphs.join('\n\n'),
           paragraphCount: paragraphs.length
         };
@@ -546,8 +547,18 @@ function buildSystemPrompt() {
 
   let prompt = `Jsi AI asistent integrovaný do Chrome rozšíření pro dabing a překlad článků. Odpovídej ${langNames[lang] || 'česky'}, stručně a přesně.`;
 
-  if (pageContext?.textContent) {
-    // Truncate to ~100k chars to fit context window
+  if (pageContext?.paragraphs?.length) {
+    // Number paragraphs for citation references
+    const numbered = pageContext.paragraphs
+      .slice(0, 500) // max 500 paragraphs
+      .map((p, i) => `[${i + 1}] ${p}`)
+      .join('\n\n');
+    const content = numbered.substring(0, 100000);
+
+    prompt += `\n\nNíže je očíslovaný obsah navštívené stránky. Odpovídej VÝHRADNĚ na základě tohoto obsahu. Nepřidávej informace ze svého tréninku ani z jiných zdrojů. Pokud odpověď nelze odvodit z přiloženého textu, řekni to otevřeně.`;
+    prompt += `\n\nKe každému tvrzení přidej citaci ve formátu [N] odkazující na číslo odstavce, ze kterého informace pochází. Příklad: "Společnost dosáhla růstu 20 % [3]. Hlavním faktorem byl export [5][7]."`;
+    prompt += `\n\nKontext stránky:\nTitulek: ${pageContext.title || ''}\nURL: ${pageContext.url || ''}\nPopis: ${pageContext.description || ''}\n\nObsah:\n${content}`;
+  } else if (pageContext?.textContent) {
     const content = pageContext.textContent.substring(0, 100000);
     prompt += `\n\nNíže je obsah navštívené stránky. Odpovídej VÝHRADNĚ na základě tohoto obsahu. Nepřidávej informace ze svého tréninku ani z jiných zdrojů. Pokud odpověď nelze odvodit z přiloženého textu, řekni to otevřeně.`;
     prompt += `\n\nKontext stránky:\nTitulek: ${pageContext.title || ''}\nURL: ${pageContext.url || ''}\nPopis: ${pageContext.description || ''}\n\nObsah:\n${content}`;
@@ -662,9 +673,9 @@ function renderMarkdown(md) {
   return frag;
 }
 
-/** Render **bold**, *italic*, `code` as safe DOM nodes */
+/** Render **bold**, *italic*, `code`, [N] citations as safe DOM nodes */
 function appendInlineFmt(el, text) {
-  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[(\d+)\])/g;
   let last = 0;
   let m;
   while ((m = re.exec(text)) !== null) { // eslint-disable-line
@@ -672,9 +683,81 @@ function appendInlineFmt(el, text) {
     if (m[2]) { const s = document.createElement('strong'); s.textContent = m[2]; el.appendChild(s); }
     else if (m[3]) { const s = document.createElement('em'); s.textContent = m[3]; el.appendChild(s); }
     else if (m[4]) { const s = document.createElement('code'); s.textContent = m[4]; el.appendChild(s); }
+    else if (m[5]) { el.appendChild(createCitationBadge(parseInt(m[5]))); }
     last = m.index + m[0].length;
   }
   if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
+}
+
+/** Create a clickable citation badge [N] with tooltip showing source paragraph */
+function createCitationBadge(num) {
+  const badge = document.createElement('span');
+  badge.className = 'citation-badge';
+  badge.textContent = num;
+  badge.dataset.cite = num;
+
+  // Get source paragraph text
+  const paragraphs = pageContext?.paragraphs;
+  const srcText = paragraphs?.[num - 1];
+
+  if (srcText) {
+    badge.addEventListener('mouseenter', (e) => {
+      showCitationTooltip(e.target, num, srcText);
+    });
+    badge.addEventListener('mouseleave', () => {
+      hideCitationTooltip();
+    });
+    badge.addEventListener('click', () => {
+      // Scroll to paragraph in active tab
+      if (activeTabId) {
+        chrome.scripting.executeScript({
+          target: { tabId: activeTabId },
+          func: (text) => {
+            for (const el of document.querySelectorAll('p, h1, h2, h3, h4, blockquote, li')) {
+              if (el.textContent.trim() === text) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.style.transition = 'background 0.3s';
+                el.style.background = 'rgba(52, 152, 219, 0.25)';
+                setTimeout(() => { el.style.background = ''; }, 2000);
+                break;
+              }
+            }
+          },
+          args: [srcText]
+        });
+      }
+    });
+  }
+
+  return badge;
+}
+
+function showCitationTooltip(anchor, num, text) {
+  hideCitationTooltip();
+  const tip = document.createElement('div');
+  tip.className = 'citation-tooltip';
+  tip.id = 'citationTooltip';
+
+  const header = document.createElement('div');
+  header.className = 'citation-tooltip-header';
+  header.textContent = `[${num}]`;
+  tip.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'citation-tooltip-body';
+  body.textContent = text.length > 300 ? text.substring(0, 300) + '…' : text;
+  tip.appendChild(body);
+
+  document.body.appendChild(tip);
+
+  // Position near badge
+  const rect = anchor.getBoundingClientRect();
+  tip.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 260)) + 'px';
+  tip.style.top = (rect.bottom + 6) + 'px';
+}
+
+function hideCitationTooltip() {
+  document.getElementById('citationTooltip')?.remove();
 }
 
 function showTypingIndicator() {
@@ -1105,6 +1188,7 @@ function stripMarkdown(md) {
     .replace(/^\s*[-*]\s+/gm, '')        // list items
     .replace(/^\s*\d+\.\s+/gm, '')       // ordered list items
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
+    .replace(/\[\d+\]/g, '')               // citation references
     .replace(/\n{2,}/g, '. ')            // paragraph breaks → pause
     .replace(/\n/g, ' ')
     .trim();
