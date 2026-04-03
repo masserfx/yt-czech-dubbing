@@ -549,7 +549,10 @@ function buildSystemPrompt() {
   if (pageContext?.textContent) {
     // Truncate to ~100k chars to fit context window
     const content = pageContext.textContent.substring(0, 100000);
+    prompt += `\n\nNíže je obsah navštívené stránky. Odpovídej VÝHRADNĚ na základě tohoto obsahu. Nepřidávej informace ze svého tréninku ani z jiných zdrojů. Pokud odpověď nelze odvodit z přiloženého textu, řekni to otevřeně.`;
     prompt += `\n\nKontext stránky:\nTitulek: ${pageContext.title || ''}\nURL: ${pageContext.url || ''}\nPopis: ${pageContext.description || ''}\n\nObsah:\n${content}`;
+  } else {
+    prompt += `\nNemáš k dispozici obsah stránky. Upozorni uživatele, že nejprve musí otevřít stránku s obsahem.`;
   }
 
   return prompt;
