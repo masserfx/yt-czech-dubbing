@@ -108,6 +108,14 @@ function bindEvents() {
 
   bindSettingsEvents();
 
+  // API key links — open in new tab
+  document.querySelectorAll('.api-link[data-url]').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: link.dataset.url });
+    });
+  });
+
   // Listen for status updates from content script
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'status-update') {

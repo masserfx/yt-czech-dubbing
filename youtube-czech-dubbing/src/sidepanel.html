@@ -348,6 +348,17 @@
       padding-top: 12px;
     }
     .hint { font-size: 10px; color: #555; margin-top: 3px; }
+    .api-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: #3498db;
+      cursor: pointer;
+      text-decoration: none;
+      margin-top: 3px;
+    }
+    .api-link:hover { color: #5dade2; text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -445,11 +456,13 @@
       <div class="setting-group" id="deeplKeyGroup" style="display:none;">
         <div class="setting-label"><span>DeepL API kl&#xED;&#x10D;</span></div>
         <input type="password" id="deeplApiKey" placeholder="xxxxxxxx-xxxx:fx">
+        <a class="api-link" data-url="https://www.deepl.com/your-account/keys">&#x1F517; Z&#xED;skat DeepL API kl&#xED;&#x10D; (500k zn./m&#x11B;s. zdarma)</a>
       </div>
 
       <div class="setting-group" id="apiKeyGroup" style="display:none;">
         <div class="setting-label"><span>Anthropic API kl&#xED;&#x10D;</span></div>
         <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
+        <a class="api-link" data-url="https://console.anthropic.com/settings/keys">&#x1F517; Z&#xED;skat Claude API kl&#xED;&#x10D; (console.anthropic.com)</a>
       </div>
 
       <div class="setting-divider"></div>
@@ -457,7 +470,8 @@
       <div class="setting-group">
         <div class="setting-label"><span>Gemini API kl&#xED;&#x10D; (Chat AI)</span></div>
         <input type="password" id="geminiApiKey" placeholder="AIza...">
-        <div class="hint">ai.google.dev &#x2022; Flash-Lite: free tier k dispozici</div>
+        <a class="api-link" data-url="https://aistudio.google.com/apikey">&#x1F517; Z&#xED;skat Gemini API kl&#xED;&#x10D; (Google AI Studio)</a>
+        <div class="hint">Flash-Lite: free tier k dispozici</div>
       </div>
 
       <div class="setting-divider"></div>
@@ -504,6 +518,7 @@
       <div class="setting-group" id="azureTtsGroup" style="display:none;">
         <div class="setting-label"><span>Azure Speech kl&#xED;&#x10D;</span></div>
         <input type="password" id="azureTtsKey" placeholder="xxxxxxxx...">
+        <a class="api-link" data-url="https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices">&#x1F517; Z&#xED;skat Azure Speech kl&#xED;&#x10D; (portal.azure.com)</a>
         <div class="setting-label" style="margin-top:6px;"><span>Region</span></div>
         <input type="text" id="azureTtsRegion" placeholder="westeurope" value="westeurope">
         <div class="setting-label" style="margin-top:6px;"><span>Hlas</span></div>
