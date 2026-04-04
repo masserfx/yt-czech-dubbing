@@ -102,8 +102,7 @@ const LANGUAGES = {
       translating: 'Fordítás',
       noSubtitles: 'Feliratok nem elérhetők'
     }
-  }
-};
+  },
 
   // ── Additional languages (translation + TTS, minimal config) ──
   en: {
