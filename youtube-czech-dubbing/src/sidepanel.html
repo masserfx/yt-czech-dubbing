@@ -837,10 +837,31 @@
       <div class="setting-divider"></div>
 
       <div class="setting-group">
+        <div class="setting-label"><span data-i18n="aiBackend">AI backend (Chat)</span></div>
+        <select id="aiBackend">
+          <option value="gemini">Gemini Flash-Lite (cloud, free tier)</option>
+          <option value="ollama">Ollama (lok&#xE1;ln&#xED;, offline, zdarma)</option>
+        </select>
+      </div>
+
+      <div class="setting-group" id="geminiKeyGroup">
         <div class="setting-label"><span data-i18n="geminiKey">Gemini API klíč (Chat AI)</span></div>
         <input type="password" id="geminiApiKey" placeholder="AIza...">
         <a class="api-link" data-url="https://aistudio.google.com/apikey"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat Gemini API kl&#xED;&#x10D; (Google AI Studio)</a>
         <div class="hint">Flash-Lite: free tier k dispozici</div>
+      </div>
+
+      <div class="setting-group" id="ollamaGroup" style="display:none;">
+        <div class="setting-label"><span data-i18n="ollamaUrl">Ollama URL</span></div>
+        <input type="text" id="ollamaUrl" placeholder="http://localhost:11434" value="http://localhost:11434">
+        <div class="setting-label" style="margin-top:6px;"><span data-i18n="ollamaModel">Model</span></div>
+        <select id="ollamaModel">
+          <option value="">Na&#x10D;&#xED;t&#xE1;m modely...</option>
+        </select>
+        <button class="chat-action-btn" id="btnOllamaRefresh" title="Obnovit modely" style="margin-top:6px;width:auto;padding:4px 10px;font-size:11px;display:inline-flex;gap:4px;">
+          <svg class="icon" style="width:12px;height:12px;"><use href="#ico-refresh"/></svg> Obnovit
+        </button>
+        <div class="hint" id="ollamaStatus">Ollama: nekontrolováno</div>
       </div>
 
       <div class="setting-divider"></div>

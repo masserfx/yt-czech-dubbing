@@ -153,6 +153,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Ollama local AI Chat
+  if (msg.type === 'ollama-chat') {
+    ollamaChat(msg.baseUrl, msg.model, msg.systemInstruction, msg.history, msg.message)
+      .then(result => sendResponse({ success: true, text: result.text, usage: result.usage }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Ollama: list available models
+  if (msg.type === 'ollama-list-models') {
+    ollamaListModels(msg.baseUrl)
+      .then(models => sendResponse({ success: true, models }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   // Article dubbing: programmatic injection of article scripts
   if (msg.type === 'inject-article-scripts') {
     const tabId = sender.tab?.id || msg.tabId;
@@ -1124,4 +1140,70 @@ async function geminiChat(apiKey, systemInstruction, history, message) {
   trackGeminiUsage(inputTokens, outputTokens);
 
   return { text, usage: { input: inputTokens, output: outputTokens, cost } };
+}
+
+// --- Ollama Local AI Chat ---
+
+async function ollamaChat(baseUrl, model, systemInstruction, history, message) {
+  if (!baseUrl) baseUrl = 'http://localhost:11434';
+  if (!model) throw new Error('No Ollama model selected');
+
+  const url = `${baseUrl}/api/chat`;
+
+  // Convert Gemini-format history to Ollama format
+  const messages = [];
+  if (systemInstruction) {
+    messages.push({ role: 'system', content: systemInstruction });
+  }
+  for (const h of history) {
+    messages.push({
+      role: h.role === 'model' ? 'assistant' : 'user',
+      content: h.parts?.[0]?.text || ''
+    });
+  }
+  messages.push({ role: 'user', content: message });
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: false,
+      options: {
+        num_predict: 2048,
+        temperature: 0.7
+      }
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Ollama ${resp.status}: ${err.substring(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  const text = data.message?.content;
+  if (!text) throw new Error('Prázdná odpověď od Ollama');
+
+  // Ollama returns token counts
+  const inputTokens = data.prompt_eval_count || 0;
+  const outputTokens = data.eval_count || 0;
+
+  return { text, usage: { input: inputTokens, output: outputTokens, cost: 0 } };
+}
+
+async function ollamaListModels(baseUrl) {
+  if (!baseUrl) baseUrl = 'http://localhost:11434';
+
+  const resp = await fetch(`${baseUrl}/api/tags`);
+  if (!resp.ok) throw new Error(`Ollama nedostupný (${resp.status})`);
+
+  const data = await resp.json();
+  return (data.models || []).map(m => ({
+    name: m.name,
+    size: m.details?.parameter_size || '',
+    quant: m.details?.quantization_level || '',
+    family: m.details?.family || ''
+  }));
 }

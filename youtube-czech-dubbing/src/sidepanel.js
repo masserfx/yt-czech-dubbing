@@ -8,6 +8,9 @@ let activeTabId = null;
 let pageContext = null; // { title, paragraphs, summary, meta, audioElements, isYouTube }
 let chatHistory = []; // [{role: 'user'|'model', parts: [{text}]}]
 let geminiApiKey = null;
+let aiBackend = 'gemini'; // 'gemini' | 'ollama'
+let ollamaUrl = 'http://localhost:11434';
+let ollamaModel = '';
 let currentLang = 'cs';
 let ttsEnabled = false;
 let voiceDialogueListening = false; // true when auto-listening after TTS
@@ -32,6 +35,7 @@ const i18n = {
     chatPlaceholder: 'Zeptejte se... (drž mezerník = hlas)',
     chip1: 'O čem je tento článek?', chip2: 'Shrň hlavní body', chip3: 'Co je nejdůležitější?',
     noApiKey: 'Nastavte Gemini API klíč v záložce Nastavení.',
+    noOllamaModel: 'Vyberte Ollama model v Nastavení. Je Ollama spuštěná?',
     chatError: 'Chyba komunikace s AI.',
     recording: 'Naslouchám...', micDenied: 'Mikrofon zamítnut',
     micDeniedFull: 'Mikrofon zamítnut — povolte v nastavení',
@@ -66,6 +70,7 @@ const i18n = {
     chatPlaceholder: 'Spýtajte sa... (drž medzerník = hlas)',
     chip1: 'O čom je tento článok?', chip2: 'Zhrň hlavné body', chip3: 'Čo je najdôležitejšie?',
     noApiKey: 'Nastavte Gemini API kľúč v záložke Nastavenia.',
+    noOllamaModel: 'Vyberte Ollama model v Nastaveniach. Je Ollama spustená?',
     chatError: 'Chyba komunikácie s AI.',
     recording: 'Počúvam...', micDenied: 'Mikrofón zamietnutý',
     micDeniedFull: 'Mikrofón zamietnutý — povoľte v nastaveniach',
@@ -99,6 +104,7 @@ const i18n = {
     chatPlaceholder: 'Zapytaj... (przytrzymaj spację = głos)',
     chip1: 'O czym jest ten artykuł?', chip2: 'Podsumuj główne punkty', chip3: 'Co jest najważniejsze?',
     noApiKey: 'Ustaw klucz Gemini API w zakładce Ustawienia.',
+    noOllamaModel: 'Wybierz model Ollama w Ustawieniach. Czy Ollama działa?',
     chatError: 'Błąd komunikacji z AI.',
     recording: 'Słucham...', micDenied: 'Mikrofon odrzucony',
     micDeniedFull: 'Mikrofon odrzucony — zezwól w ustawieniach',
@@ -132,6 +138,7 @@ const i18n = {
     chatPlaceholder: 'Kérdezzen... (tartsa a szóközt = hang)',
     chip1: 'Miről szól ez a cikk?', chip2: 'Foglald össze a fő pontokat', chip3: 'Mi a legfontosabb?',
     noApiKey: 'Állítsa be a Gemini API kulcsot a Beállítások fülön.',
+    noOllamaModel: 'Válasszon Ollama modellt a Beállításokban. Fut az Ollama?',
     chatError: 'Hiba az AI kommunikációban.',
     recording: 'Hallgatom...', micDenied: 'Mikrofon megtagadva',
     micDeniedFull: 'Mikrofon megtagadva — engedélyezze a beállításokban',
@@ -165,6 +172,7 @@ const i18n = {
     chatPlaceholder: 'Ask... (hold spacebar = voice)',
     chip1: 'What is this article about?', chip2: 'Summarize the main points', chip3: 'What is most important?',
     noApiKey: 'Set Gemini API key in the Settings tab.',
+    noOllamaModel: 'Select an Ollama model in Settings. Is Ollama running?',
     chatError: 'AI communication error.',
     recording: 'Listening...', micDenied: 'Microphone denied',
     micDeniedFull: 'Microphone denied — allow in browser settings',
@@ -502,8 +510,13 @@ async function sendChatMessage() {
     return;
   }
 
-  if (!geminiApiKey) {
+  // Validate backend config
+  if (aiBackend === 'gemini' && !geminiApiKey) {
     appendChatMessage('bot', t('noApiKey'), true);
+    return;
+  }
+  if (aiBackend === 'ollama' && !ollamaModel) {
+    appendChatMessage('bot', t('noOllamaModel'), true);
     return;
   }
 
@@ -517,17 +530,16 @@ async function sendChatMessage() {
   appendChatMessage('user', text);
   showTypingIndicator();
 
-  // Build chat history for Gemini
+  // Build chat history (Gemini format — also used by Ollama adapter)
   chatHistory.push({ role: 'user', parts: [{ text }] });
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'gemini-chat',
-      apiKey: geminiApiKey,
-      systemInstruction: buildSystemPrompt(),
-      history: chatHistory.slice(0, -1), // all except current
-      message: text
-    });
+    const chatMsg = aiBackend === 'ollama'
+      ? { type: 'ollama-chat', baseUrl: ollamaUrl, model: ollamaModel,
+          systemInstruction: buildSystemPrompt(), history: chatHistory.slice(0, -1), message: text }
+      : { type: 'gemini-chat', apiKey: geminiApiKey,
+          systemInstruction: buildSystemPrompt(), history: chatHistory.slice(0, -1), message: text };
+    const response = await chrome.runtime.sendMessage(chatMsg);
 
     hideTypingIndicator();
 
@@ -1122,8 +1134,23 @@ async function loadSettings() {
     if (s.azureTtsRegion) document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
     if (s.azureTtsVoice) document.getElementById('azureTtsVoice').value = s.azureTtsVoice;
 
+    // AI backend
+    if (s.aiBackend) {
+      document.getElementById('aiBackend').value = s.aiBackend;
+      aiBackend = s.aiBackend;
+      updateAiBackendUI(s.aiBackend);
+    }
+    if (s.ollamaUrl) {
+      document.getElementById('ollamaUrl').value = s.ollamaUrl;
+      ollamaUrl = s.ollamaUrl;
+    }
+    if (s.ollamaModel) ollamaModel = s.ollamaModel;
+
     // Apply UI language
     applyLanguage(s.targetLanguage);
+
+    // Auto-load Ollama models if backend is ollama
+    if (aiBackend === 'ollama') refreshOllamaModels();
   } catch (e) {}
 }
 
@@ -1142,8 +1169,14 @@ function saveSettings() {
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
+    aiBackend: document.getElementById('aiBackend').value,
+    ollamaUrl: document.getElementById('ollamaUrl').value,
+    ollamaModel: document.getElementById('ollamaModel').value,
   };
   geminiApiKey = s.geminiApiKey;
+  aiBackend = s.aiBackend;
+  ollamaUrl = s.ollamaUrl;
+  ollamaModel = s.ollamaModel;
   chrome.storage.local.set({ popupSettings: s });
   applyLanguage(s.targetLanguage);
 }
@@ -1152,7 +1185,8 @@ function bindSettingsEvents() {
   const autoSave = () => saveSettings();
   const ids = ['targetLanguage', 'translatorEngine', 'anthropicApiKey', 'deeplApiKey',
     'geminiApiKey', 'ttsVolume', 'ttsRate', 'originalVolume', 'muteOriginal',
-    'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice'];
+    'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice',
+    'aiBackend', 'ollamaUrl', 'ollamaModel'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('change', autoSave);
@@ -1172,6 +1206,82 @@ function bindSettingsEvents() {
   document.getElementById('ttsEngine').addEventListener('change', (e) => {
     document.getElementById('azureTtsGroup').style.display = e.target.value === 'azure' ? 'block' : 'none';
   });
+
+  // AI backend toggle
+  document.getElementById('aiBackend').addEventListener('change', (e) => {
+    updateAiBackendUI(e.target.value);
+    if (e.target.value === 'ollama') refreshOllamaModels();
+    autoSave();
+  });
+
+  // Ollama refresh button
+  document.getElementById('btnOllamaRefresh').addEventListener('click', () => refreshOllamaModels());
+}
+
+// ── Ollama / AI Backend ─────────────────────────────────
+
+function updateAiBackendUI(backend) {
+  document.getElementById('geminiKeyGroup').style.display = backend === 'gemini' ? 'block' : 'none';
+  document.getElementById('ollamaGroup').style.display = backend === 'ollama' ? 'block' : 'none';
+}
+
+async function refreshOllamaModels() {
+  const select = document.getElementById('ollamaModel');
+  const status = document.getElementById('ollamaStatus');
+  const url = document.getElementById('ollamaUrl').value || 'http://localhost:11434';
+
+  select.textContent = '';
+  const loading = document.createElement('option');
+  loading.value = '';
+  loading.textContent = 'Načítám...';
+  select.appendChild(loading);
+  status.textContent = 'Ollama: připojuji...';
+
+  try {
+    // Request permission for localhost if needed
+    try {
+      await chrome.permissions.request({ origins: [`${url}/*`] });
+    } catch (e) { /* optional permission may already be granted */ }
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'ollama-list-models',
+      baseUrl: url
+    });
+
+    select.textContent = '';
+
+    if (response?.success && response.models?.length) {
+      for (const m of response.models) {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = `${m.name} (${m.size}, ${m.quant})`;
+        select.appendChild(opt);
+      }
+      // Restore saved selection
+      if (ollamaModel) select.value = ollamaModel;
+      if (!select.value && response.models.length) {
+        select.value = response.models[0].name;
+        ollamaModel = select.value;
+      }
+      status.textContent = `Ollama: ${response.models.length} modelů dostupných`;
+      status.style.color = '#27ae60';
+    } else {
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = 'Žádné modely';
+      select.appendChild(empty);
+      status.textContent = 'Ollama: žádné modely (ollama pull gemma4)';
+      status.style.color = '#e67e22';
+    }
+  } catch (e) {
+    select.textContent = '';
+    const err = document.createElement('option');
+    err.value = '';
+    err.textContent = 'Ollama nedostupná';
+    select.appendChild(err);
+    status.textContent = 'Ollama: nedostupná — spusťte Ollama aplikaci';
+    status.style.color = '#e74c3c';
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────
