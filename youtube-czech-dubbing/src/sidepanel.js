@@ -1207,15 +1207,21 @@ function bindSettingsEvents() {
     document.getElementById('azureTtsGroup').style.display = e.target.value === 'azure' ? 'block' : 'none';
   });
 
-  // AI backend toggle
-  document.getElementById('aiBackend').addEventListener('change', (e) => {
+  // AI backend toggle — request HTTP permission on user gesture
+  document.getElementById('aiBackend').addEventListener('change', async (e) => {
     updateAiBackendUI(e.target.value);
-    if (e.target.value === 'ollama') refreshOllamaModels();
     autoSave();
+    if (e.target.value === 'ollama') {
+      try { await chrome.permissions.request({ origins: ['http://*/*'] }); } catch (e2) {}
+      refreshOllamaModels();
+    }
   });
 
   // Ollama refresh button
-  document.getElementById('btnOllamaRefresh').addEventListener('click', () => refreshOllamaModels());
+  document.getElementById('btnOllamaRefresh').addEventListener('click', async () => {
+    try { await chrome.permissions.request({ origins: ['http://*/*'] }); } catch (e) {}
+    refreshOllamaModels();
+  });
 }
 
 // ── Ollama / AI Backend ─────────────────────────────────
@@ -1238,11 +1244,6 @@ async function refreshOllamaModels() {
   status.textContent = 'Ollama: připojuji...';
 
   try {
-    // Request permission for localhost if needed
-    try {
-      await chrome.permissions.request({ origins: [`${url}/*`] });
-    } catch (e) { /* optional permission may already be granted */ }
-
     const response = await chrome.runtime.sendMessage({
       type: 'ollama-list-models',
       baseUrl: url
