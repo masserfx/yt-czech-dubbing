@@ -153,17 +153,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Ollama local AI Chat
+  // Ollama local AI Chat (proxy via tab to bypass CORS)
   if (msg.type === 'ollama-chat') {
-    ollamaChat(msg.baseUrl, msg.model, msg.systemInstruction, msg.history, msg.message)
+    const tabId = msg.tabId || sender.tab?.id;
+    ollamaChat(tabId, msg.baseUrl, msg.model, msg.systemInstruction, msg.history, msg.message)
       .then(result => sendResponse({ success: true, text: result.text, usage: result.usage }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
-  // Ollama: list available models
+  // Ollama: list available models (proxy via tab to bypass CORS)
   if (msg.type === 'ollama-list-models') {
-    ollamaListModels(msg.baseUrl)
+    const tabId = msg.tabId || sender.tab?.id;
+    ollamaListModels(tabId, msg.baseUrl)
       .then(models => sendResponse({ success: true, models }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -1144,11 +1146,56 @@ async function geminiChat(apiKey, systemInstruction, history, message) {
 
 // --- Ollama Local AI Chat ---
 
-async function ollamaChat(baseUrl, model, systemInstruction, history, message) {
+// Ollama: proxy fetch through active tab to bypass CORS
+// (Ollama rejects chrome-extension:// origin, but allows web origins)
+
+async function ollamaFetchViaTab(tabId, url, body) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (fetchUrl, fetchBody) => {
+      try {
+        const resp = await fetch(fetchUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fetchBody)
+        });
+        if (!resp.ok) return { error: `Ollama ${resp.status}: ${await resp.text()}` };
+        return { data: await resp.json() };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+    args: [url, body]
+  });
+  const result = results?.[0]?.result;
+  if (!result) throw new Error('Tab injection failed');
+  if (result.error) throw new Error(result.error);
+  return result.data;
+}
+
+async function ollamaFetchGetViaTab(tabId, url) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (fetchUrl) => {
+      try {
+        const resp = await fetch(fetchUrl);
+        if (!resp.ok) return { error: `Ollama ${resp.status}` };
+        return { data: await resp.json() };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+    args: [url]
+  });
+  const result = results?.[0]?.result;
+  if (!result) throw new Error('Tab injection failed');
+  if (result.error) throw new Error(result.error);
+  return result.data;
+}
+
+async function ollamaChat(tabId, baseUrl, model, systemInstruction, history, message) {
   if (!baseUrl) baseUrl = 'http://localhost:11434';
   if (!model) throw new Error('No Ollama model selected');
-
-  const url = `${baseUrl}/api/chat`;
 
   // Convert Gemini-format history to Ollama format
   const messages = [];
@@ -1163,43 +1210,49 @@ async function ollamaChat(baseUrl, model, systemInstruction, history, message) {
   }
   messages.push({ role: 'user', content: message });
 
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: false,
-      options: {
-        num_predict: 2048,
-        temperature: 0.7
-      }
-    })
-  });
+  const body = {
+    model,
+    messages,
+    stream: false,
+    options: { num_predict: 2048, temperature: 0.7 }
+  };
 
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`Ollama ${resp.status}: ${err.substring(0, 300)}`);
+  let data;
+  if (tabId) {
+    // Proxy via tab (bypasses CORS)
+    data = await ollamaFetchViaTab(tabId, `${baseUrl}/api/chat`, body);
+  } else {
+    // Direct fetch fallback (works if OLLAMA_ORIGINS is configured)
+    const resp = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) throw new Error(`Ollama ${resp.status}: ${(await resp.text()).substring(0, 300)}`);
+    data = await resp.json();
   }
 
-  const data = await resp.json();
   const text = data.message?.content;
   if (!text) throw new Error('Prázdná odpověď od Ollama');
 
-  // Ollama returns token counts
   const inputTokens = data.prompt_eval_count || 0;
   const outputTokens = data.eval_count || 0;
 
   return { text, usage: { input: inputTokens, output: outputTokens, cost: 0 } };
 }
 
-async function ollamaListModels(baseUrl) {
+async function ollamaListModels(tabId, baseUrl) {
   if (!baseUrl) baseUrl = 'http://localhost:11434';
 
-  const resp = await fetch(`${baseUrl}/api/tags`);
-  if (!resp.ok) throw new Error(`Ollama nedostupný (${resp.status})`);
+  let data;
+  if (tabId) {
+    data = await ollamaFetchGetViaTab(tabId, `${baseUrl}/api/tags`);
+  } else {
+    const resp = await fetch(`${baseUrl}/api/tags`);
+    if (!resp.ok) throw new Error(`Ollama nedostupný (${resp.status})`);
+    data = await resp.json();
+  }
 
-  const data = await resp.json();
   return (data.models || []).map(m => ({
     name: m.name,
     size: m.details?.parameter_size || '',

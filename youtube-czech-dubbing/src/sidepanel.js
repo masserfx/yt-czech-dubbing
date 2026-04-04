@@ -535,7 +535,7 @@ async function sendChatMessage() {
 
   try {
     const chatMsg = aiBackend === 'ollama'
-      ? { type: 'ollama-chat', baseUrl: ollamaUrl, model: ollamaModel,
+      ? { type: 'ollama-chat', tabId: activeTabId, baseUrl: ollamaUrl, model: ollamaModel,
           systemInstruction: buildSystemPrompt(), history: chatHistory.slice(0, -1), message: text }
       : { type: 'gemini-chat', apiKey: geminiApiKey,
           systemInstruction: buildSystemPrompt(), history: chatHistory.slice(0, -1), message: text };
@@ -1246,6 +1246,7 @@ async function refreshOllamaModels() {
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'ollama-list-models',
+      tabId: activeTabId,
       baseUrl: url
     });
 
