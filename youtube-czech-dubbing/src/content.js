@@ -250,8 +250,47 @@
           }
         });
 
-        // Update button text based on controller status
+        // Cache badge — shows when a cached translation exists for this video
+        const cacheBadge = document.createElement('span');
+        cacheBadge.className = 'czech-dub-cache-badge';
+        cacheBadge.style.display = 'none';
+        const cacheIcon = document.createElement('span');
+        cacheIcon.className = 'czech-dub-cache-badge-icon';
+        cacheIcon.textContent = '\uD83D\uDCBE'; // 💾
+        cacheBadge.appendChild(cacheIcon);
+        const cacheText = document.createElement('span');
+        cacheText.textContent = 'Uloženo';
+        cacheBadge.appendChild(cacheText);
+
+        const cacheDelete = document.createElement('button');
+        cacheDelete.className = 'czech-dub-cache-delete';
+        cacheDelete.textContent = '\u00D7';
+        cacheDelete.title = 'Smazat uložený překlad';
+        cacheBadge.appendChild(cacheDelete);
+
+        // Check cache on load and after language change
+        async function updateCacheBadge() {
+          const videoId = DubbingCache.getVideoId();
+          const lang = langSelect.value;
+          if (!videoId || !controller.cache) { cacheBadge.style.display = 'none'; return; }
+          const has = await controller.cache.has(videoId, lang);
+          cacheBadge.style.display = has ? 'inline-flex' : 'none';
+        }
+        updateCacheBadge();
+        langSelect.addEventListener('change', updateCacheBadge);
+
+        cacheDelete.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const videoId = DubbingCache.getVideoId();
+          if (videoId) {
+            await controller.cache.delete(videoId, langSelect.value);
+            cacheBadge.style.display = 'none';
+          }
+        });
+
+        // Update button text + cache badge based on controller status
         controller.onStatusChange = (status, message) => {
+          // Forward to existing handler
           const textEl = btn.querySelector('.czech-dub-btn-text');
           if (status === 'loading' || status === 'translating') {
             btn.classList.add('loading');
@@ -260,18 +299,21 @@
             btn.classList.remove('loading');
             btn.classList.add('active');
             textEl.textContent = getLanguageConfig(langSelect.value).uiStrings.active;
+            // Refresh cache badge after playback starts (new translation may have been saved)
+            updateCacheBadge();
           } else if (status === 'error') {
             btn.classList.remove('loading', 'active');
             textEl.textContent = message;
           }
         };
 
-        // Container for button + gear + settings
+        // Container for button + gear + cache badge + settings
         const container = document.createElement('div');
         container.id = 'czech-dub-container';
         container.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:0;';
         container.appendChild(btn);
         container.appendChild(gear);
+        container.appendChild(cacheBadge);
         container.appendChild(settingsPanel);
         infoArea.parentNode.insertBefore(container, infoArea);
       }
@@ -374,6 +416,40 @@
           controller.tts.setVoice(msg.voiceName);
           sendResponse({ success: true });
         }
+        break;
+
+      case 'get-cache-info':
+        if (controller && controller.cache) {
+          const videoId = DubbingCache.getVideoId();
+          Promise.all([
+            controller.cache.listAll(),
+            videoId ? controller.cache.has(videoId, msg.targetLang || 'cs') : Promise.resolve(false)
+          ]).then(([list, hasCache]) => {
+            sendResponse({ list, hasCache, videoId, count: list.length });
+          });
+          return true; // Async response
+        }
+        sendResponse({ list: [], hasCache: false, count: 0 });
+        break;
+
+      case 'delete-cache':
+        if (controller && controller.cache && msg.videoId && msg.targetLang) {
+          controller.cache.delete(msg.videoId, msg.targetLang).then(success => {
+            sendResponse({ success });
+          });
+          return true;
+        }
+        sendResponse({ success: false });
+        break;
+
+      case 'clear-all-cache':
+        if (controller && controller.cache) {
+          controller.cache.clearAll().then(success => {
+            sendResponse({ success });
+          });
+          return true;
+        }
+        sendResponse({ success: false });
         break;
     }
   }); } catch (e) {

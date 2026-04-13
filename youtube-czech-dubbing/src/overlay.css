@@ -183,6 +183,48 @@
 }
 .czech-dub-settings .save-btn:hover { filter: brightness(1.15); }
 
+/* Cache badge — shown next to activate button when cached dub exists */
+.czech-dub-cache-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  margin-left: 6px;
+  background: rgba(45, 168, 68, 0.15);
+  color: #2da844;
+  border: 1px solid rgba(45, 168, 68, 0.3);
+  border-radius: 12px;
+  font-size: 11px;
+  font-family: 'Roboto', Arial, sans-serif;
+  white-space: nowrap;
+  cursor: default;
+}
+.czech-dub-cache-badge-icon {
+  font-size: 13px;
+}
+
+/* Delete cache button */
+.czech-dub-cache-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 2px;
+  background: transparent;
+  color: #888;
+  border: none;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+}
+.czech-dub-cache-delete:hover {
+  background: rgba(215, 20, 26, 0.2);
+  color: #d7141a;
+}
+
 /* Status indicator */
 .czech-dub-status {
   position: fixed;

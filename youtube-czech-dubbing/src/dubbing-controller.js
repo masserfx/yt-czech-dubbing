@@ -12,8 +12,10 @@ class DubbingController {
     this.translator = new Translator();
     this.tts = new TTSEngine();
     this.serviceClient = new ServiceClient();
+    this.cache = new DubbingCache();
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
+    this._cachedPlayback = false; // true when playing from cache
 
     this.isActive = false;
     this.videoElement = null;
@@ -104,6 +106,34 @@ class DubbingController {
       this.tts.setVolume(this._settings.ttsVolume);
       this.tts.setPitch(this._settings.ttsPitch);
 
+      // Step 0: Check cache for previously translated segments
+      const videoId = DubbingCache.getVideoId();
+      if (videoId) {
+        this._setStatus('loading', 'Hledám uložený překlad...');
+        const cached = await this.cache.load(videoId, this._targetLang);
+        if (cached && cached.segments && cached.segments.length > 0) {
+          console.log(`[CzechDub] Cache hit: ${cached.segmentCount} segments (${cached.engine}, ${new Date(cached.savedAt).toLocaleDateString()})`);
+
+          this.isActive = true;
+          this.originalVolume = this.videoElement.volume;
+          this._cachedPlayback = true;
+
+          this._transcriptSegments = this._optimizeForTiming(cached.segments);
+          this._transcriptMode = true;
+          this._lastSpokenIndex = -1;
+
+          this.videoElement.addEventListener('pause', this._onVideoPause);
+          this.videoElement.addEventListener('play', this._onVideoPlay);
+          this.videoElement.addEventListener('seeked', this._onVideoSeeked);
+
+          this._startTranscriptPlayback();
+
+          this._setStatus('playing', `Dabing z cache (${cached.segmentCount} segmentů)`);
+          console.log('[CzechDub] Dubbing started - CACHED TRANSCRIPT mode');
+          return true;
+        }
+      }
+
       // Step 1: Check if we already have captured timedtext
       this._setStatus('loading', 'Načítám přepis videa...');
       let transcriptData = await this.extractor.fetchFullTranscript();
@@ -124,11 +154,13 @@ class DubbingController {
 
       this.isActive = true;
       this.originalVolume = this.videoElement.volume;
+      this._cachedPlayback = false;
 
       if (transcriptData && transcriptData.segments.length > 0) {
         let translated;
-        const isCzech = transcriptData.sourceLang === this._targetLang;
-        console.log(`[CzechDub] Transcript sourceLang: ${transcriptData.sourceLang}, isCzech: ${isCzech}`);
+        let sourceLang = transcriptData.sourceLang;
+        const isCzech = sourceLang === this._targetLang;
+        console.log(`[CzechDub] Transcript sourceLang: ${sourceLang}, isCzech: ${isCzech}`);
 
         if (isCzech) {
           // Already in Czech (from YouTube auto-translate) — group into sentences, no re-translation
@@ -143,7 +175,7 @@ class DubbingController {
 
           translated = await this.translator.translateCaptions(
             transcriptData.segments,
-            transcriptData.sourceLang,
+            sourceLang,
             (done, total) => {
               if (!this._isStarting) return; // cancelled during translation
               this._setStatus('translating', `Překládám: ${done}/${total}`);
@@ -161,6 +193,12 @@ class DubbingController {
         this._transcriptSegments = this._optimizeForTiming(translated);
         this._transcriptMode = true;
         this._lastSpokenIndex = -1;
+
+        // Save to cache for future playback
+        if (videoId && translated.length > 0) {
+          const engine = isCzech ? 'youtube-native' : (this.translator._lastEngine || 'unknown');
+          this.cache.save(videoId, this._targetLang, translated, sourceLang, engine);
+        }
 
         this.videoElement.addEventListener('pause', this._onVideoPause);
         this.videoElement.addEventListener('play', this._onVideoPlay);

@@ -88,7 +88,7 @@ class Translator {
       const available = await this._checkChromeAIAvailability();
       if (available) {
         const result = await this._translateChromeAI(text, sourceLang);
-        if (result) return result;
+        if (result) { this._lastEngine = 'chromeai'; return result; }
       }
     }
 
@@ -104,18 +104,18 @@ class Translator {
     // Use DeepL if configured
     if (this._engine === 'deepl' && this._deeplApiKey && !this._deeplDisabled) {
       const result = await this._translateDeepL(text, sourceLang);
-      if (result) return result;
+      if (result) { this._lastEngine = 'deepl'; return result; }
     }
 
     // Use Claude if configured
     if (this._engine === 'claude' && this._anthropicApiKey && !this._claudeDisabled) {
       const result = await this._translateClaude(text, sourceLang);
-      if (result) return result;
+      if (result) { this._lastEngine = 'claude'; return result; }
     }
 
     // Google Translate
     let translated = await this._translateGoogle(text, sourceLang);
-    if (translated) return translated;
+    if (translated) { this._lastEngine = 'google'; return translated; }
 
     // Fallback to MyMemory
     translated = await this._translateMyMemory(text, sourceLang);

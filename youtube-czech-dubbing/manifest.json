@@ -55,6 +55,7 @@
         "src/service-mode.js",
         "src/translator.js",
         "src/tts-engine.js",
+        "src/dubbing-cache.js",
         "src/dubbing-controller.js",
         "src/content.js"
       ],
