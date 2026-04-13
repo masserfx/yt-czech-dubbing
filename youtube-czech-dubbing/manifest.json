@@ -23,7 +23,8 @@
     "https://api.deepl.com/*",
     "https://*.tts.speech.microsoft.com/*",
     "https://*.api.cognitive.microsoft.com/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "wss://speech.platform.bing.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*",

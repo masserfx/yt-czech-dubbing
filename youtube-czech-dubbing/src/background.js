@@ -129,6 +129,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'synthesize-edge-tts') {
+    synthesizeEdgeTTS(msg.text, msg.voice, msg.rate, msg.pitch)
+      .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   // Service mode proxy handlers (B2B)
   if (msg.type === 'service-translate') {
     serviceTranslate(msg.endpoint, msg.authToken, msg.organizationId, msg.text, msg.sourceLang, msg.targetLang, msg.engine)
@@ -959,6 +966,101 @@ async function synthesizeAzureTTS(text, apiKey, region, voice, rate, pitch, lang
 
 function escapeXml(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// --- Edge TTS (free, no API key) ---
+
+const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+const EDGE_TTS_WSS = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TTS_TOKEN}`;
+
+async function synthesizeEdgeTTS(text, voice = 'cs-CZ-AntoninNeural', rate = 1.0, pitch = 1.0) {
+  if (!text || text.trim().length === 0) throw new Error('Empty text');
+
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID().replace(/-/g, '');
+    const ws = new WebSocket(EDGE_TTS_WSS);
+    const audioChunks = [];
+    let resolved = false;
+
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        ws.close();
+        reject(new Error('Edge TTS timeout (15s)'));
+      }
+    }, 15000);
+
+    ws.onopen = () => {
+      // Send config
+      const timestamp = new Date().toISOString();
+      ws.send(
+        `X-Timestamp:${timestamp}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
+        `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
+      );
+
+      // Send SSML
+      const rateStr = rate !== 1.0 ? `${Math.round((rate - 1) * 100)}%` : '+0%';
+      const pitchStr = pitch !== 1.0 ? `${Math.round((pitch - 1) * 50)}%` : '+0%';
+      const xmlLang = voice.substring(0, 5) || 'cs-CZ';
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${xmlLang}'><voice name='${voice}'><prosody rate='${rateStr}' pitch='${pitchStr}'>${escapeXml(text)}</prosody></voice></speak>`;
+
+      ws.send(
+        `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}\r\nPath:ssml\r\n\r\n${ssml}`
+      );
+    };
+
+    ws.onmessage = async (event) => {
+      if (typeof event.data === 'string') {
+        if (event.data.includes('Path:turn.end')) {
+          clearTimeout(timeout);
+          resolved = true;
+          ws.close();
+          // Concatenate audio chunks → base64
+          const blob = new Blob(audioChunks, { type: 'audio/mpeg' });
+          const buffer = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          resolve(btoa(binary));
+        }
+      } else if (event.data instanceof Blob) {
+        // Binary message: 2-byte header length + header + audio data
+        const buffer = await event.data.arrayBuffer();
+        const view = new DataView(buffer);
+        const headerLen = view.getUint16(0);
+        if (buffer.byteLength > 2 + headerLen) {
+          audioChunks.push(buffer.slice(2 + headerLen));
+        }
+      }
+    };
+
+    ws.onerror = (err) => {
+      clearTimeout(timeout);
+      if (!resolved) {
+        resolved = true;
+        reject(new Error('Edge TTS WebSocket error'));
+      }
+    };
+
+    ws.onclose = (event) => {
+      clearTimeout(timeout);
+      if (!resolved) {
+        resolved = true;
+        if (audioChunks.length > 0) {
+          // Process remaining chunks
+          const blob = new Blob(audioChunks, { type: 'audio/mpeg' });
+          blob.arrayBuffer().then(buffer => {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+            resolve(btoa(binary));
+          });
+        } else {
+          reject(new Error(`Edge TTS closed: ${event.code}`));
+        }
+      }
+    };
+  });
 }
 
 // --- Usage tracking ---

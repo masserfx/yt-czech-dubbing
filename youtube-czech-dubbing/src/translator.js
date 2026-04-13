@@ -56,7 +56,7 @@ class Translator {
    * Translate a single text string to the configured target language.
    */
   async translate(text, sourceLang = 'en') {
-    if (!text || text.trim().length === 0) return '';
+    if (!text || text.trim().length < 2) return '';
     if (this._contextInvalidated) return text;
 
     const cacheKey = `${sourceLang}:${this._targetLang}:${text}`;
@@ -67,6 +67,11 @@ class Translator {
     let translated = await this._translateRaw(text, sourceLang);
 
     if (translated) {
+      // Reject translation error messages that leak through as "translations"
+      if (/prosím.*vložte.*text|please.*enter.*text|enter.*text.*translate/i.test(translated)) {
+        console.warn('[CzechDub] Rejected error response from translation engine:', translated.substring(0, 80));
+        return text; // Return original
+      }
       translated = this._phoneticize(translated, sourceLang);
       translated = this._cleanTranslatedOutput(translated);
       this.cache.set(cacheKey, translated);
@@ -264,11 +269,11 @@ class Translator {
    * translate as whole sentences, return sentence-level segments for TTS.
    */
   async translateCaptions(captions, sourceLang = 'en', onProgress = null) {
-    // Step 1: Clean ASR errors in original text
+    // Step 1: Clean ASR errors in original text, filter empty segments
     const cleaned = captions.map(c => ({
       ...c,
       text: this._cleanASR(c.text)
-    }));
+    })).filter(c => c.text && c.text.trim().length >= 2);
 
     // Step 2: Merge into sentence groups for better translation
     const groups = this._groupIntoSentences(cleaned);

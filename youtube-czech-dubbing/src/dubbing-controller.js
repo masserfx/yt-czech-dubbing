@@ -134,22 +134,23 @@ class DubbingController {
         }
       }
 
-      // Step 1: Check if we already have captured timedtext
-      this._setStatus('loading', 'Načítám přepis videa...');
+      // Step 1: Try to get YouTube auto-translated captions first
+      this._setStatus('loading', 'Hledám české titulky...');
+      const hasCaptions = await this.extractor.hasCaptions();
+      if (hasCaptions) {
+        // Request YouTube to auto-translate captions into target language
+        await this.extractor.enableCaptions(this._targetLang);
+        this._setStatus('loading', 'Čekám na přepis...');
+        await this._sleep(3000);
+      }
+
       let transcriptData = await this.extractor.fetchFullTranscript();
 
-      // Step 2: If no transcript yet, enable captions first (triggers player to load timedtext)
+      // Step 2: If still no transcript, try without auto-translate
       if (!transcriptData) {
-        this._setStatus('loading', 'Zapínám titulky...');
-        const hasCaptions = await this.extractor.hasCaptions();
-        if (hasCaptions) {
-          await this.extractor.enableCaptions(this._targetLang);
-          // Wait for player to load timedtext (our XHR hook captures it)
-          this._setStatus('loading', 'Čekám na přepis...');
-          await this._sleep(3000);
-          // Try again — timedtext should now be captured
-          transcriptData = await this.extractor.fetchFullTranscript();
-        }
+        this._setStatus('loading', 'Načítám přepis videa...');
+        await this._sleep(2000);
+        transcriptData = await this.extractor.fetchFullTranscript();
       }
 
       this.isActive = true;
