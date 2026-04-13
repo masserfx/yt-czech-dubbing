@@ -684,6 +684,11 @@ class DubbingController {
     this.tts.setVolume(this._settings.ttsVolume);
     this.tts.setPitch(this._settings.ttsPitch);
 
+    // Apply TTS engine and voice changes
+    if ('ttsEngine' in settings || 'azureTtsVoice' in settings) {
+      this.tts._loadTTSSettings();
+    }
+
     // Re-optimize per-segment rates when base rate or max rate changes
     if (('ttsRate' in settings || 'ttsMaxRate' in settings) && this._transcriptSegments) {
       this._optimizeForTiming(this._transcriptSegments);

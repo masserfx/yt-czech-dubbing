@@ -202,6 +202,12 @@ function updateSetting(setting, value) {
 function setVoice(voiceName) {
   if (voiceName) {
     sendMessage({ type: 'set-voice', voiceName });
+    // Persist browser voice selection
+    chrome.storage.local.get('popupSettings', (result) => {
+      const settings = result.popupSettings || {};
+      settings.browserVoiceName = voiceName;
+      chrome.storage.local.set({ popupSettings: settings });
+    });
   }
 }
 
@@ -278,6 +284,7 @@ async function sendMessage(msg) {
  * Save settings to storage.
  */
 function saveSettings() {
+  const voiceSelect = document.getElementById('voiceSelect');
   const settings = {
     ttsVolume: document.getElementById('ttsVolume').value,
     ttsRate: document.getElementById('ttsRate').value,
@@ -293,6 +300,7 @@ function saveSettings() {
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
+    browserVoiceName: voiceSelect.value || undefined,
     serviceMode: document.getElementById('serviceMode').value,
     serviceApiEndpoint: document.getElementById('serviceApiEndpoint').value,
     serviceAuthToken: document.getElementById('serviceAuthToken').value,

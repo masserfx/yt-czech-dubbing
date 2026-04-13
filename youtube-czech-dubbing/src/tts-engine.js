@@ -49,6 +49,10 @@ class TTSEngine {
           this._targetLang = result.popupSettings.targetLanguage;
           this._langConfig = getLanguageConfig(this._targetLang);
         }
+        // Restore saved browser voice preference
+        if (result.popupSettings.browserVoiceName) {
+          this.setVoice(result.popupSettings.browserVoiceName);
+        }
       }
     } catch (e) {}
   }
@@ -61,7 +65,10 @@ class TTSEngine {
     this._langConfig = getLanguageConfig(langCode);
     this.selectedVoice = null;
     this.voiceReady = false;
-    this._azureVoice = this._langConfig.azureVoices[0]?.id || this._azureVoice;
+    // Only reset Azure voice if no matching voice for new language is already set
+    if (!this._azureVoice || !this._azureVoice.startsWith(langCode)) {
+      this._azureVoice = this._langConfig.azureVoices[0]?.id || this._azureVoice;
+    }
     this._initVoice();
   }
 
