@@ -133,6 +133,15 @@ class TTSEngine {
   }
 
   async waitForVoice() {
+    // Ensure TTS settings are loaded before proceeding
+    await this._loadTTSSettings();
+
+    // Edge/Azure TTS don't need browser voice selection
+    if (this._ttsEngine === 'edge' || this._ttsEngine === 'azure') {
+      this.voiceReady = true;
+      return;
+    }
+
     if (this.voiceReady && this.selectedVoice) return;
     return new Promise(resolve => {
       const check = () => {
@@ -163,6 +172,22 @@ class TTSEngine {
   }
 
   getVoiceInfo() {
+    if (this._ttsEngine === 'edge') {
+      return {
+        available: true,
+        name: `Edge: ${this._edgeVoice}`,
+        lang: this._edgeVoice.substring(0, 5),
+        isTargetLang: this._edgeVoice.startsWith(this._targetLang)
+      };
+    }
+    if (this._ttsEngine === 'azure') {
+      return {
+        available: true,
+        name: `Azure: ${this._azureVoice}`,
+        lang: this._azureVoice.substring(0, 5),
+        isTargetLang: this._azureVoice.startsWith(this._targetLang)
+      };
+    }
     if (this.selectedVoice) {
       return {
         available: true,
