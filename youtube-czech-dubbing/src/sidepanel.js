@@ -1128,14 +1128,16 @@ async function loadSettings() {
     }
     if (s.muteOriginal !== undefined) document.getElementById('muteOriginal').checked = s.muteOriginal;
     if (s.ttsEngine) {
-      document.getElementById('ttsEngine').value = s.ttsEngine;
-      document.getElementById('azureTtsGroup').style.display = s.ttsEngine === 'azure' ? 'block' : 'none';
-      document.getElementById('edgeTtsGroup').style.display = s.ttsEngine === 'edge' ? 'block' : 'none';
+      // Migrate old 'edge' engine to 'browser-deep'
+      const engine = s.ttsEngine === 'edge' ? 'browser-deep' : s.ttsEngine;
+      document.getElementById('ttsEngine').value = engine;
+      document.getElementById('azureTtsGroup').style.display = engine === 'azure' ? 'block' : 'none';
+      const deepHint = document.getElementById('deepVoiceHint');
+      if (deepHint) deepHint.style.display = engine === 'browser-deep' ? 'block' : 'none';
     }
     if (s.azureTtsKey) document.getElementById('azureTtsKey').value = s.azureTtsKey;
     if (s.azureTtsRegion) document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
     if (s.azureTtsVoice) document.getElementById('azureTtsVoice').value = s.azureTtsVoice;
-    if (s.edgeTtsVoice) document.getElementById('edgeTtsVoice').value = s.edgeTtsVoice;
 
     // AI backend
     if (s.aiBackend) {
@@ -1172,7 +1174,6 @@ function saveSettings() {
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
-    edgeTtsVoice: document.getElementById('edgeTtsVoice').value,
     aiBackend: document.getElementById('aiBackend').value,
     ollamaUrl: document.getElementById('ollamaUrl').value,
     ollamaModel: document.getElementById('ollamaModel').value,
@@ -1189,7 +1190,7 @@ function bindSettingsEvents() {
   const autoSave = () => saveSettings();
   const ids = ['targetLanguage', 'translatorEngine', 'anthropicApiKey', 'deeplApiKey',
     'geminiApiKey', 'ttsVolume', 'ttsRate', 'originalVolume', 'muteOriginal',
-    'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'edgeTtsVoice',
+    'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice',
     'aiBackend', 'ollamaUrl', 'ollamaModel'];
   ids.forEach(id => {
     const el = document.getElementById(id);
@@ -1210,7 +1211,8 @@ function bindSettingsEvents() {
   });
   document.getElementById('ttsEngine').addEventListener('change', (e) => {
     document.getElementById('azureTtsGroup').style.display = e.target.value === 'azure' ? 'block' : 'none';
-    document.getElementById('edgeTtsGroup').style.display = e.target.value === 'edge' ? 'block' : 'none';
+    const deepHint = document.getElementById('deepVoiceHint');
+    if (deepHint) deepHint.style.display = e.target.value === 'browser-deep' ? 'block' : 'none';
   });
 
   // AI backend toggle — request HTTP permission on user gesture

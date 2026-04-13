@@ -29,15 +29,58 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 // Ensure offscreen document is running
+let offscreenReady = false;
 async function ensureOffscreen() {
+  if (offscreenReady) return;
   const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
   if (contexts.length === 0) {
     await chrome.offscreen.createDocument({
       url: 'src/offscreen.html',
       reasons: ['USER_MEDIA'],
-      justification: 'SpeechRecognition and microphone access for voice input'
+      justification: 'SpeechRecognition, microphone access, and Edge TTS WebSocket'
     });
+    // Wait for document scripts to load
+    await new Promise(r => setTimeout(r, 500));
   }
+  offscreenReady = true;
+}
+
+// Pre-create offscreen document on service worker startup
+ensureOffscreen().catch(() => {});
+
+// Edge TTS via offscreen document using ports (more reliable than sendMessage)
+async function synthesizeEdgeTTSViaOffscreen(text, voice, rate, pitch) {
+  await ensureOffscreen();
+
+  // Generate SEC-MS-GEC token
+  const gec = await generateSecMsGec();
+
+  return new Promise((resolve, reject) => {
+    const port = chrome.runtime.connect({ name: 'edge-tts' });
+    const timeout = setTimeout(() => {
+      port.disconnect();
+      reject(new Error('Edge TTS offscreen timeout (20s)'));
+    }, 20000);
+
+    port.onMessage.addListener((msg) => {
+      clearTimeout(timeout);
+      port.disconnect();
+      if (msg.success) {
+        console.log(`[Edge TTS] Got ${msg.audioBase64.length} chars from offscreen`);
+        resolve(msg.audioBase64);
+      } else {
+        reject(new Error(msg.error || 'Edge TTS offscreen failed'));
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      clearTimeout(timeout);
+      const err = chrome.runtime.lastError;
+      if (err) reject(new Error(err.message));
+    });
+
+    port.postMessage({ text, voice, rate, pitch, gec });
+  });
 }
 
 // Handle messages from content scripts
@@ -51,6 +94,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Forward status updates to popup (if open)
     return false;
   }
+
 
   if (msg.type === 'fetch-captions') {
     fetchCaptions(msg.url)
@@ -130,9 +174,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'synthesize-edge-tts') {
-    synthesizeEdgeTTS(msg.text, msg.voice, msg.rate, msg.pitch)
+    synthesizeEdgeTTSViaOffscreen(msg.text, msg.voice, msg.rate, msg.pitch)
       .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
-      .catch(err => sendResponse({ success: false, error: err.message }));
+      .catch(err => {
+        console.error('[Edge TTS] Failed:', err.message);
+        sendResponse({ success: false, error: err.message });
+      });
     return true;
   }
 
@@ -969,16 +1016,45 @@ function escapeXml(text) {
 }
 
 // --- Edge TTS (free, no API key) ---
+// Requires SEC-MS-GEC authentication token (time-based hash)
 
 const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
-const EDGE_TTS_WSS = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TTS_TOKEN}`;
+const EDGE_TTS_GEC_VERSION = '1-143.0.3650.75';
+const EDGE_TTS_BASE = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
+
+async function generateSecMsGec() {
+  // Windows file time: 100-nanosecond intervals since 1601-01-01
+  const WIN_EPOCH = 11644473600n; // seconds between 1601-01-01 and 1970-01-01
+  const S_TO_NS = 10000000n;
+  const NS_PER_5MIN = 3000000000n; // 5 minutes in 100-ns intervals
+
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  let ticks = (nowSec + WIN_EPOCH) * S_TO_NS;
+  ticks = ticks - (ticks % NS_PER_5MIN); // round down to 5-min boundary
+
+  const strToHash = `${ticks}6A5AA1D4EAFF4E9FB37E23D68491D6F4`;
+  const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(strToHash));
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+}
+
+async function getEdgeTTSUrl() {
+  const gec = await generateSecMsGec();
+  return `${EDGE_TTS_BASE}?TrustedClientToken=${EDGE_TTS_TOKEN}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=${EDGE_TTS_GEC_VERSION}`;
+}
 
 async function synthesizeEdgeTTS(text, voice = 'cs-CZ-AntoninNeural', rate = 1.0, pitch = 1.0) {
   if (!text || text.trim().length === 0) throw new Error('Empty text');
 
+  const wssUrl = await getEdgeTTSUrl();
+  console.log('[Edge TTS] Connecting with SEC-MS-GEC auth...');
+
   return new Promise((resolve, reject) => {
     const requestId = crypto.randomUUID().replace(/-/g, '');
-    const ws = new WebSocket(EDGE_TTS_WSS);
+    const ws = new WebSocket(wssUrl);
+    ws.binaryType = 'arraybuffer';
     const audioChunks = [];
     let resolved = false;
 
@@ -991,14 +1067,13 @@ async function synthesizeEdgeTTS(text, voice = 'cs-CZ-AntoninNeural', rate = 1.0
     }, 15000);
 
     ws.onopen = () => {
-      // Send config
+      console.log(`[Edge TTS] Connected! Sending SSML for voice=${voice}`);
       const timestamp = new Date().toISOString();
       ws.send(
         `X-Timestamp:${timestamp}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
         `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
       );
 
-      // Send SSML
       const rateStr = rate !== 1.0 ? `${Math.round((rate - 1) * 100)}%` : '+0%';
       const pitchStr = pitch !== 1.0 ? `${Math.round((pitch - 1) * 50)}%` : '+0%';
       const xmlLang = voice.substring(0, 5) || 'cs-CZ';
@@ -1009,37 +1084,42 @@ async function synthesizeEdgeTTS(text, voice = 'cs-CZ-AntoninNeural', rate = 1.0
       );
     };
 
-    ws.onmessage = async (event) => {
+    ws.onmessage = (event) => {
       if (typeof event.data === 'string') {
         if (event.data.includes('Path:turn.end')) {
           clearTimeout(timeout);
           resolved = true;
           ws.close();
-          // Concatenate audio chunks → base64
-          const blob = new Blob(audioChunks, { type: 'audio/mpeg' });
-          const buffer = await blob.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
+          if (audioChunks.length === 0) {
+            reject(new Error('Edge TTS: no audio chunks'));
+            return;
+          }
+          const totalLen = audioChunks.reduce((sum, buf) => sum + buf.byteLength, 0);
+          const merged = new Uint8Array(totalLen);
+          let offset = 0;
+          for (const buf of audioChunks) {
+            merged.set(new Uint8Array(buf), offset);
+            offset += buf.byteLength;
+          }
           let binary = '';
-          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          for (let i = 0; i < merged.length; i++) binary += String.fromCharCode(merged[i]);
+          console.log(`[Edge TTS] Success: ${audioChunks.length} chunks, ${totalLen} bytes`);
           resolve(btoa(binary));
         }
-      } else if (event.data instanceof Blob) {
-        // Binary message: 2-byte header length + header + audio data
-        const buffer = await event.data.arrayBuffer();
-        const view = new DataView(buffer);
+      } else if (event.data instanceof ArrayBuffer) {
+        // Binary: 2-byte header length prefix + header + audio data
+        const view = new DataView(event.data);
         const headerLen = view.getUint16(0);
-        if (buffer.byteLength > 2 + headerLen) {
-          audioChunks.push(buffer.slice(2 + headerLen));
+        if (event.data.byteLength > 2 + headerLen) {
+          audioChunks.push(event.data.slice(2 + headerLen));
         }
       }
     };
 
     ws.onerror = (err) => {
+      console.error('[Edge TTS] WebSocket error:', err);
       clearTimeout(timeout);
-      if (!resolved) {
-        resolved = true;
-        reject(new Error('Edge TTS WebSocket error'));
-      }
+      if (!resolved) { resolved = true; reject(new Error('Edge TTS WebSocket error')); }
     };
 
     ws.onclose = (event) => {
@@ -1047,15 +1127,18 @@ async function synthesizeEdgeTTS(text, voice = 'cs-CZ-AntoninNeural', rate = 1.0
       if (!resolved) {
         resolved = true;
         if (audioChunks.length > 0) {
-          // Process remaining chunks
-          const blob = new Blob(audioChunks, { type: 'audio/mpeg' });
-          blob.arrayBuffer().then(buffer => {
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-            resolve(btoa(binary));
-          });
+          const totalLen = audioChunks.reduce((sum, buf) => sum + buf.byteLength, 0);
+          const merged = new Uint8Array(totalLen);
+          let offset = 0;
+          for (const buf of audioChunks) {
+            merged.set(new Uint8Array(buf), offset);
+            offset += buf.byteLength;
+          }
+          let binary = '';
+          for (let i = 0; i < merged.length; i++) binary += String.fromCharCode(merged[i]);
+          resolve(btoa(binary));
         } else {
+          console.error(`[Edge TTS] Closed with no audio: code=${event.code}, reason=${event.reason}`);
           reject(new Error(`Edge TTS closed: ${event.code}`));
         }
       }

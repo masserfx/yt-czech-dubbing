@@ -21,12 +21,11 @@ class TTSEngine {
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
 
-    // Azure/Edge TTS settings
-    this._ttsEngine = 'browser'; // 'browser', 'azure', or 'edge'
+    // TTS engine settings
+    this._ttsEngine = 'browser'; // 'browser', 'browser-deep', or 'azure'
     this._azureKey = null;
     this._azureRegion = null;
     this._azureVoice = 'cs-CZ-VlastaNeural';
-    this._edgeVoice = 'cs-CZ-AntoninNeural';
     this._currentAudio = null;
 
     // Service mode
@@ -41,10 +40,11 @@ class TTSEngine {
       const result = await chrome.storage.local.get('popupSettings');
       if (result.popupSettings) {
         this._ttsEngine = result.popupSettings.ttsEngine || 'browser';
+        // Migrate old 'edge' engine to 'browser-deep'
+        if (this._ttsEngine === 'edge') this._ttsEngine = 'browser-deep';
         this._azureKey = result.popupSettings.azureTtsKey || null;
         this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
         this._azureVoice = result.popupSettings.azureTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-VlastaNeural';
-        this._edgeVoice = result.popupSettings.edgeTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-AntoninNeural';
         if (result.popupSettings.targetLanguage) {
           this._targetLang = result.popupSettings.targetLanguage;
           this._langConfig = getLanguageConfig(this._targetLang);
@@ -62,7 +62,6 @@ class TTSEngine {
     this.selectedVoice = null;
     this.voiceReady = false;
     this._azureVoice = this._langConfig.azureVoices[0]?.id || this._azureVoice;
-    this._edgeVoice = this._langConfig.azureVoices[0]?.id || this._edgeVoice;
     this._initVoice();
   }
 
@@ -136,8 +135,8 @@ class TTSEngine {
     // Ensure TTS settings are loaded before proceeding
     await this._loadTTSSettings();
 
-    // Edge/Azure TTS don't need browser voice selection
-    if (this._ttsEngine === 'edge' || this._ttsEngine === 'azure') {
+    // Azure TTS doesn't need browser voice selection
+    if (this._ttsEngine === 'azure') {
       this.voiceReady = true;
       return;
     }
@@ -172,12 +171,12 @@ class TTSEngine {
   }
 
   getVoiceInfo() {
-    if (this._ttsEngine === 'edge') {
+    if (this._ttsEngine === 'browser-deep' && this.selectedVoice) {
       return {
         available: true,
-        name: `Edge: ${this._edgeVoice}`,
-        lang: this._edgeVoice.substring(0, 5),
-        isTargetLang: this._edgeVoice.startsWith(this._targetLang)
+        name: `${this.selectedVoice.name} (hluboký)`,
+        lang: this.selectedVoice.lang,
+        isTargetLang: this.selectedVoice.lang.startsWith(this._targetLang)
       };
     }
     if (this._ttsEngine === 'azure') {
@@ -218,8 +217,8 @@ class TTSEngine {
     if (this._ttsEngine === 'azure' && this._azureKey) {
       return this._speakAzure(text, options);
     }
-    if (this._ttsEngine === 'edge') {
-      return this._speakEdge(text, options);
+    if (this._ttsEngine === 'browser-deep') {
+      return this._speakBrowser(text, { ...options, pitch: 0.55 });
     }
     return this._speakBrowser(text, options);
   }
@@ -310,36 +309,6 @@ class TTSEngine {
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.warn('[Dub TTS] Azure TTS failed, falling back to browser:', e);
-      return this._speakBrowser(text, options);
-    } finally {
-      this.isSpeaking = false;
-      this._currentAudio = null;
-      if (this.onSpeakEnd) this.onSpeakEnd(text);
-    }
-  }
-
-  async _speakEdge(text, options) {
-    try {
-      this.isSpeaking = true;
-      if (this.onSpeakStart) this.onSpeakStart(text);
-
-      const response = await chrome.runtime.sendMessage({
-        type: 'synthesize-edge-tts',
-        text,
-        voice: this._edgeVoice,
-        rate: options.rate ?? this.rate,
-        pitch: options.pitch ?? this.pitch
-      });
-
-      if (!response?.success) {
-        console.warn('[Dub TTS] Edge TTS error:', response?.error);
-        return this._speakBrowser(text, options);
-      }
-
-      await this._playBase64Audio(response.audioBase64, options);
-    } catch (e) {
-      if (e.message?.includes('Extension context invalidated')) return;
-      console.warn('[Dub TTS] Edge TTS failed, falling back to browser:', e);
       return this._speakBrowser(text, options);
     } finally {
       this.isSpeaking = false;

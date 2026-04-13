@@ -1,12 +1,15 @@
 # YouTube Czech Dubbing - Instalace a Použití
 
 ## Co to dělá?
-Rozšíření pro Chrome, které automaticky překládá a dabuje YouTube videa do češtiny.
+Rozšíření pro Chrome, které automaticky překládá a dabuje YouTube videa do češtiny, slovenštiny, polštiny a maďarštiny.
 - Extrahuje titulky z YouTube videa (automatické i manuální)
-- Překládá je do češtiny (Google Translate, DeepL nebo Claude Haiku)
-- Čte přeložený text českým hlasem (Web Speech API nebo Azure Neural TTS)
+- Pokud YouTube nabízí automatický překlad do cílového jazyka, použije ho přímo
+- Překládá titulky pomocí Google Translate, DeepL, Claude Haiku nebo Gemini Flash-Lite
+- Inteligentní čištění ASR přepisu — odstraňuje vyplňovací slova (you know, I mean, basically...) a hesitační zvuky
+- Čte přeložený text hlasem cílového jazyka (Web Speech API, hluboký hlas nebo Azure Neural TTS)
 - Synchronizuje dabing s přehráváním videa
-- Zobrazuje české titulky přímo na videu
+- Zobrazuje titulky přímo na videu
+- **Ukládá překlady do cache** — jednou přeložené video není potřeba překládat znovu
 
 ## Stažení
 
@@ -61,6 +64,7 @@ Nastavení je dostupné dvěma způsoby:
 | Engine | Kvalita | Cena | API klíč |
 |--------|---------|------|----------|
 | Google Translate | Dobrá | Zdarma | Ne |
+| Gemini Flash-Lite | Velmi dobrá | Zdarma (1000 req/den) | Ano (aistudio.google.com) |
 | DeepL | Velmi dobrá | 500k zn./měs. zdarma | Ano (deepl.com) |
 | Claude Haiku 4.5 | Výborná | ~$0.003/30min video | Ano (console.anthropic.com) |
 
@@ -68,8 +72,15 @@ Nastavení je dostupné dvěma způsoby:
 
 | Engine | Kvalita | Cena | API klíč |
 |--------|---------|------|----------|
-| Browser (Web Speech API) | Dobrá (Zuzana na macOS) | Zdarma | Ne |
+| Systémový hlas | Dobrá (Zuzana na macOS) | Zdarma | Ne |
+| Hluboký hlas (mužský) | Dobrá (snížený tón systémového hlasu) | Zdarma | Ne |
 | Azure Neural TTS | Výborná (Vlasta/Antonín) | 500k zn./měs. zdarma | Ano (azure.com) |
+
+### Cache přeložených videí
+
+Přeložené segmenty se automaticky ukládají do IndexedDB prohlížeče. Při opakovaném přehrání videa se dabing spustí okamžitě bez nutnosti nového překladu. Cache obsahuje pouze text a timing (5–15 KB na video), ne audio — to se syntetizuje v reálném čase.
+
+Cache lze smazat tlačítkem u konkrétního videa nebo hromadně v nastavení rozšíření.
 
 ## České hlasy na různých platformách
 
@@ -90,8 +101,8 @@ sudo apt install speech-dispatcher-espeak-ng
 
 ## Požadavky
 
-- **Google Chrome** (verze 88+) nebo **Edge** / **Brave** / **Chromium**
-- **Internetové připojení** (pro překlad)
+- **Google Chrome** (verze 116+) nebo **Edge** / **Brave** / **Chromium**
+- **Internetové připojení** (pro překlad a online TTS)
 
 ## Řešení problémů
 

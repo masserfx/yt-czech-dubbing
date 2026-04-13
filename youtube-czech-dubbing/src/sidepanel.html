@@ -905,32 +905,10 @@
         <div class="setting-label"><span data-i18n="ttsLabel">Hlasový engine (TTS)</span></div>
         <select id="ttsEngine">
           <option value="browser">Syst&#xE9;mov&#xFD; hlas (zdarma)</option>
-          <option value="edge">Edge TTS (zdarma, bez API kl&#xED;&#x10D;e)</option>
+          <option value="browser-deep">Hlubok&#xFD; hlas (mu&#x17E;sk&#xFD;, zdarma)</option>
           <option value="azure">Azure TTS (500k zn./m&#x11B;s. zdarma)</option>
         </select>
-      </div>
-
-      <div class="setting-group" id="edgeTtsGroup" style="display:none;">
-        <div class="setting-label"><span>Hlas (Edge TTS)</span></div>
-        <select id="edgeTtsVoice">
-          <optgroup label="&#x1F1E8;&#x1F1FF; &#x10C;e&#x161;tina">
-            <option value="cs-CZ-AntoninNeural">Anton&#xED;n &#x2642; (cs-CZ)</option>
-            <option value="cs-CZ-VlastaNeural">Vlasta &#x2640; (cs-CZ)</option>
-          </optgroup>
-          <optgroup label="&#x1F1F8;&#x1F1F0; Sloven&#x10D;ina">
-            <option value="sk-SK-LukasNeural">Luk&#xE1;&#x161; &#x2642; (sk-SK)</option>
-            <option value="sk-SK-ViktoriaNeural">Vikt&#xF3;ria &#x2640; (sk-SK)</option>
-          </optgroup>
-          <optgroup label="&#x1F1F5;&#x1F1F1; Polski">
-            <option value="pl-PL-MarekNeural">Marek &#x2642; (pl-PL)</option>
-            <option value="pl-PL-AgnieszkaNeural">Agnieszka &#x2640; (pl-PL)</option>
-          </optgroup>
-          <optgroup label="&#x1F1ED;&#x1F1FA; Magyar">
-            <option value="hu-HU-TamasNeural">Tam&#xE1;s &#x2642; (hu-HU)</option>
-            <option value="hu-HU-NoemiNeural">No&#xE9;mi &#x2640; (hu-HU)</option>
-          </optgroup>
-        </select>
-        <div class="hint">Zdarma, bez API kl&#xED;&#x10D;e &#x2022; Mu&#x17E;sk&#xE9; i &#x17E;ensk&#xE9; hlasy</div>
+        <div class="hint" id="deepVoiceHint" style="display:none;">Sn&#xED;&#x17E;en&#xFD; t&#xF3;n syst&#xE9;mov&#xE9;ho hlasu pro mu&#x17E;sk&#xFD; zvuk</div>
       </div>
 
       <div class="setting-group" id="azureTtsGroup" style="display:none;">

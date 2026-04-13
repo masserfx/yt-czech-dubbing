@@ -99,7 +99,7 @@ class DubbingController {
       await this.tts.waitForVoice();
 
       const voiceInfo = this.tts.getVoiceInfo();
-      console.log(`[CzechDub] TTS Voice: ${voiceInfo.name || 'none'} (${voiceInfo.lang}), isCzech: ${voiceInfo.isCzech}`);
+      console.log(`[CzechDub] TTS Voice: ${voiceInfo.name || 'none'} (${voiceInfo.lang}), isTargetLang: ${voiceInfo.isTargetLang}`);
 
       // Apply TTS settings
       this.tts.setRate(this._settings.ttsRate);
