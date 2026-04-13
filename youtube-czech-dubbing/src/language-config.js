@@ -10,6 +10,7 @@ const LANGUAGES = {
     bcp47: 'cs-CZ',
     translationCodes: { google: 'cs', deepl: 'CS', mymemory: 'cs', libre: 'cs' },
     voicePriority: [/zuzana.*pr[eé]mi/i, /zuzana/i, /google.*cs/i],
+    voicePriorityMale: [/anton[ií]n/i, /jakub/i, /ondřej/i, /google.*cs/i],
     voiceFallbackLangs: ['cs-CZ', 'cs', 'sk-SK', 'sk'],
     azureVoices: [
       { id: 'cs-CZ-VlastaNeural', label: 'Vlasta (žena)', gender: 'female' },
@@ -36,6 +37,7 @@ const LANGUAGES = {
     bcp47: 'sk-SK',
     translationCodes: { google: 'sk', deepl: 'SK', mymemory: 'sk', libre: 'sk' },
     voicePriority: [/laura.*pr[eé]mi/i, /laura/i, /google.*sk/i],
+    voicePriorityMale: [/luk[aá][šs]/i, /google.*sk/i],
     voiceFallbackLangs: ['sk-SK', 'sk', 'cs-CZ', 'cs'],
     azureVoices: [
       { id: 'sk-SK-ViktoriaNeural', label: 'Viktória (žena)', gender: 'female' },
@@ -62,6 +64,7 @@ const LANGUAGES = {
     bcp47: 'pl-PL',
     translationCodes: { google: 'pl', deepl: 'PL', mymemory: 'pl', libre: 'pl' },
     voicePriority: [/zosia.*pr[eé]mi/i, /zosia/i, /google.*pl/i],
+    voicePriorityMale: [/marek/i, /krzysztof/i, /google.*pl/i],
     voiceFallbackLangs: ['pl-PL', 'pl'],
     azureVoices: [
       { id: 'pl-PL-AgnieszkaNeural', label: 'Agnieszka (kobieta)', gender: 'female' },

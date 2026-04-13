@@ -86,7 +86,9 @@ class TTSEngine {
 
       const langConfig = this._langConfig;
       const fallbackLangs = langConfig.voiceFallbackLangs;
-      const priorityPatterns = langConfig.voicePriority;
+      const priorityPatterns = this._ttsEngine === 'browser-deep' && langConfig.voicePriorityMale
+        ? langConfig.voicePriorityMale
+        : langConfig.voicePriority;
 
       // Filter voices matching any of the fallback language prefixes
       const matchingVoices = voices.filter(v =>
