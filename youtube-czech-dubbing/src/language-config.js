@@ -10,7 +10,7 @@ const LANGUAGES = {
     bcp47: 'cs-CZ',
     translationCodes: { google: 'cs', deepl: 'CS', mymemory: 'cs', libre: 'cs' },
     voicePriority: [/zuzana.*pr[eé]mi/i, /zuzana/i, /google.*cs/i],
-    voicePriorityMale: [/anton[ií]n/i, /jakub/i, /ondřej/i, /google.*cs/i],
+    voicePriorityMale: [/anton[ií]n.*pr[eé]mi/i, /anton[ií]n/i, /jakub/i, /ondřej/i, /google.*cs/i],
     voiceFallbackLangs: ['cs-CZ', 'cs', 'sk-SK', 'sk'],
     azureVoices: [
       { id: 'cs-CZ-VlastaNeural', label: 'Vlasta (žena)', gender: 'female' },

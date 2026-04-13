@@ -183,7 +183,7 @@ class TTSEngine {
     if (this._ttsEngine === 'browser-deep' && this.selectedVoice) {
       return {
         available: true,
-        name: `${this.selectedVoice.name} (hluboký)`,
+        name: `${this.selectedVoice.name} (mužský)`,
         lang: this.selectedVoice.lang,
         isTargetLang: this.selectedVoice.lang.startsWith(this._targetLang)
       };
@@ -226,9 +226,7 @@ class TTSEngine {
     if (this._ttsEngine === 'azure' && this._azureKey) {
       return this._speakAzure(text, options);
     }
-    if (this._ttsEngine === 'browser-deep') {
-      return this._speakBrowser(text, { ...options, pitch: 0.55 });
-    }
+    // browser-deep uses real male voice (e.g. Antonín) selected via voicePriorityMale
     return this._speakBrowser(text, options);
   }
 
