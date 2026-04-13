@@ -1106,6 +1106,7 @@ async function loadSettings() {
       document.getElementById('translatorEngine').value = s.translatorEngine;
       document.getElementById('apiKeyGroup').style.display = s.translatorEngine === 'claude' ? 'block' : 'none';
       document.getElementById('deeplKeyGroup').style.display = s.translatorEngine === 'deepl' ? 'block' : 'none';
+      document.getElementById('geminiKeyGroup').style.display = s.translatorEngine === 'gemini' ? 'block' : 'none';
     }
     if (s.anthropicApiKey) document.getElementById('anthropicApiKey').value = s.anthropicApiKey;
     if (s.deeplApiKey) document.getElementById('deeplApiKey').value = s.deeplApiKey;
@@ -1202,6 +1203,7 @@ function bindSettingsEvents() {
   document.getElementById('translatorEngine').addEventListener('change', (e) => {
     document.getElementById('apiKeyGroup').style.display = e.target.value === 'claude' ? 'block' : 'none';
     document.getElementById('deeplKeyGroup').style.display = e.target.value === 'deepl' ? 'block' : 'none';
+    document.getElementById('geminiKeyGroup').style.display = e.target.value === 'gemini' ? 'block' : 'none';
   });
   document.getElementById('ttsEngine').addEventListener('change', (e) => {
     document.getElementById('azureTtsGroup').style.display = e.target.value === 'azure' ? 'block' : 'none';

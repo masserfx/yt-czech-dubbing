@@ -11,9 +11,10 @@ class Translator {
     this._deeplRateLimitDelay = 300; // ms between DeepL requests (free tier: ~5/s)
     this.lastRequestTime = 0;
     this._contextInvalidated = false;
-    this._engine = 'google'; // 'chromeai', 'google', 'claude', or 'deepl'
+    this._engine = 'google'; // 'chromeai', 'google', 'claude', 'deepl', or 'gemini'
     this._anthropicApiKey = null;
     this._deeplApiKey = null;
+    this._geminiApiKey = null;
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
     this._serviceClient = null; // injected by DubbingController for B2B mode
@@ -39,6 +40,7 @@ class Translator {
         this._engine = result.popupSettings.translatorEngine || 'google';
         this._anthropicApiKey = result.popupSettings.anthropicApiKey || null;
         this._deeplApiKey = result.popupSettings.deeplApiKey || null;
+        this._geminiApiKey = result.popupSettings.geminiApiKey || null;
         this._targetLang = result.popupSettings.targetLanguage || DEFAULT_LANGUAGE;
         this._langConfig = getLanguageConfig(this._targetLang);
       }
@@ -66,6 +68,7 @@ class Translator {
 
     if (translated) {
       translated = this._phoneticize(translated, sourceLang);
+      translated = this._cleanTranslatedOutput(translated);
       this.cache.set(cacheKey, translated);
       return translated;
     }
@@ -111,6 +114,12 @@ class Translator {
     if (this._engine === 'claude' && this._anthropicApiKey && !this._claudeDisabled) {
       const result = await this._translateClaude(text, sourceLang);
       if (result) { this._lastEngine = 'claude'; return result; }
+    }
+
+    // Use Gemini Flash-Lite if configured
+    if (this._engine === 'gemini' && this._geminiApiKey && !this._geminiDisabled) {
+      const result = await this._translateGemini(text, sourceLang);
+      if (result) { this._lastEngine = 'gemini'; return result; }
     }
 
     // Google Translate
@@ -220,6 +229,37 @@ class Translator {
   }
 
   /**
+   * Post-translation cleanup — remove filler word translations that engines
+   * sometimes produce despite prompt instructions.
+   * Currently handles Czech and Slovak; other languages pass through unchanged.
+   */
+  _cleanTranslatedOutput(text) {
+    if (!text) return text;
+
+    if (this._targetLang === 'cs') {
+      text = text
+        // Czech filler translations at sentence start
+        .replace(/^(Víte|Myslím|Vlastně|Tak|Teda|No|Prostě|Jako),?\s+/i, '')
+        // Mid-sentence "víte" as standalone filler (not "víte, co/jak/že")
+        .replace(/,\s*víte,\s*(?!co\b|jak\b|že\b)/gi, ', ')
+        // Trailing "že jo" / "no ne" filler
+        .replace(/,?\s*(že jo|no ne)\s*[.?]?\s*$/i, '.')
+        // Clean artifacts
+        .replace(/\s{2,}/g, ' ')
+        .replace(/^\s*[,;]\s*/, '')
+        .trim();
+    } else if (this._targetLang === 'sk') {
+      text = text
+        .replace(/^(Viete|Myslím|Vlastne|Tak|Teda|No|Proste|Ako),?\s+/i, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/^\s*[,;]\s*/, '')
+        .trim();
+    }
+
+    return text;
+  }
+
+  /**
    * Translate caption segments: clean ASR errors, merge into sentences,
    * translate as whole sentences, return sentence-level segments for TTS.
    */
@@ -306,8 +346,17 @@ class Translator {
       .replace(/\benthropic\b/gi, 'Anthropic')
       .replace(/\bentropic\b/gi, 'Anthropic')
       .replace(/\banthropic\b/gi, 'Anthropic')
-      // Remove filler words
-      .replace(/\b(uh|um|er|ah|like,?)\b/gi, '')
+      // Stutter/repetition: "I I I think" → "I think"
+      .replace(/\b(\w+)(\s+\1){1,}\b/gi, '$1')
+      // Filler phrases (longer first to avoid partial matches)
+      .replace(/\b(you know what|and things like that|at the end of the day|to be honest|you know|I mean|kind of|sort of|or something|or whatever|and stuff|basically|literally),?\s*/gi, '')
+      // Hesitation sounds
+      .replace(/\b(uh-huh|uh huh|mm-hmm|mm hmm|ehmm|uhm|hmm|mhm|huh|ugh|uh|um|er|ah|eh)\b,?\s*/gi, '')
+      // Discourse markers at sentence start
+      .replace(/^(So|Well|Now|Anyway|Look),?\s+/i, '')
+      .replace(/((?:^|[.!?])\s*)Actually,?\s+/gi, '$1')
+      // "like" only as filler (with comma context)
+      .replace(/,\s*like,\s*/gi, ', ')
       // Clean up double spaces and leading/trailing punctuation
       .replace(/\s{2,}/g, ' ')
       .replace(/^\s*[,;]\s*/, '')
@@ -405,6 +454,38 @@ class Translator {
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return null;
       console.warn('[CzechDub] Claude translation failed:', e);
+    }
+    return null;
+  }
+
+  /**
+   * Gemini Flash-Lite translation via background worker.
+   */
+  async _translateGemini(text, sourceLang) {
+    try {
+      const response = await this._sendMessage({
+        type: 'translate-gemini',
+        text,
+        sourceLang,
+        targetLang: this._targetLang,
+        geminiPrompt: this._langConfig.geminiPrompt,
+        apiKey: this._geminiApiKey
+      });
+      if (response?.success && response.translated) {
+        return response.translated;
+      }
+      if (response?.error) {
+        console.warn('[CzechDub] Gemini translation error:', response.error);
+        if (response.error.includes('API_KEY_INVALID') ||
+            response.error.includes('PERMISSION_DENIED') ||
+            response.error.includes('403')) {
+          this._geminiDisabled = true;
+          console.warn('[CzechDub] Gemini disabled for this session, falling back to Google Translate');
+        }
+      }
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return null;
+      console.warn('[CzechDub] Gemini translation failed:', e);
     }
     return null;
   }

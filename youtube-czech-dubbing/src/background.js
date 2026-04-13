@@ -108,6 +108,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'translate-gemini') {
+    translateGemini(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'cs', msg.geminiPrompt)
+      .then(result => sendResponse({ success: true, translated: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'translate-deepl') {
     translateDeepL(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'CS')
       .then(result => sendResponse({ success: true, translated: result }))
@@ -834,7 +841,7 @@ async function translateClaude(text, sourceLang, apiKey, targetLang = 'cs', clau
       system: systemPrompt,
       messages: [{
         role: 'user',
-        content: `Translate to fluent spoken ${langName}. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.
+        content: `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.
 
 ${text}`
       }]
@@ -1092,6 +1099,53 @@ async function serviceSynthesize(endpoint, authToken, orgId, text, targetLang, v
   }
   const data = await resp.json();
   return data.audioBase64;
+}
+
+// --- Gemini Translation ---
+
+async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', geminiPrompt = null) {
+  if (!apiKey) throw new Error('No Gemini API key');
+
+  const MODEL = 'gemini-3.1-flash-lite-preview';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+  const systemInstruction = geminiPrompt ||
+    'You are a translator for YouTube video dubbing. Translate to natural spoken language. Return ONLY the translation.';
+
+  const LANG_NAMES = { cs: 'Czech', sk: 'Slovak', pl: 'Polish', hu: 'Hungarian' };
+  const langName = LANG_NAMES[targetLang] || targetLang;
+
+  const userMessage = `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.\n\n${text}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      generationConfig: {
+        maxOutputTokens: 4096,
+        temperature: 0.3
+      }
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini API ${resp.status}: ${err.substring(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  const translated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!translated) throw new Error('Empty response from Gemini');
+
+  // Track usage
+  const meta = data.usageMetadata;
+  const inputTokens = meta?.promptTokenCount || 0;
+  const outputTokens = meta?.candidatesTokenCount || 0;
+  trackGeminiUsage(inputTokens, outputTokens);
+
+  return translated;
 }
 
 // --- Gemini AI Chat ---

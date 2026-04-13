@@ -4,6 +4,9 @@
  * doesn't need to re-translate on repeated views.
  */
 class DubbingCache {
+  // Bump this when translation quality changes (prompts, cleanup) to invalidate old cache
+  static CACHE_VERSION = 2;
+
   constructor() {
     this._db = null;
     this._dbName = 'CzechDubCache';
@@ -45,7 +48,7 @@ class DubbingCache {
    * Build a unique cache key from video ID and target language.
    */
   _makeId(videoId, targetLang) {
-    return `${videoId}:${targetLang}`;
+    return `${videoId}:${targetLang}:v${DubbingCache.CACHE_VERSION}`;
   }
 
   /**

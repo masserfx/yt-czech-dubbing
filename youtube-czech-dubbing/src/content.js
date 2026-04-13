@@ -128,6 +128,7 @@
         const engines = [
           { value: 'chromeai', label: 'Chrome AI (on-device, zdarma)' },
           { value: 'google', label: 'Google Translate (zdarma)' },
+          { value: 'gemini', label: 'Gemini Flash-Lite (zdarma, API klíč)' },
           { value: 'deepl', label: 'DeepL (500k zn./měs. zdarma)' },
           { value: 'claude', label: 'Claude Haiku 4.5 (API klíč)' }
         ];
@@ -138,6 +139,23 @@
           engineSelect.appendChild(opt);
         });
         settingsPanel.appendChild(engineSelect);
+
+        // Gemini API key group
+        const geminiKeyGroup = document.createElement('div');
+        geminiKeyGroup.className = 'api-key-group';
+        const geminiLabel = document.createElement('label');
+        geminiLabel.textContent = 'Gemini API klíč';
+        geminiKeyGroup.appendChild(geminiLabel);
+        const geminiKeyInput = document.createElement('input');
+        geminiKeyInput.type = 'password';
+        geminiKeyInput.id = 'czech-dub-geminikey';
+        geminiKeyInput.placeholder = 'AIza...';
+        geminiKeyGroup.appendChild(geminiKeyInput);
+        const geminiHint = document.createElement('div');
+        geminiHint.className = 'hint';
+        geminiHint.textContent = 'Free: 1000 req/den \u2022 aistudio.google.com/apikey';
+        geminiKeyGroup.appendChild(geminiHint);
+        settingsPanel.appendChild(geminiKeyGroup);
 
         // DeepL API key group
         const deeplKeyGroup = document.createElement('div');
@@ -189,12 +207,15 @@
           if (s.translatorEngine) engineSelect.value = s.translatorEngine;
           if (s.anthropicApiKey) apiKeyInput.value = s.anthropicApiKey;
           if (s.deeplApiKey) deeplKeyInput.value = s.deeplApiKey;
+          if (s.geminiApiKey) geminiKeyInput.value = s.geminiApiKey;
           if (s.translatorEngine === 'claude') apiKeyGroup.classList.add('visible');
           if (s.translatorEngine === 'deepl') deeplKeyGroup.classList.add('visible');
+          if (s.translatorEngine === 'gemini') geminiKeyGroup.classList.add('visible');
 
           engineSelect.addEventListener('change', () => {
             apiKeyGroup.classList.toggle('visible', engineSelect.value === 'claude');
             deeplKeyGroup.classList.toggle('visible', engineSelect.value === 'deepl');
+            geminiKeyGroup.classList.toggle('visible', engineSelect.value === 'gemini');
           });
         });
 
@@ -211,12 +232,14 @@
           const engine = engineSelect.value;
           const apiKey = apiKeyInput.value;
           const deeplKey = deeplKeyInput.value;
+          const geminiKey = geminiKeyInput.value;
           const targetLang = langSelect.value;
           chrome.storage.local.get('popupSettings', (result) => {
             const s = result.popupSettings || {};
             s.translatorEngine = engine;
             s.anthropicApiKey = apiKey;
             s.deeplApiKey = deeplKey;
+            s.geminiApiKey = geminiKey;
             s.targetLanguage = targetLang;
             chrome.storage.local.set({ popupSettings: s }, () => {
               settingsPanel.classList.remove('open');
