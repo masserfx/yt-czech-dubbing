@@ -216,8 +216,7 @@ class DubbingController {
       console.log('[CzechDub] Transcript not available, using DOM caption mode');
       this._transcriptMode = false;
 
-      // Enable captions if not already enabled
-      const hasCaptions = await this.extractor.hasCaptions();
+      // Check captions availability (may already be enabled from step 1)
       if (!hasCaptions) {
         this._setStatus('error', 'Titulky nejsou k dispozici pro toto video');
         return false;
