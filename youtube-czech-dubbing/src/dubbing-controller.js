@@ -685,7 +685,7 @@ class DubbingController {
     this.tts.setPitch(this._settings.ttsPitch);
 
     // Apply TTS engine and voice changes
-    if ('ttsEngine' in settings || 'azureTtsVoice' in settings) {
+    if ('ttsEngine' in settings || 'azureTtsVoice' in settings || 'edgeTtsVoice' in settings) {
       this.tts._loadTTSSettings();
     }
 

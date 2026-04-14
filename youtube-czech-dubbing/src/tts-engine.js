@@ -22,7 +22,8 @@ class TTSEngine {
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
 
     // TTS engine settings
-    this._ttsEngine = 'browser'; // 'browser' or 'azure'
+    this._ttsEngine = 'browser'; // 'browser', 'edge', or 'azure'
+    this._edgeVoice = 'cs-CZ-AntoninNeural';
     this._azureKey = null;
     this._azureRegion = null;
     this._azureVoice = 'cs-CZ-VlastaNeural';
@@ -40,8 +41,9 @@ class TTSEngine {
       const result = await chrome.storage.local.get('popupSettings');
       if (result.popupSettings) {
         this._ttsEngine = result.popupSettings.ttsEngine || 'browser';
-        // Migrate old engines to 'browser'
-        if (this._ttsEngine === 'edge' || this._ttsEngine === 'browser-deep') this._ttsEngine = 'browser';
+        // Migrate old browser-deep to browser
+        if (this._ttsEngine === 'browser-deep') this._ttsEngine = 'browser';
+        this._edgeVoice = result.popupSettings.edgeTtsVoice || 'cs-CZ-AntoninNeural';
         this._azureKey = result.popupSettings.azureTtsKey || null;
         this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
         this._azureVoice = result.popupSettings.azureTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-VlastaNeural';
@@ -143,7 +145,7 @@ class TTSEngine {
     await this._loadTTSSettings();
 
     // Azure TTS doesn't need browser voice selection
-    if (this._ttsEngine === 'azure') {
+    if (this._ttsEngine === 'azure' || this._ttsEngine === 'edge') {
       this.voiceReady = true;
       return;
     }
@@ -178,6 +180,15 @@ class TTSEngine {
   }
 
   getVoiceInfo() {
+    if (this._ttsEngine === 'edge') {
+      const voiceLabel = this._edgeVoice.includes('Antonin') ? 'Antonín (muž)' : 'Vlasta (žena)';
+      return {
+        available: true,
+        name: `Edge: ${voiceLabel}`,
+        lang: this._edgeVoice.substring(0, 5),
+        isTargetLang: this._edgeVoice.startsWith(this._targetLang)
+      };
+    }
     if (this._ttsEngine === 'azure') {
       return {
         available: true,
@@ -213,6 +224,9 @@ class TTSEngine {
       return this._speakService(text, options);
     }
 
+    if (this._ttsEngine === 'edge') {
+      return this._speakEdge(text, options);
+    }
     if (this._ttsEngine === 'azure' && this._azureKey) {
       return this._speakAzure(text, options);
     }
@@ -278,6 +292,36 @@ class TTSEngine {
       this._keepAlive();
       this.synth.speak(utterance);
     });
+  }
+
+  async _speakEdge(text, options) {
+    try {
+      this.isSpeaking = true;
+      if (this.onSpeakStart) this.onSpeakStart(text);
+
+      const response = await chrome.runtime.sendMessage({
+        type: 'synthesize-edge-tts',
+        text,
+        voice: this._edgeVoice,
+        rate: options.rate ?? this.rate,
+        pitch: options.pitch ?? this.pitch
+      });
+
+      if (!response?.success) {
+        console.warn('[Dub TTS] Edge TTS error:', response?.error);
+        return this._speakBrowser(text, options);
+      }
+
+      await this._playBase64Audio(response.audioBase64, options);
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return;
+      console.warn('[Dub TTS] Edge TTS failed, falling back to browser:', e);
+      return this._speakBrowser(text, options);
+    } finally {
+      this.isSpeaking = false;
+      this._currentAudio = null;
+      if (this.onSpeakEnd) this.onSpeakEnd(text);
+    }
   }
 
   async _speakAzure(text, options) {
