@@ -8,7 +8,8 @@
     "storage",
     "scripting",
     "sidePanel",
-    "offscreen"
+    "offscreen",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
@@ -24,8 +25,7 @@
     "https://*.tts.speech.microsoft.com/*",
     "https://*.api.cognitive.microsoft.com/*",
     "https://generativelanguage.googleapis.com/*",
-    "wss://speech.platform.bing.com/*",
-    "http://127.0.0.1:5111/*"
+    "wss://speech.platform.bing.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
@@ -76,6 +76,15 @@
   },
   "side_panel": {
     "default_path": "src/sidepanel.html"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "edge_tts_headers",
+        "enabled": true,
+        "path": "rules/edge-tts-headers.json"
+      }
+    ]
   },
   "icons": {
     "16": "icons/icon16.png",
