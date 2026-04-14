@@ -174,12 +174,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'synthesize-edge-tts') {
-    // Use direct WebSocket from service worker
-    synthesizeEdgeTTS(msg.text, msg.voice, msg.rate, msg.pitch)
-      .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
+    // Use local Edge TTS bridge server (Python edge-tts with proper headers)
+    fetch('http://127.0.0.1:5111/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: msg.text,
+        voice: msg.voice || 'cs-CZ-AntoninNeural',
+        rate: msg.rate || 1.0,
+        pitch: msg.pitch || 1.0
+      })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          console.log(`[Edge TTS] Local server OK: ${data.audioBase64.length} chars`);
+          sendResponse({ success: true, audioBase64: data.audioBase64 });
+        } else {
+          console.error('[Edge TTS] Local server error:', data.error);
+          sendResponse({ success: false, error: data.error });
+        }
+      })
       .catch(err => {
-        console.error('[Edge TTS] Failed:', err.message);
-        sendResponse({ success: false, error: err.message });
+        console.error('[Edge TTS] Local server unreachable:', err.message);
+        sendResponse({ success: false, error: 'Edge TTS server not running. Start: python3 edge-tts-server.py' });
       });
     return true;
   }

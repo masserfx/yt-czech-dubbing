@@ -24,7 +24,8 @@
     "https://*.tts.speech.microsoft.com/*",
     "https://*.api.cognitive.microsoft.com/*",
     "https://generativelanguage.googleapis.com/*",
-    "wss://speech.platform.bing.com/*"
+    "wss://speech.platform.bing.com/*",
+    "http://127.0.0.1:5111/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
