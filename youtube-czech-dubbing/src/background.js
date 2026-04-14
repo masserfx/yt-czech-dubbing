@@ -174,8 +174,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'synthesize-edge-tts') {
-    // Direct WebSocket — User-Agent rewritten via declarativeNetRequest rules
-    synthesizeEdgeTTS(msg.text, msg.voice, msg.rate, msg.pitch)
+    // WebSocket via offscreen document — DNR rewrites User-Agent for offscreen page context
+    synthesizeEdgeTTSViaOffscreen(msg.text, msg.voice, msg.rate, msg.pitch)
       .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
       .catch(err => {
         console.error('[Edge TTS] Failed:', err.message);
@@ -1017,11 +1017,53 @@ function escapeXml(text) {
 }
 
 // --- Edge TTS (free, no API key) ---
-// Requires SEC-MS-GEC authentication token (time-based hash)
+// Uses HTTP POST from service worker with custom User-Agent header
 
 const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
 const EDGE_TTS_GEC_VERSION = '1-143.0.3650.75';
-const EDGE_TTS_BASE = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
+const EDGE_TTS_REST_BASE = 'https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
+const EDGE_TTS_WSS_BASE = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
+const EDGE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0';
+
+async function synthesizeEdgeTTSRest(text, voice = 'cs-CZ-AntoninNeural', rate = 1.0, pitch = 1.0) {
+  if (!text || text.trim().length === 0) throw new Error('Empty text');
+
+  const gec = await generateSecMsGec();
+  const connectionId = crypto.randomUUID().replace(/-/g, '');
+  const url = `${EDGE_TTS_REST_BASE}?TrustedClientToken=${EDGE_TTS_TOKEN}&ConnectionId=${connectionId}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=${EDGE_TTS_GEC_VERSION}`;
+
+  const rateStr = rate !== 1.0 ? `${Math.round((rate - 1) * 100)}%` : '+0%';
+  const pitchStr = pitch !== 1.0 ? `${Math.round((pitch - 1) * 50)}%` : '+0%';
+  const xmlLang = voice.substring(0, 5) || 'cs-CZ';
+  const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${xmlLang}'><voice name='${voice}'><prosody rate='${rateStr}' pitch='${pitchStr}'>${escapeXml(text)}</prosody></voice></speak>`;
+
+  console.log(`[Edge TTS] REST POST voice=${voice}, text=${text.substring(0, 50)}...`);
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/ssml+xml',
+      'User-Agent': EDGE_USER_AGENT,
+      'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+      'Accept': 'audio/mpeg'
+    },
+    body: ssml
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`Edge TTS REST ${resp.status}: ${errText.substring(0, 200)}`);
+  }
+
+  const buffer = await resp.arrayBuffer();
+  if (buffer.byteLength === 0) throw new Error('Edge TTS: empty response');
+
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  console.log(`[Edge TTS] REST success: ${bytes.length} bytes`);
+  return btoa(binary);
+}
 
 async function generateSecMsGec() {
   // Windows file time: 100-nanosecond intervals since 1601-01-01
