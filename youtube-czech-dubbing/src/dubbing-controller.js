@@ -305,12 +305,15 @@ class DubbingController {
       const isCzech = this._langConfig.diacriticsRegex.test(fullText);
 
       let czechText = fullText;
+      let speaker = null;
       if (!isCzech) {
         try {
           const translated = await this.translator.translate(fullText, 'en');
           if (translated && translated.length > 2) {
-            czechText = translated;
-            console.log(`[CzechDub] Translated: "${fullText.substring(0, 80)}" → "${czechText.substring(0, 80)}"`);
+            const parsed = SpeakerDetector.parseTag(translated);
+            czechText = parsed.text;
+            speaker = parsed.speaker || SpeakerDetector.detectFromText(fullText);
+            console.log(`[CzechDub] Translated: "${fullText.substring(0, 80)}" → "${czechText.substring(0, 80)}"${speaker ? ` [${speaker}]` : ''}`);
           }
         } catch (e) {
           console.warn('[CzechDub] Translation failed, using original:', e.message);
@@ -322,7 +325,7 @@ class DubbingController {
         this._speechQueue.shift();
       }
 
-      this._speechQueue.push(czechText);
+      this._speechQueue.push({ text: czechText, speaker });
       this._processQueue();
     });
   }
@@ -336,7 +339,9 @@ class DubbingController {
     if (!this.isActive) return;
 
     this._isSpeaking = true;
-    const text = this._speechQueue.shift();
+    const item = this._speechQueue.shift();
+    const text = typeof item === 'string' ? item : item.text;
+    const speaker = typeof item === 'string' ? null : item.speaker;
 
     try {
       // Reduce video volume while speaking
@@ -351,9 +356,10 @@ class DubbingController {
       // Show subtitle overlay
       this._showSubtitle(text);
 
-      // Speak
-      console.log(`[CzechDub] TTS: "${text.substring(0, 60)}", voice=${this.tts.czechVoice?.name}`);
-      await this.tts.speak(text);
+      // Speak with role-based voice
+      const speakerTag = speaker ? `[${speaker}]` : '';
+      console.log(`[CzechDub] TTS${speakerTag}: "${text.substring(0, 60)}"${speaker ? '' : `, voice=${this.tts.czechVoice?.name}`}`);
+      await this.tts.speakAs(text, speaker);
 
     } catch (e) {
       console.warn('[CzechDub] TTS error:', e);
