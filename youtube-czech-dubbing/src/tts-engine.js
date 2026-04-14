@@ -44,6 +44,7 @@ class TTSEngine {
         // Migrate old browser-deep to browser
         if (this._ttsEngine === 'browser-deep') this._ttsEngine = 'browser';
         this._edgeVoice = result.popupSettings.edgeTtsVoice || 'cs-CZ-AntoninNeural';
+        console.log(`[Dub TTS] Settings loaded: engine=${this._ttsEngine}, edgeVoice=${this._edgeVoice}, azureVoice=${result.popupSettings.azureTtsVoice}`);
         this._azureKey = result.popupSettings.azureTtsKey || null;
         this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
         this._azureVoice = result.popupSettings.azureTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-VlastaNeural';

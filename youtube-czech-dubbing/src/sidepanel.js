@@ -1128,12 +1128,14 @@ async function loadSettings() {
     }
     if (s.muteOriginal !== undefined) document.getElementById('muteOriginal').checked = s.muteOriginal;
     if (s.ttsEngine) {
-      // Migrate old 'edge' engine to 'browser-deep'
-      const engine = s.ttsEngine === 'edge' ? 'browser-deep' : s.ttsEngine;
-      document.getElementById('ttsEngine').value = engine;
-      document.getElementById('azureTtsGroup').style.display = engine === 'azure' ? 'block' : 'none';
-      const deepHint = document.getElementById('deepVoiceHint');
-      if (deepHint) deepHint.style.display = engine === 'browser-deep' ? 'block' : 'none';
+      let displayEngine = s.ttsEngine;
+      if (s.ttsEngine === 'edge') {
+        displayEngine = (s.edgeTtsVoice && s.edgeTtsVoice.includes('Vlasta')) ? 'edge-female' : 'edge-male';
+      } else if (s.ttsEngine === 'browser-deep') {
+        displayEngine = 'browser';
+      }
+      document.getElementById('ttsEngine').value = displayEngine;
+      document.getElementById('azureTtsGroup').style.display = s.ttsEngine === 'azure' ? 'block' : 'none';
     }
     if (s.azureTtsKey) document.getElementById('azureTtsKey').value = s.azureTtsKey;
     if (s.azureTtsRegion) document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
@@ -1170,7 +1172,15 @@ function saveSettings() {
     ttsRate: document.getElementById('ttsRate').value,
     originalVolume: document.getElementById('originalVolume').value,
     muteOriginal: document.getElementById('muteOriginal').checked,
-    ttsEngine: document.getElementById('ttsEngine').value,
+    ttsEngine: (() => {
+      const v = document.getElementById('ttsEngine').value;
+      return (v === 'edge-male' || v === 'edge-female') ? 'edge' : v;
+    })(),
+    edgeTtsVoice: (() => {
+      const v = document.getElementById('ttsEngine').value;
+      if (v === 'edge-female') return 'cs-CZ-VlastaNeural';
+      return 'cs-CZ-AntoninNeural';
+    })(),
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
@@ -1210,9 +1220,13 @@ function bindSettingsEvents() {
     document.getElementById('geminiKeyGroup').style.display = e.target.value === 'gemini' ? 'block' : 'none';
   });
   document.getElementById('ttsEngine').addEventListener('change', (e) => {
-    document.getElementById('azureTtsGroup').style.display = e.target.value === 'azure' ? 'block' : 'none';
-    const deepHint = document.getElementById('deepVoiceHint');
-    if (deepHint) deepHint.style.display = e.target.value === 'browser-deep' ? 'block' : 'none';
+    const v = e.target.value;
+    document.getElementById('azureTtsGroup').style.display = v === 'azure' ? 'block' : 'none';
+    // Notify content script about TTS engine change
+    const settings = { ttsEngine: (v === 'edge-male' || v === 'edge-female') ? 'edge' : v };
+    if (v === 'edge-male') settings.edgeTtsVoice = 'cs-CZ-AntoninNeural';
+    if (v === 'edge-female') settings.edgeTtsVoice = 'cs-CZ-VlastaNeural';
+    sendToTab({ type: 'update-settings', settings });
   });
 
   // AI backend toggle — request HTTP permission on user gesture
