@@ -21,8 +21,8 @@ const LANGUAGES = {
       C: { edge: 'cs-CZ-VlastaNeural', pitch: 1.15, rate: 1.05 },
       N: { edge: 'cs-CZ-AntoninNeural', pitch: 0.95, rate: 0.95 }
     },
-    claudePrompt: 'Jsi překladatel pro český dabing YouTube videí. Přelož přepis z angličtiny do přirozené mluvené češtiny. Pravidla: Používej hovorovou češtinu vhodnou pro mluvené slovo, ne literární styl. Vynech vyplňovací slova (you know, I mean, basically). NEPŘEKLÁDEJ vlastní jména a značky. DETEKCE MLUVČÍCH: Před každý přeložený segment přidej tag [M] pro muže, [F] pro ženu, [C] pro dítě, [N] pro narátora. Urči pohlaví z kontextu (jména, zájmena, způsob mluvy). Pokud si nejsi jistý, použij [M]. Vrať POUZE tagy a překlad, nic jiného.',
-    geminiPrompt: 'Jsi překladatel pro český dabing YouTube videí. Přelož přepis z angličtiny do přirozené mluvené češtiny. Pravidla: Používej hovorovou češtinu vhodnou pro mluvené slovo, ne literární styl. Vynech vyplňovací slova (you know, I mean, basically). NEPŘEKLÁDEJ vlastní jména a značky. DETEKCE MLUVČÍCH: Před každý přeložený segment přidej tag [M] pro muže, [F] pro ženu, [C] pro dítě, [N] pro narátora. Urči pohlaví z kontextu (jména, zájmena, způsob mluvy). Pokud si nejsi jistý, použij [M]. Vrať POUZE tagy a překlad, nic jiného.',
+    claudePrompt: 'Jsi překladatel pro český dabing YouTube videí. Přelož přepis z angličtiny do přirozené mluvené češtiny. Pravidla: Používej hovorovou češtinu vhodnou pro mluvené slovo, ne literární styl. Vynech vyplňovací slova (you know, I mean, basically). NEPŘEKLÁDEJ vlastní jména a značky. Vrať POUZE překlad, nic jiného.',
+    geminiPrompt: 'Jsi překladatel pro český dabing YouTube videí. Přelož přepis z angličtiny do přirozené mluvené češtiny. Pravidla: Používej hovorovou češtinu vhodnou pro mluvené slovo, ne literární styl. Vynech vyplňovací slova (you know, I mean, basically). NEPŘEKLÁDEJ vlastní jména a značky. Vrať POUZE překlad, nic jiného.',
     wordsPerMinute: 140,
     diacriticsRegex: /[ěščřžýáíéúůďťň]/i,
     trailingWords: /\s+(a|i|nebo|že|který|která|které|pro|na|v|s|z|k|do)\s*$/i,
@@ -53,8 +53,8 @@ const LANGUAGES = {
       C: { edge: 'sk-SK-ViktoriaNeural', pitch: 1.15, rate: 1.05 },
       N: { edge: 'sk-SK-LukasNeural', pitch: 0.95, rate: 0.95 }
     },
-    claudePrompt: 'Si prekladateľ pre slovenský dabing YouTube videí. Prelož prepis z angličtiny do prirodzenej hovorenej slovenčiny. Pravidlá: Používaj hovorovú slovenčinu vhodnú pre hovorené slovo. Vynechaj výplňové slová. NEPREKLADAJ vlastné mená a značky. DETEKCIA HOVORCOV: Pred každý preložený segment pridaj tag [M] pre muža, [F] pre ženu, [C] pre dieťa, [N] pre rozprávača. Urči pohlavie z kontextu. Ak si nie si istý, použi [M]. Vráť IBA tagy a preklad, nič iné.',
-    geminiPrompt: 'Si prekladateľ pre slovenský dabing YouTube videí. Prelož prepis z angličtiny do prirodzenej hovorenej slovenčiny. Pravidlá: Používaj hovorovú slovenčinu vhodnú pre hovorené slovo. Vynechaj výplňové slová. NEPREKLADAJ vlastné mená a značky. DETEKCIA HOVORCOV: Pred každý preložený segment pridaj tag [M] pre muža, [F] pre ženu, [C] pre dieťa, [N] pre rozprávača. Urči pohlavie z kontextu. Ak si nie si istý, použi [M]. Vráť IBA tagy a preklad, nič iné.',
+    claudePrompt: 'Si prekladateľ pre slovenský dabing YouTube videí. Prelož prepis z angličtiny do prirodzenej hovorenej slovenčiny. Pravidlá: Používaj hovorovú slovenčinu vhodnú pre hovorené slovo. Vynechaj výplňové slová. NEPREKLADAJ vlastné mená a značky. Vráť IBA preklad, nič iné.',
+    geminiPrompt: 'Si prekladateľ pre slovenský dabing YouTube videí. Prelož prepis z angličtiny do prirodzenej hovorenej slovenčiny. Pravidlá: Používaj hovorovú slovenčinu vhodnú pre hovorené slovo. Vynechaj výplňové slová. NEPREKLADAJ vlastné mená a značky. Vráť IBA preklad, nič iné.',
     wordsPerMinute: 140,
     diacriticsRegex: /[ľščťžýáíéúôďňŕĺ]/i,
     trailingWords: /\s+(a|i|alebo|že|ktorý|ktorá|ktoré|pre|na|v|s|z|k|do)\s*$/i,
@@ -85,8 +85,8 @@ const LANGUAGES = {
       C: { edge: 'pl-PL-AgnieszkaNeural', pitch: 1.15, rate: 1.05 },
       N: { edge: 'pl-PL-MarekNeural', pitch: 0.95, rate: 0.95 }
     },
-    claudePrompt: 'Jesteś tłumaczem dla polskiego dubbingu filmów YouTube. Przetłumacz transkrypcję z angielskiego na naturalny mówiony polski. Zasady: Używaj potocznego polskiego odpowiedniego dla mowy. Pomijaj słowa wypełniające. NIE tłumacz nazw własnych i marek. DETEKCJA MÓWCÓW: Przed każdym przetłumaczonym segmentem dodaj tag [M] dla mężczyzny, [F] dla kobiety, [C] dla dziecka, [N] dla narratora. Określ płeć z kontekstu. Jeśli nie jesteś pewien, użyj [M]. Zwróć TYLKO tagi i tłumaczenie.',
-    geminiPrompt: 'Jesteś tłumaczem dla polskiego dubbingu filmów YouTube. Przetłumacz transkrypcję z angielskiego na naturalny mówiony polski. Zasady: Używaj potocznego polskiego odpowiedniego dla mowy. Pomijaj słowa wypełniające. NIE tłumacz nazw własnych i marek. DETEKCJA MÓWCÓW: Przed każdym przetłumaczonym segmentem dodaj tag [M] dla mężczyzny, [F] dla kobiety, [C] dla dziecka, [N] dla narratora. Określ płeć z kontekstu. Jeśli nie jesteś pewien, użyj [M]. Zwróć TYLKO tagi i tłumaczenie.',
+    claudePrompt: 'Jesteś tłumaczem dla polskiego dubbingu filmów YouTube. Przetłumacz transkrypcję z angielskiego na naturalny mówiony polski. Zasady: Używaj potocznego polskiego odpowiedniego dla mowy. Pomijaj słowa wypełniające. NIE tłumacz nazw własnych i marek. Zwróć TYLKO tłumaczenie.',
+    geminiPrompt: 'Jesteś tłumaczem dla polskiego dubbingu filmów YouTube. Przetłumacz transkrypcję z angielskiego na naturalny mówiony polski. Zasady: Używaj potocznego polskiego odpowiedniego dla mowy. Pomijaj słowa wypełniające. NIE tłumacz nazw własnych i marek. Zwróć TYLKO tłumaczenie.',
     wordsPerMinute: 130,
     diacriticsRegex: /[ąćęłńóśźż]/i,
     trailingWords: /\s+(i|a|lub|że|który|która|które|dla|na|w|z|do|od)\s*$/i,
@@ -117,8 +117,8 @@ const LANGUAGES = {
       C: { edge: 'hu-HU-NoemiNeural', pitch: 1.15, rate: 1.05 },
       N: { edge: 'hu-HU-TamasNeural', pitch: 0.95, rate: 0.95 }
     },
-    claudePrompt: 'YouTube videók magyar szinkronjának fordítója vagy. Fordítsd le az angol átiratot természetes beszélt magyarra. Szabályok: Használj köznyelvi magyart. Hagyd ki a töltelékszavakat. NE fordítsd le a tulajdonneveket és márkákat. BESZÉLŐ FELISMERÉS: Minden lefordított szegmens elé tegyél [M] taget férfi, [F] taget női, [C] taget gyerek, [N] taget narrátor hanghoz. Határozd meg a nemet a kontextusból. Ha bizonytalan vagy, használj [M]-et. CSAK a tageket és a fordítást add vissza.',
-    geminiPrompt: 'YouTube videók magyar szinkronjának fordítója vagy. Fordítsd le az angol átiratot természetes beszélt magyarra. Szabályok: Használj köznyelvi magyart. Hagyd ki a töltelékszavakat. NE fordítsd le a tulajdonneveket és márkákat. BESZÉLŐ FELISMERÉS: Minden lefordított szegmens elé tegyél [M] taget férfi, [F] taget női, [C] taget gyerek, [N] taget narrátor hanghoz. Határozd meg a nemet a kontextusból. Ha bizonytalan vagy, használj [M]-et. CSAK a tageket és a fordítást add vissza.',
+    claudePrompt: 'YouTube videók magyar szinkronjának fordítója vagy. Fordítsd le az angol átiratot természetes beszélt magyarra. Szabályok: Használj köznyelvi magyart. Hagyd ki a töltelékszavakat. NE fordítsd le a tulajdonneveket és márkákat. CSAK a fordítást add vissza.',
+    geminiPrompt: 'YouTube videók magyar szinkronjának fordítója vagy. Fordítsd le az angol átiratot természetes beszélt magyarra. Szabályok: Használj köznyelvi magyart. Hagyd ki a töltelékszavakat. NE fordítsd le a tulajdonneveket és márkákat. CSAK a fordítást add vissza.',
     wordsPerMinute: 120,
     diacriticsRegex: /[áéíóöőúüű]/i,
     trailingWords: /\s+(és|vagy|hogy|aki|ami|amely|egy|az|a|nem|is)\s*$/i,

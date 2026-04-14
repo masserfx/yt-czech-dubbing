@@ -190,6 +190,13 @@ class DubbingController {
           return false;
         }
 
+        // Detect speaker roles (LLM + heuristics)
+        if (translated.length > 0 && this.translator._geminiApiKey) {
+          this._setStatus('translating', 'Detekuji mluvčí...');
+          await SpeakerDetector.detectViaLLM(translated, this.translator._geminiApiKey);
+        }
+        SpeakerDetector.detectHeuristics(translated);
+
         // Validate and optimize translations against time constraints
         this._transcriptSegments = this._optimizeForTiming(translated);
         this._transcriptMode = true;

@@ -159,6 +159,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'detect-speakers') {
+    detectSpeakers(msg.lines, msg.apiKey)
+      .then(roles => sendResponse({ success: true, roles }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'translate-deepl') {
     translateDeepL(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'CS')
       .then(result => sendResponse({ success: true, translated: result }))
@@ -896,12 +903,7 @@ async function translateClaude(text, sourceLang, apiKey, targetLang = 'cs', clau
       system: systemPrompt,
       messages: [{
         role: 'user',
-        content: `FORMAT: Start EVERY segment with [M] [F] [C] or [N] tag. [M]=male [F]=female [C]=child [N]=narrator. Guess gender from names/pronouns/context. Default [M].
-
-Translate this YouTube transcript to spoken ${langName}. Keep XSEP9F3A separators. Keep proper nouns. Omit filler words.
-
-Example input: Hello everyone XSEP9F3A She said goodbye
-Example output: [M] Ahoj všichni XSEP9F3A [F] Řekla sbohem
+        content: `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.
 
 ${text}`
       }]
@@ -1305,14 +1307,7 @@ async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', gemi
   const LANG_NAMES = { cs: 'Czech', sk: 'Slovak', pl: 'Polish', hu: 'Hungarian' };
   const langName = LANG_NAMES[targetLang] || targetLang;
 
-  const userMessage = `FORMAT: Start EVERY segment with [M] [F] [C] or [N] tag. [M]=male [F]=female [C]=child [N]=narrator. Guess gender from names/pronouns/context. Default [M].
-
-Translate this YouTube transcript to spoken ${langName}. Keep XSEP9F3A separators. Keep proper nouns. Omit filler words.
-
-Example input: Hello everyone XSEP9F3A She said goodbye
-Example output: [M] Ahoj všichni XSEP9F3A [F] Řekla sbohem
-
-${text}`;
+  const userMessage = `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.\n\n${text}`;
 
   const resp = await fetch(url, {
     method: 'POST',
@@ -1343,6 +1338,50 @@ ${text}`;
   trackGeminiUsage(inputTokens, outputTokens);
 
   return translated;
+}
+
+// --- Speaker Detection via Gemini ---
+
+async function detectSpeakers(lines, apiKey) {
+  if (!apiKey) throw new Error('No Gemini API key');
+  if (!lines || lines.length === 0) return [];
+
+  const MODEL = 'gemini-2.0-flash-lite';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+  // Send all lines in one request, ask for one letter per line
+  const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: `These are subtitle lines from a YouTube video. For each line, determine the speaker's likely gender. Reply with ONLY one letter per line: M (male), F (female), C (child), N (narrator). One letter per line, nothing else.\n\n${numbered}` }] }],
+      systemInstruction: { parts: [{ text: 'You classify speaker gender from subtitle text. Output exactly one letter per line: M, F, C, or N. No explanations.' }] },
+      generationConfig: {
+        maxOutputTokens: 2048,
+        temperature: 0.1
+      }
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini speaker detect ${resp.status}: ${err.substring(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!result) return [];
+
+  // Parse: one letter per line
+  const roles = result.split('\n').map(line => {
+    const letter = line.trim().replace(/^\d+\.\s*/, '').charAt(0).toUpperCase();
+    return ['M', 'F', 'C', 'N'].includes(letter) ? letter : null;
+  });
+
+  console.log(`[Speaker] Detected ${roles.filter(Boolean).length}/${lines.length} roles`);
+  return roles;
 }
 
 // --- Gemini AI Chat ---

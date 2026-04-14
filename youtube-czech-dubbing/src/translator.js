@@ -336,14 +336,6 @@ class Translator {
       }
     }
 
-    // Apply heuristic speaker detection for segments without LLM tags
-    SpeakerDetector.detectHeuristics(result);
-
-    const withSpeaker = result.filter(s => s.speaker).length;
-    if (withSpeaker > 0) {
-      console.log(`[CzechDub] Speaker detection: ${withSpeaker}/${result.length} segments tagged`);
-    }
-
     console.log(`[CzechDub] Translated ${result.length} sentence groups`);
     return result;
   }
