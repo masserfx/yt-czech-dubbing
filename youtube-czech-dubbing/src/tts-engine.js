@@ -295,6 +295,7 @@ class TTSEngine {
   }
 
   async _speakEdge(text, options) {
+    let fallback = false;
     try {
       this.isSpeaking = true;
       if (this.onSpeakStart) this.onSpeakStart(text);
@@ -309,22 +310,28 @@ class TTSEngine {
 
       if (!response?.success) {
         console.warn('[Dub TTS] Edge TTS error:', response?.error);
-        return this._speakBrowser(text, options);
+        fallback = true;
+      } else {
+        await this._playBase64Audio(response.audioBase64, options);
       }
-
-      await this._playBase64Audio(response.audioBase64, options);
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.warn('[Dub TTS] Edge TTS failed, falling back to browser:', e);
-      return this._speakBrowser(text, options);
+      fallback = true;
     } finally {
-      this.isSpeaking = false;
-      this._currentAudio = null;
-      if (this.onSpeakEnd) this.onSpeakEnd(text);
+      if (!fallback) {
+        this.isSpeaking = false;
+        this._currentAudio = null;
+        if (this.onSpeakEnd) this.onSpeakEnd(text);
+      }
+    }
+    if (fallback) {
+      return this._speakBrowser(text, options);
     }
   }
 
   async _speakAzure(text, options) {
+    let fallback = false;
     try {
       this.isSpeaking = true;
       if (this.onSpeakStart) this.onSpeakStart(text);
@@ -342,18 +349,23 @@ class TTSEngine {
 
       if (!response?.success) {
         console.warn('[Dub TTS] Azure error:', response?.error);
-        return this._speakBrowser(text, options);
+        fallback = true;
+      } else {
+        await this._playBase64Audio(response.audioBase64, options);
       }
-
-      await this._playBase64Audio(response.audioBase64, options);
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.warn('[Dub TTS] Azure TTS failed, falling back to browser:', e);
-      return this._speakBrowser(text, options);
+      fallback = true;
     } finally {
-      this.isSpeaking = false;
-      this._currentAudio = null;
-      if (this.onSpeakEnd) this.onSpeakEnd(text);
+      if (!fallback) {
+        this.isSpeaking = false;
+        this._currentAudio = null;
+        if (this.onSpeakEnd) this.onSpeakEnd(text);
+      }
+    }
+    if (fallback) {
+      return this._speakBrowser(text, options);
     }
   }
 
