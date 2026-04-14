@@ -896,7 +896,12 @@ async function translateClaude(text, sourceLang, apiKey, targetLang = 'cs', clau
       system: systemPrompt,
       messages: [{
         role: 'user',
-        content: `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original. IMPORTANT: Prefix each translated segment with a speaker tag [M] for male, [F] for female, [C] for child, [N] for narrator. Determine gender from context (names, pronouns, speaking style). If unsure, use [M]. Example: [M] Translated text XSEP9F3A [F] Another segment
+        content: `FORMAT: Start EVERY segment with [M] [F] [C] or [N] tag. [M]=male [F]=female [C]=child [N]=narrator. Guess gender from names/pronouns/context. Default [M].
+
+Translate this YouTube transcript to spoken ${langName}. Keep XSEP9F3A separators. Keep proper nouns. Omit filler words.
+
+Example input: Hello everyone XSEP9F3A She said goodbye
+Example output: [M] Ahoj všichni XSEP9F3A [F] Řekla sbohem
 
 ${text}`
       }]
@@ -1300,7 +1305,14 @@ async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', gemi
   const LANG_NAMES = { cs: 'Czech', sk: 'Slovak', pl: 'Polish', hu: 'Hungarian' };
   const langName = LANG_NAMES[targetLang] || targetLang;
 
-  const userMessage = `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original. IMPORTANT: Prefix each translated segment with a speaker tag [M] for male, [F] for female, [C] for child, [N] for narrator. Determine gender from context (names, pronouns, speaking style). If unsure, use [M]. Example: [M] Translated text XSEP9F3A [F] Another segment\n\n${text}`;
+  const userMessage = `FORMAT: Start EVERY segment with [M] [F] [C] or [N] tag. [M]=male [F]=female [C]=child [N]=narrator. Guess gender from names/pronouns/context. Default [M].
+
+Translate this YouTube transcript to spoken ${langName}. Keep XSEP9F3A separators. Keep proper nouns. Omit filler words.
+
+Example input: Hello everyone XSEP9F3A She said goodbye
+Example output: [M] Ahoj všichni XSEP9F3A [F] Řekla sbohem
+
+${text}`;
 
   const resp = await fetch(url, {
     method: 'POST',
