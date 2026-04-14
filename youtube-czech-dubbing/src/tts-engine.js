@@ -22,7 +22,7 @@ class TTSEngine {
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
 
     // TTS engine settings
-    this._ttsEngine = 'browser'; // 'browser', 'browser-deep', or 'azure'
+    this._ttsEngine = 'browser'; // 'browser' or 'azure'
     this._azureKey = null;
     this._azureRegion = null;
     this._azureVoice = 'cs-CZ-VlastaNeural';
@@ -40,8 +40,8 @@ class TTSEngine {
       const result = await chrome.storage.local.get('popupSettings');
       if (result.popupSettings) {
         this._ttsEngine = result.popupSettings.ttsEngine || 'browser';
-        // Migrate old 'edge' engine to 'browser-deep'
-        if (this._ttsEngine === 'edge') this._ttsEngine = 'browser-deep';
+        // Migrate old engines to 'browser'
+        if (this._ttsEngine === 'edge' || this._ttsEngine === 'browser-deep') this._ttsEngine = 'browser';
         this._azureKey = result.popupSettings.azureTtsKey || null;
         this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
         this._azureVoice = result.popupSettings.azureTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-VlastaNeural';
@@ -86,9 +86,7 @@ class TTSEngine {
 
       const langConfig = this._langConfig;
       const fallbackLangs = langConfig.voiceFallbackLangs;
-      const priorityPatterns = this._ttsEngine === 'browser-deep' && langConfig.voicePriorityMale
-        ? langConfig.voicePriorityMale
-        : langConfig.voicePriority;
+      const priorityPatterns = langConfig.voicePriority;
 
       // Filter voices matching any of the fallback language prefixes
       const matchingVoices = voices.filter(v =>
@@ -180,14 +178,6 @@ class TTSEngine {
   }
 
   getVoiceInfo() {
-    if (this._ttsEngine === 'browser-deep' && this.selectedVoice) {
-      return {
-        available: true,
-        name: `${this.selectedVoice.name} (mužský)`,
-        lang: this.selectedVoice.lang,
-        isTargetLang: this.selectedVoice.lang.startsWith(this._targetLang)
-      };
-    }
     if (this._ttsEngine === 'azure') {
       return {
         available: true,
@@ -226,7 +216,6 @@ class TTSEngine {
     if (this._ttsEngine === 'azure' && this._azureKey) {
       return this._speakAzure(text, options);
     }
-    // browser-deep uses real male voice (e.g. Antonín) selected via voicePriorityMale
     return this._speakBrowser(text, options);
   }
 

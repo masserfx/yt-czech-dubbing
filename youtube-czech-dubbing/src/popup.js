@@ -160,7 +160,17 @@ function updateSetting(setting, value) {
       break;
     case 'ttsEngine':
       settings.ttsEngine = value;
-      document.getElementById('azureTtsGroup').style.display = value === 'azure' ? 'block' : 'none';
+      if (value === 'azure-male') {
+        settings.ttsEngine = 'azure';
+        settings.azureTtsVoice = 'cs-CZ-AntoninNeural';
+        document.getElementById('azureTtsVoice').value = 'cs-CZ-AntoninNeural';
+      } else if (value === 'azure-female') {
+        settings.ttsEngine = 'azure';
+        settings.azureTtsVoice = 'cs-CZ-VlastaNeural';
+        document.getElementById('azureTtsVoice').value = 'cs-CZ-VlastaNeural';
+      }
+      document.getElementById('azureTtsGroup').style.display =
+        (value === 'azure' || value === 'azure-male' || value === 'azure-female') ? 'block' : 'none';
       break;
     case 'azureTtsKey':
       settings.azureTtsKey = value;
@@ -296,7 +306,10 @@ function saveSettings() {
     translatorEngine: document.getElementById('translatorEngine').value,
     anthropicApiKey: document.getElementById('anthropicApiKey').value,
     deeplApiKey: document.getElementById('deeplApiKey').value,
-    ttsEngine: document.getElementById('ttsEngine').value,
+    ttsEngine: (() => {
+      const v = document.getElementById('ttsEngine').value;
+      return (v === 'azure-male' || v === 'azure-female') ? 'azure' : v;
+    })(),
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
@@ -353,7 +366,13 @@ async function loadSettings() {
         document.getElementById('deeplApiKey').value = s.deeplApiKey;
       }
       if (s.ttsEngine) {
-        document.getElementById('ttsEngine').value = s.ttsEngine;
+        let displayEngine = s.ttsEngine;
+        if (s.ttsEngine === 'azure' && s.azureTtsVoice === 'cs-CZ-AntoninNeural') {
+          displayEngine = 'azure-male';
+        } else if (s.ttsEngine === 'azure' && s.azureTtsVoice === 'cs-CZ-VlastaNeural') {
+          displayEngine = 'azure-female';
+        }
+        document.getElementById('ttsEngine').value = displayEngine;
         document.getElementById('azureTtsGroup').style.display = s.ttsEngine === 'azure' ? 'block' : 'none';
       }
       if (s.azureTtsKey) {
