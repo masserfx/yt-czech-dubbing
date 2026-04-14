@@ -174,7 +174,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'synthesize-edge-tts') {
-    synthesizeEdgeTTSViaOffscreen(msg.text, msg.voice, msg.rate, msg.pitch)
+    // Use direct WebSocket from service worker
+    synthesizeEdgeTTS(msg.text, msg.voice, msg.rate, msg.pitch)
       .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
       .catch(err => {
         console.error('[Edge TTS] Failed:', err.message);

@@ -219,6 +219,7 @@ class TTSEngine {
 
   speak(text, options = {}) {
     if (!text || text.trim().length === 0) return Promise.resolve();
+    console.log(`[Dub TTS] speak() engine=${this._ttsEngine}, edgeVoice=${this._edgeVoice}`);
 
     // Service mode: use centralized TTS API
     if (this._serviceClient?.isServiceMode()) {
@@ -310,14 +311,15 @@ class TTSEngine {
       });
 
       if (!response?.success) {
-        console.warn('[Dub TTS] Edge TTS error:', response?.error);
+        console.error('[Dub TTS] Edge TTS FAILED:', response?.error, '→ fallback to Zuzana');
         fallback = true;
       } else {
+        console.log(`[Dub TTS] Edge TTS OK: ${response.audioBase64?.length} chars`);
         await this._playBase64Audio(response.audioBase64, options);
       }
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
-      console.warn('[Dub TTS] Edge TTS failed, falling back to browser:', e);
+      console.error('[Dub TTS] Edge TTS EXCEPTION → fallback to Zuzana:', e.message);
       fallback = true;
     } finally {
       if (!fallback) {
