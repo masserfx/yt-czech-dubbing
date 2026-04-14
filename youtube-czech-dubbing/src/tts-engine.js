@@ -218,7 +218,7 @@ class TTSEngine {
   get czechVoice() { return this.selectedVoice; }
 
   speak(text, options = {}) {
-    if (!text || text.trim().length === 0) return Promise.resolve();
+    if (!text || text.replace(/[.\s!?,;:…]+/g, '').length === 0) return Promise.resolve();
     console.log(`[Dub TTS] speak() engine=${this._ttsEngine}, edgeVoice=${this._edgeVoice}`);
 
     // Service mode: use centralized TTS API
