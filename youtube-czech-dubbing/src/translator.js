@@ -305,21 +305,27 @@ class Translator {
         console.warn(`[CzechDub] Separator mismatch: expected ${batch.length} parts, got ${translatedParts.length}. Falling back to per-segment translation.`);
         for (const group of batch) {
           const translatedText = await this.translate(group.text, sourceLang);
+          const cleanText = (translatedText || group.text).replace(sepCleanRegex, ' ').trim();
+          const { speaker, text: strippedText } = SpeakerDetector.parseTag(cleanText);
           result.push({
             start: group.start,
             duration: group.duration,
             originalText: group.text,
-            text: (translatedText || group.text).replace(sepCleanRegex, ' ').trim()
+            text: strippedText,
+            speaker
           });
         }
       } else {
         for (let j = 0; j < batch.length; j++) {
           const group = batch[j];
+          const cleanText = (translatedParts[j] || group.text).replace(sepCleanRegex, ' ').trim();
+          const { speaker, text: strippedText } = SpeakerDetector.parseTag(cleanText);
           result.push({
             start: group.start,
             duration: group.duration,
             originalText: group.text,
-            text: (translatedParts[j] || group.text).replace(sepCleanRegex, ' ').trim()
+            text: strippedText,
+            speaker
           });
         }
       }
@@ -327,6 +333,14 @@ class Translator {
       if (onProgress) {
         onProgress(Math.min(i, groups.length), groups.length);
       }
+    }
+
+    // Apply heuristic speaker detection for segments without LLM tags
+    SpeakerDetector.detectHeuristics(result);
+
+    const withSpeaker = result.filter(s => s.speaker).length;
+    if (withSpeaker > 0) {
+      console.log(`[CzechDub] Speaker detection: ${withSpeaker}/${result.length} segments tagged`);
     }
 
     console.log(`[CzechDub] Translated ${result.length} sentence groups`);

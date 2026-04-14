@@ -235,6 +235,32 @@ class TTSEngine {
     return this._speakBrowser(text, options);
   }
 
+  /**
+   * Speak with a specific speaker role (M/F/C/N).
+   * Dynamically selects voice and adjusts pitch/rate based on role config.
+   * Falls back to default speak() if role is null or engine is not edge.
+   */
+  speakAs(text, role, options = {}) {
+    if (!role || this._ttsEngine !== 'edge') {
+      return this.speak(text, options);
+    }
+
+    const roleConfig = this._langConfig.voiceRoles?.[role];
+    if (!roleConfig) {
+      return this.speak(text, options);
+    }
+
+    const roleOptions = {
+      ...options,
+      _edgeVoiceOverride: roleConfig.edge,
+      pitch: (options.pitch ?? this.pitch) * roleConfig.pitch,
+      rate: (options.rate ?? this.rate) * roleConfig.rate
+    };
+
+    console.log(`[Dub TTS] speakAs(${role}) voice=${roleConfig.edge}, pitch=${roleOptions.pitch}, rate=${roleOptions.rate}`);
+    return this._speakEdge(text, roleOptions);
+  }
+
   async _speakService(text, options) {
     try {
       this.isSpeaking = true;
@@ -305,7 +331,7 @@ class TTSEngine {
       const response = await chrome.runtime.sendMessage({
         type: 'synthesize-edge-tts',
         text,
-        voice: this._edgeVoice,
+        voice: options._edgeVoiceOverride || this._edgeVoice,
         rate: options.rate ?? this.rate,
         pitch: options.pitch ?? this.pitch
       });

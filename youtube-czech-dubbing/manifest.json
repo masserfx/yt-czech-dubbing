@@ -55,6 +55,7 @@
       "js": [
         "src/caption-extractor.js",
         "src/language-config.js",
+        "src/speaker-detector.js",
         "src/service-mode.js",
         "src/translator.js",
         "src/tts-engine.js",
