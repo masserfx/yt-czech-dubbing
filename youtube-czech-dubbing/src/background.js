@@ -1298,7 +1298,7 @@ async function serviceSynthesize(endpoint, authToken, orgId, text, targetLang, v
 async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', geminiPrompt = null) {
   if (!apiKey) throw new Error('No Gemini API key');
 
-  const MODEL = 'gemini-3.1-flash-lite-preview';
+  const MODEL = 'gemini-2.0-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   const systemInstruction = geminiPrompt ||
@@ -1389,7 +1389,7 @@ async function detectSpeakers(lines, apiKey) {
 async function geminiChat(apiKey, systemInstruction, history, message) {
   if (!apiKey) throw new Error('No Gemini API key');
 
-  const MODEL = 'gemini-3.1-flash-lite-preview';
+  const MODEL = 'gemini-2.0-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   const contents = [
