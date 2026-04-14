@@ -299,6 +299,7 @@ class Translator {
       const sepCleanRegex = /\s*X\s*S\s*E\s*P\s*9\s*F\s*3\s*A\s*/gi;
       const combinedText = batch.map(g => g.text).join(` ${SEP} `);
       const translatedCombined = await this.translate(combinedText, sourceLang);
+      console.log(`[CzechDub] Raw translation (first 200): "${translatedCombined.substring(0, 200)}"`);
       const translatedParts = translatedCombined.split(new RegExp(`\\s*${SEP}\\s*`, 'i'));
 
       if (translatedParts.length !== batch.length) {

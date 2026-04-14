@@ -5,7 +5,7 @@
  */
 class DubbingCache {
   // Bump this when translation quality changes (prompts, cleanup) to invalidate old cache
-  static CACHE_VERSION = 2;
+  static CACHE_VERSION = 3;
 
   constructor() {
     this._db = null;
