@@ -1,0 +1,33 @@
+name = "voicedub-api"
+main = "src/index.js"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+
+# Secrets jsou nastavené přes: wrangler secret put <NAME>
+# Potřebné secrets:
+#   GEMINI_API_KEY        — Gemini překlad (aistudio.google.com)
+#   AZURE_SPEECH_KEY      — Azure Neural TTS
+#   AZURE_SPEECH_REGION   — např. "westeurope"
+#   API_SIGNING_SECRET    — pro HMAC API klíče
+
+# KV namespace pro API keys + rate limiting
+# Vytvoř:  wrangler kv namespace create API_KEYS
+# Pak sem: [[kv_namespaces]] binding = "API_KEYS" id = "..."
+
+# R2 bucket pro výstupní audio soubory
+# Vytvoř:  wrangler r2 bucket create voicedub-audio
+# [[r2_buckets]] binding = "AUDIO_STORE" bucket_name = "voicedub-audio"
+
+# D1 database pro jobs metadata
+# Vytvoř:  wrangler d1 create voicedub-jobs
+# [[d1_databases]] binding = "JOBS_DB" database_name = "voicedub-jobs" database_id = "..."
+
+# Queue pro asynchronní zpracování dlouhých videí
+# [[queues.producers]] binding = "DUB_QUEUE" queue = "dub-jobs"
+# [[queues.consumers]] queue = "dub-jobs" max_batch_size = 5
+
+[observability]
+enabled = true
