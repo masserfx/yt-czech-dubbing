@@ -941,6 +941,26 @@
       <div class="setting-divider"></div>
 
       <div class="setting-group">
+        <div class="setting-label" style="font-weight:600;">VoiceDub B2B API (staging)</div>
+        <div class="checkbox-group" style="margin-top:6px;">
+          <input type="checkbox" id="voicedubMode">
+          <label for="voicedubMode">Použít VoiceDub API (překlad + TTS v 1 volání)</label>
+        </div>
+        <div id="voicedubConfigGroup" style="display:none; margin-top:8px;">
+          <div class="setting-label"><span>API klíč</span></div>
+          <input type="password" id="voicedubApiKey" placeholder="vd_live_... nebo vd_test_..."
+            style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+          <div class="setting-label" style="margin-top:6px;"><span>Endpoint (výchozí: staging)</span></div>
+          <input type="text" id="voicedubEndpoint" placeholder="https://voicedub-api.masserfx.workers.dev"
+            style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+          <div style="font-size:10px;color:#2ecc71;margin-top:4px;">AI Act čl. 50 watermark default ON.</div>
+        </div>
+        <div style="font-size:10px;color:#555;margin-top:6px;">Unified /v1/dub endpoint, staging zdarma 500k zn./měs (Azure F0).</div>
+      </div>
+
+      <div class="setting-divider"></div>
+
+      <div class="setting-group">
         <div class="setting-label" style="font-weight:600;">API Usage</div>
         <div class="usage-stats" id="usageStats">
           <div class="usage-row">

@@ -1141,6 +1141,14 @@ async function loadSettings() {
     if (s.azureTtsRegion) document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
     if (s.azureTtsVoice) document.getElementById('azureTtsVoice').value = s.azureTtsVoice;
 
+    // VoiceDub B2B API
+    if (typeof s.voicedubMode === 'boolean') {
+      document.getElementById('voicedubMode').checked = s.voicedubMode;
+      document.getElementById('voicedubConfigGroup').style.display = s.voicedubMode ? 'block' : 'none';
+    }
+    if (s.voicedubApiKey) document.getElementById('voicedubApiKey').value = s.voicedubApiKey;
+    if (s.voicedubEndpoint) document.getElementById('voicedubEndpoint').value = s.voicedubEndpoint;
+
     // AI backend
     if (s.aiBackend) {
       document.getElementById('aiBackend').value = s.aiBackend;
@@ -1184,6 +1192,9 @@ function saveSettings() {
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
+    voicedubMode: document.getElementById('voicedubMode').checked,
+    voicedubApiKey: document.getElementById('voicedubApiKey').value,
+    voicedubEndpoint: document.getElementById('voicedubEndpoint').value,
     aiBackend: document.getElementById('aiBackend').value,
     ollamaUrl: document.getElementById('ollamaUrl').value,
     ollamaModel: document.getElementById('ollamaModel').value,
@@ -1201,7 +1212,13 @@ function bindSettingsEvents() {
   const ids = ['targetLanguage', 'translatorEngine', 'anthropicApiKey', 'deeplApiKey',
     'geminiApiKey', 'ttsVolume', 'ttsRate', 'originalVolume', 'muteOriginal',
     'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice',
+    'voicedubMode', 'voicedubApiKey', 'voicedubEndpoint',
     'aiBackend', 'ollamaUrl', 'ollamaModel'];
+  // Toggle VoiceDub config group visibility on checkbox change
+  const voicedubModeEl = document.getElementById('voicedubMode');
+  voicedubModeEl.addEventListener('change', () => {
+    document.getElementById('voicedubConfigGroup').style.display = voicedubModeEl.checked ? 'block' : 'none';
+  });
   ids.forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('change', autoSave);
