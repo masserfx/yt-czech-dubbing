@@ -26,7 +26,9 @@
     "https://*.api.cognitive.microsoft.com/*",
     "https://generativelanguage.googleapis.com/*",
     "wss://speech.platform.bing.com/*",
-    "https://speech.platform.bing.com/*"
+    "https://speech.platform.bing.com/*",
+    "https://api.voicedub.ai/*",
+    "https://*.workers.dev/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
@@ -57,6 +59,7 @@
         "src/language-config.js",
         "src/speaker-detector.js",
         "src/service-mode.js",
+        "src/voicedub-client.js",
         "src/translator.js",
         "src/tts-engine.js",
         "src/dubbing-cache.js",

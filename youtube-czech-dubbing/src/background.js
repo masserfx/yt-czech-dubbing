@@ -206,6 +206,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // VoiceDub B2B API (unified /v1/dub endpoint)
+  if (msg.type === 'voicedub-dub') {
+    voicedubDub(msg.endpoint, msg.apiKey, msg.payload)
+      .then(data => sendResponse({ success: true, data }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'voicedub-voices') {
+    voicedubVoices(msg.endpoint, msg.apiKey, msg.lang)
+      .then(voices => sendResponse({ success: true, voices }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   // Usage stats
   if (msg.type === 'get-usage-stats') {
     getUsageStats()
@@ -1291,6 +1306,43 @@ async function serviceSynthesize(endpoint, authToken, orgId, text, targetLang, v
   }
   const data = await resp.json();
   return data.audioBase64;
+}
+
+// --- VoiceDub unified API (/v1/dub) ---
+async function voicedubDub(endpoint, apiKey, payload) {
+  const resp = await fetch(`${endpoint}/v1/dub`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`VoiceDub ${resp.status}: ${errText.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+  // Normalizace response — extension očekává { translated, audioBase64, audioUrl, provider, voiceId }
+  return {
+    translated: data.translated_text,
+    audioBase64: data.audio_base64 || null,
+    audioUrl: data.audio_url || null,
+    provider: data.translator_provider,
+    voiceId: data.voice_id,
+    jobId: data.job_id,
+    durationSeconds: data.duration_seconds,
+  };
+}
+
+async function voicedubVoices(endpoint, apiKey, lang) {
+  const url = lang ? `${endpoint}/v1/voices?lang=${lang}` : `${endpoint}/v1/voices`;
+  const resp = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  });
+  if (!resp.ok) throw new Error(`VoiceDub voices ${resp.status}`);
+  const data = await resp.json();
+  return data.voices;
 }
 
 // --- Gemini Translation ---
