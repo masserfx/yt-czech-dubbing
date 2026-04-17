@@ -180,6 +180,18 @@ body {
 .outcome-row .v.pos { color: var(--green); }
 .outcome-row .v.neg { color: var(--red); }
 
+.wedge-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.wedge-col { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 22px 20px; display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden; }
+.wedge-col.highlight { border-color: var(--accent); background: linear-gradient(180deg, rgba(0,113,227,0.10), var(--card)); }
+.wedge-col::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--gradient); opacity: 0.25; }
+.wedge-col.highlight::after { opacity: 1; }
+.wedge-qtr { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.wedge-tag { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.wedge-mrr { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.wedge-cust { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.wedge-arr { font-size: 13px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); color: var(--muted); }
+.wedge-arr strong { color: var(--text); font-weight: 700; }
+
 .pricing-tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 48px; }
 .tier { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 28px 20px; transition: all 0.25s; }
 .tier.featured { border-color: var(--accent); background: linear-gradient(180deg, rgba(0,113,227,0.08), var(--card)); }
@@ -246,6 +258,7 @@ footer a:hover { color: var(--text); }
   .section { padding: 100px 20px 60px; }
   .hero-metrics { grid-template-columns: repeat(2, 1fr); }
   .pain-grid, .solution-grid, .market-stats, .pricing-tiers, .agent-grid, .ask-breakdown, .calc-wrapper { grid-template-columns: 1fr; }
+  .wedge-grid { grid-template-columns: repeat(2, 1fr); }
   .competitors { overflow-x: auto; }
 }
 </style>
@@ -435,8 +448,8 @@ footer a:hover { color: var(--text); }
     <div class="calc-wrapper reveal">
       <div class="calc-inputs">
         <div class="calc-field">
-          <label>Nových zákazníků / měsíc <strong id="in-customers-v">12</strong></label>
-          <input type="range" id="in-customers" min="1" max="50" value="12">
+          <label>Nových zákazníků / měsíc <strong id="in-customers-v">6</strong></label>
+          <input type="range" id="in-customers" min="1" max="50" value="6">
           <div class="range-ticks"><span>1</span><span>25</span><span>50</span></div>
         </div>
         <div class="calc-field">
@@ -470,7 +483,7 @@ footer a:hover { color: var(--text); }
           <div class="v" id="out-mrr">€14 900</div>
         </div>
         <div class="outcome-row">
-          <div class="k">ARR (annualizovaný)</div>
+          <div class="k">ARR run-rate (12× end-of-period MRR)</div>
           <div class="v" id="out-arr">€178 800</div>
         </div>
         <div class="outcome-row">
@@ -496,6 +509,47 @@ footer a:hover { color: var(--text); }
         <div class="outcome-row">
           <div class="k">Kumulativní hrubý zisk</div>
           <div class="v pos" id="out-profit">€98 400</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wedge reveal" style="margin-top: 64px;">
+      <div class="wedge-head">
+        <h3 style="font-size: 22px; margin: 0 0 4px;">Quarterly wedge — jak se dostaneme z outreach reality k run-rate projekci</h3>
+        <p style="color: var(--muted); margin: 0 0 24px; font-size: 14px; max-width: 720px;">
+          Q2 je <strong style="color: var(--text);">konzervativní outreach reality</strong> (2 signed pilots + 3 paid POC z 80 kontaktů).
+          Q3–Q4 rampa vychází z expansion uvnitř pilotů (+1 seat/mo) a akumulace sales kadence.
+          Model nahoře je <strong>end-of-period run-rate</strong>, ne total revenue roku 1.
+        </p>
+      </div>
+      <div class="wedge-grid">
+        <div class="wedge-col">
+          <div class="wedge-qtr">Q2 2026</div>
+          <div class="wedge-tag">Outreach reality</div>
+          <div class="wedge-mrr">€3 600</div>
+          <div class="wedge-cust">3 zákazníci · 2 pilot + 1 POC</div>
+          <div class="wedge-arr">ARR run-rate <strong>€43 k</strong></div>
+        </div>
+        <div class="wedge-col">
+          <div class="wedge-qtr">Q3 2026</div>
+          <div class="wedge-tag">First expand</div>
+          <div class="wedge-mrr">€7 200</div>
+          <div class="wedge-cust">12 zákazníků · 1. expand na yearly</div>
+          <div class="wedge-arr">ARR run-rate <strong>€86 k</strong></div>
+        </div>
+        <div class="wedge-col">
+          <div class="wedge-qtr">Q4 2026</div>
+          <div class="wedge-tag">Sales cadence</div>
+          <div class="wedge-mrr">€11 400</div>
+          <div class="wedge-cust">30 zákazníků · 8 new / mo</div>
+          <div class="wedge-arr">ARR run-rate <strong>€137 k</strong></div>
+        </div>
+        <div class="wedge-col highlight">
+          <div class="wedge-qtr">Q1 2027</div>
+          <div class="wedge-tag">Year-1 exit</div>
+          <div class="wedge-mrr">€14 900</div>
+          <div class="wedge-cust">60 zákazníků · 12 new / mo</div>
+          <div class="wedge-arr">ARR run-rate <strong>€179 k</strong></div>
         </div>
       </div>
     </div>
