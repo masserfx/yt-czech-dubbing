@@ -126,7 +126,9 @@
         const engineSelect = document.createElement('select');
         engineSelect.id = 'czech-dub-engine';
         const engines = [
+          { value: 'chromeai', label: 'Chrome AI (on-device, zdarma)' },
           { value: 'google', label: 'Google Translate (zdarma)' },
+          { value: 'gemini', label: 'Gemini Flash-Lite (zdarma, API klíč)' },
           { value: 'deepl', label: 'DeepL (500k zn./měs. zdarma)' },
           { value: 'claude', label: 'Claude Haiku 4.5 (API klíč)' }
         ];
@@ -137,6 +139,23 @@
           engineSelect.appendChild(opt);
         });
         settingsPanel.appendChild(engineSelect);
+
+        // Gemini API key group
+        const geminiKeyGroup = document.createElement('div');
+        geminiKeyGroup.className = 'api-key-group';
+        const geminiLabel = document.createElement('label');
+        geminiLabel.textContent = 'Gemini API klíč';
+        geminiKeyGroup.appendChild(geminiLabel);
+        const geminiKeyInput = document.createElement('input');
+        geminiKeyInput.type = 'password';
+        geminiKeyInput.id = 'czech-dub-geminikey';
+        geminiKeyInput.placeholder = 'AIza...';
+        geminiKeyGroup.appendChild(geminiKeyInput);
+        const geminiHint = document.createElement('div');
+        geminiHint.className = 'hint';
+        geminiHint.textContent = 'Free: 1000 req/den \u2022 aistudio.google.com/apikey';
+        geminiKeyGroup.appendChild(geminiHint);
+        settingsPanel.appendChild(geminiKeyGroup);
 
         // DeepL API key group
         const deeplKeyGroup = document.createElement('div');
@@ -188,12 +207,15 @@
           if (s.translatorEngine) engineSelect.value = s.translatorEngine;
           if (s.anthropicApiKey) apiKeyInput.value = s.anthropicApiKey;
           if (s.deeplApiKey) deeplKeyInput.value = s.deeplApiKey;
+          if (s.geminiApiKey) geminiKeyInput.value = s.geminiApiKey;
           if (s.translatorEngine === 'claude') apiKeyGroup.classList.add('visible');
           if (s.translatorEngine === 'deepl') deeplKeyGroup.classList.add('visible');
+          if (s.translatorEngine === 'gemini') geminiKeyGroup.classList.add('visible');
 
           engineSelect.addEventListener('change', () => {
             apiKeyGroup.classList.toggle('visible', engineSelect.value === 'claude');
             deeplKeyGroup.classList.toggle('visible', engineSelect.value === 'deepl');
+            geminiKeyGroup.classList.toggle('visible', engineSelect.value === 'gemini');
           });
         });
 
@@ -210,12 +232,14 @@
           const engine = engineSelect.value;
           const apiKey = apiKeyInput.value;
           const deeplKey = deeplKeyInput.value;
+          const geminiKey = geminiKeyInput.value;
           const targetLang = langSelect.value;
           chrome.storage.local.get('popupSettings', (result) => {
             const s = result.popupSettings || {};
             s.translatorEngine = engine;
             s.anthropicApiKey = apiKey;
             s.deeplApiKey = deeplKey;
+            s.geminiApiKey = geminiKey;
             s.targetLanguage = targetLang;
             chrome.storage.local.set({ popupSettings: s }, () => {
               settingsPanel.classList.remove('open');
@@ -249,8 +273,47 @@
           }
         });
 
-        // Update button text based on controller status
+        // Cache badge — shows when a cached translation exists for this video
+        const cacheBadge = document.createElement('span');
+        cacheBadge.className = 'czech-dub-cache-badge';
+        cacheBadge.style.display = 'none';
+        const cacheIcon = document.createElement('span');
+        cacheIcon.className = 'czech-dub-cache-badge-icon';
+        cacheIcon.textContent = '\uD83D\uDCBE'; // 💾
+        cacheBadge.appendChild(cacheIcon);
+        const cacheText = document.createElement('span');
+        cacheText.textContent = 'Uloženo';
+        cacheBadge.appendChild(cacheText);
+
+        const cacheDelete = document.createElement('button');
+        cacheDelete.className = 'czech-dub-cache-delete';
+        cacheDelete.textContent = '\u00D7';
+        cacheDelete.title = 'Smazat uložený překlad';
+        cacheBadge.appendChild(cacheDelete);
+
+        // Check cache on load and after language change
+        async function updateCacheBadge() {
+          const videoId = DubbingCache.getVideoId();
+          const lang = langSelect.value;
+          if (!videoId || !controller.cache) { cacheBadge.style.display = 'none'; return; }
+          const has = await controller.cache.has(videoId, lang);
+          cacheBadge.style.display = has ? 'inline-flex' : 'none';
+        }
+        updateCacheBadge();
+        langSelect.addEventListener('change', updateCacheBadge);
+
+        cacheDelete.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const videoId = DubbingCache.getVideoId();
+          if (videoId) {
+            await controller.cache.delete(videoId, langSelect.value);
+            cacheBadge.style.display = 'none';
+          }
+        });
+
+        // Update button text + cache badge based on controller status
         controller.onStatusChange = (status, message) => {
+          // Forward to existing handler
           const textEl = btn.querySelector('.czech-dub-btn-text');
           if (status === 'loading' || status === 'translating') {
             btn.classList.add('loading');
@@ -259,18 +322,21 @@
             btn.classList.remove('loading');
             btn.classList.add('active');
             textEl.textContent = getLanguageConfig(langSelect.value).uiStrings.active;
+            // Refresh cache badge after playback starts (new translation may have been saved)
+            updateCacheBadge();
           } else if (status === 'error') {
             btn.classList.remove('loading', 'active');
             textEl.textContent = message;
           }
         };
 
-        // Container for button + gear + settings
+        // Container for button + gear + cache badge + settings
         const container = document.createElement('div');
         container.id = 'czech-dub-container';
         container.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:0;';
         container.appendChild(btn);
         container.appendChild(gear);
+        container.appendChild(cacheBadge);
         container.appendChild(settingsPanel);
         infoArea.parentNode.insertBefore(container, infoArea);
       }
@@ -373,6 +439,40 @@
           controller.tts.setVoice(msg.voiceName);
           sendResponse({ success: true });
         }
+        break;
+
+      case 'get-cache-info':
+        if (controller && controller.cache) {
+          const videoId = DubbingCache.getVideoId();
+          Promise.all([
+            controller.cache.listAll(),
+            videoId ? controller.cache.has(videoId, msg.targetLang || 'cs') : Promise.resolve(false)
+          ]).then(([list, hasCache]) => {
+            sendResponse({ list, hasCache, videoId, count: list.length });
+          });
+          return true; // Async response
+        }
+        sendResponse({ list: [], hasCache: false, count: 0 });
+        break;
+
+      case 'delete-cache':
+        if (controller && controller.cache && msg.videoId && msg.targetLang) {
+          controller.cache.delete(msg.videoId, msg.targetLang).then(success => {
+            sendResponse({ success });
+          });
+          return true;
+        }
+        sendResponse({ success: false });
+        break;
+
+      case 'clear-all-cache':
+        if (controller && controller.cache) {
+          controller.cache.clearAll().then(success => {
+            sendResponse({ success });
+          });
+          return true;
+        }
+        sendResponse({ success: false });
         break;
     }
   }); } catch (e) {

@@ -23,6 +23,66 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
+// Open side panel when clicking the extension icon
+chrome.action.onClicked.addListener((tab) => {
+  chrome.sidePanel.open({ tabId: tab.id });
+});
+
+// Ensure offscreen document is running
+let offscreenReady = false;
+async function ensureOffscreen() {
+  if (offscreenReady) return;
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+  if (contexts.length === 0) {
+    await chrome.offscreen.createDocument({
+      url: 'src/offscreen.html',
+      reasons: ['USER_MEDIA'],
+      justification: 'SpeechRecognition, microphone access, and Edge TTS WebSocket'
+    });
+    // Wait for document scripts to load
+    await new Promise(r => setTimeout(r, 500));
+  }
+  offscreenReady = true;
+}
+
+// Pre-create offscreen document on service worker startup
+ensureOffscreen().catch(() => {});
+
+// Edge TTS via offscreen document using ports (more reliable than sendMessage)
+async function synthesizeEdgeTTSViaOffscreen(text, voice, rate, pitch) {
+  await ensureOffscreen();
+
+  // Generate SEC-MS-GEC token
+  const gec = await generateSecMsGec();
+
+  return new Promise((resolve, reject) => {
+    const port = chrome.runtime.connect({ name: 'edge-tts' });
+    const timeout = setTimeout(() => {
+      port.disconnect();
+      reject(new Error('Edge TTS offscreen timeout (20s)'));
+    }, 20000);
+
+    port.onMessage.addListener((msg) => {
+      clearTimeout(timeout);
+      port.disconnect();
+      if (msg.success) {
+        console.log(`[Edge TTS] Got ${msg.audioBase64.length} chars from offscreen`);
+        resolve(msg.audioBase64);
+      } else {
+        reject(new Error(msg.error || 'Edge TTS offscreen failed'));
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      clearTimeout(timeout);
+      const err = chrome.runtime.lastError;
+      if (err) reject(new Error(err.message));
+    });
+
+    port.postMessage({ text, voice, rate, pitch, gec });
+  });
+}
+
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'ping') {
@@ -34,6 +94,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Forward status updates to popup (if open)
     return false;
   }
+
 
   if (msg.type === 'fetch-captions') {
     fetchCaptions(msg.url)
@@ -91,6 +152,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'translate-gemini') {
+    translateGemini(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'cs', msg.geminiPrompt)
+      .then(result => sendResponse({ success: true, translated: result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'detect-speakers') {
+    detectSpeakers(msg.lines, msg.apiKey)
+      .then(roles => sendResponse({ success: true, roles }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'translate-deepl') {
     translateDeepL(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'CS')
       .then(result => sendResponse({ success: true, translated: result }))
@@ -102,6 +177,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     synthesizeAzureTTS(msg.text, msg.apiKey, msg.region, msg.voice, msg.rate, msg.pitch, msg.lang)
       .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
       .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'synthesize-edge-tts') {
+    // WebSocket via offscreen document — DNR rewrites User-Agent for offscreen page context
+    synthesizeEdgeTTSViaOffscreen(msg.text, msg.voice, msg.rate, msg.pitch)
+      .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
+      .catch(err => {
+        console.error('[Edge TTS] Failed:', err.message);
+        sendResponse({ success: false, error: err.message });
+      });
     return true;
   }
 
@@ -118,6 +204,162 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
+  }
+
+  // VoiceDub B2B API (unified /v1/dub endpoint)
+  if (msg.type === 'voicedub-dub') {
+    voicedubDub(msg.endpoint, msg.apiKey, msg.payload)
+      .then(data => sendResponse({ success: true, data }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'voicedub-voices') {
+    voicedubVoices(msg.endpoint, msg.apiKey, msg.lang)
+      .then(voices => sendResponse({ success: true, voices }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Usage stats
+  if (msg.type === 'get-usage-stats') {
+    getUsageStats()
+      .then(stats => sendResponse(stats))
+      .catch(() => sendResponse(null));
+    return true;
+  }
+
+  // Gemini AI Chat
+  if (msg.type === 'gemini-chat') {
+    geminiChat(msg.apiKey, msg.systemInstruction, msg.history, msg.message)
+      .then(result => sendResponse({ success: true, text: result.text, usage: result.usage }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Ollama local AI Chat (proxy via tab to bypass CORS)
+  if (msg.type === 'ollama-chat') {
+    const tabId = msg.tabId || sender.tab?.id;
+    ollamaChat(tabId, msg.baseUrl, msg.model, msg.systemInstruction, msg.history, msg.message)
+      .then(result => sendResponse({ success: true, text: result.text, usage: result.usage }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Ollama: list available models (proxy via tab to bypass CORS)
+  if (msg.type === 'ollama-list-models') {
+    const tabId = msg.tabId || sender.tab?.id;
+    ollamaListModels(tabId, msg.baseUrl)
+      .then(models => sendResponse({ success: true, models }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Article dubbing: programmatic injection of article scripts
+  if (msg.type === 'inject-article-scripts') {
+    const tabId = sender.tab?.id || msg.tabId;
+    if (!tabId) {
+      sendResponse({ success: false, error: 'No tab ID' });
+      return false;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId },
+      files: [
+        'src/language-config.js',
+        'src/translator.js',
+        'src/tts-engine.js',
+        'src/article-extractor.js',
+        'src/article-player.js',
+        'src/article-content.js'
+      ]
+    })
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Voice: inject SpeechRecognition into the active tab
+  // (extension pages can't use SpeechRecognition or getUserMedia reliably)
+  if (msg.type === 'inject-voice-recognition') {
+    const tabId = msg.tabId;
+    if (!tabId) { sendResponse({ ok: false }); return false; }
+
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: (lang) => {
+        // This runs in the web page context — full mic + SpeechRecognition access
+        // Stop any previous recognition before starting new one
+        if (window._ytDubRecognition) {
+          try { window._ytDubRecognition.abort(); } catch (e) {}
+          window._ytDubRecognition = null;
+        }
+        window._ytDubVoiceActive = true;
+
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+          chrome.runtime.sendMessage({ type: 'voice-error', error: 'SpeechRecognition not supported' });
+          window._ytDubVoiceActive = false;
+          return;
+        }
+
+        const rec = new SR();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = lang;
+        window._ytDubRecognition = rec;
+
+        let lastProcessed = 0;
+        rec.onresult = (event) => {
+          let interim = '', final = '';
+          for (let i = lastProcessed; i < event.results.length; i++) {
+            const tr = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              final += tr;
+              lastProcessed = i + 1;
+            } else {
+              interim += tr;
+            }
+          }
+          chrome.runtime.sendMessage({ type: 'voice-result', final, interim });
+        };
+
+        rec.onerror = (e) => {
+          if (e.error !== 'no-speech' && e.error !== 'aborted') {
+            chrome.runtime.sendMessage({ type: 'voice-error', error: e.error });
+          }
+        };
+
+        rec.onend = () => {
+          chrome.runtime.sendMessage({ type: 'voice-ended' });
+          window._ytDubVoiceActive = false;
+        };
+
+        rec.start();
+        chrome.runtime.sendMessage({ type: 'voice-started' });
+      },
+      args: [msg.lang || 'cs-CZ']
+    })
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'stop-voice-recognition') {
+    const tabId = msg.tabId;
+    if (!tabId) { sendResponse({ ok: false }); return false; }
+
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        if (window._ytDubRecognition) {
+          window._ytDubRecognition.abort();
+          window._ytDubRecognition = null;
+        }
+        window._ytDubVoiceActive = false;
+      }
+    }).catch(() => {});
+    sendResponse({ ok: true });
+    return false;
   }
 
   if (msg.type === 'get-usage') {
@@ -676,7 +918,7 @@ async function translateClaude(text, sourceLang, apiKey, targetLang = 'cs', clau
       system: systemPrompt,
       messages: [{
         role: 'user',
-        content: `Translate to fluent spoken ${langName}. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.
+        content: `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.
 
 ${text}`
       }]
@@ -796,13 +1038,148 @@ function escapeXml(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// --- Edge TTS (free, no API key) ---
+// WebSocket via offscreen document, User-Agent rewritten by declarativeNetRequest
+
+const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+const EDGE_TTS_GEC_VERSION = '1-143.0.3650.75';
+
+async function generateSecMsGec() {
+  // Windows file time: 100-nanosecond intervals since 1601-01-01
+  const WIN_EPOCH = 11644473600n; // seconds between 1601-01-01 and 1970-01-01
+  const S_TO_NS = 10000000n;
+  const NS_PER_5MIN = 3000000000n; // 5 minutes in 100-ns intervals
+
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  let ticks = (nowSec + WIN_EPOCH) * S_TO_NS;
+  ticks = ticks - (ticks % NS_PER_5MIN); // round down to 5-min boundary
+
+  const strToHash = `${ticks}6A5AA1D4EAFF4E9FB37E23D68491D6F4`;
+  const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(strToHash));
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+}
+
+async function getEdgeTTSUrl() {
+  const gec = await generateSecMsGec();
+  return `${EDGE_TTS_BASE}?TrustedClientToken=${EDGE_TTS_TOKEN}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=${EDGE_TTS_GEC_VERSION}`;
+}
+
+async function synthesizeEdgeTTS(text, voice = 'cs-CZ-AntoninNeural', rate = 1.0, pitch = 1.0) {
+  if (!text || text.trim().length === 0) throw new Error('Empty text');
+
+  const wssUrl = await getEdgeTTSUrl();
+  console.log('[Edge TTS] Connecting with SEC-MS-GEC auth...');
+
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID().replace(/-/g, '');
+    const ws = new WebSocket(wssUrl);
+    ws.binaryType = 'arraybuffer';
+    const audioChunks = [];
+    let resolved = false;
+
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        ws.close();
+        reject(new Error('Edge TTS timeout (15s)'));
+      }
+    }, 15000);
+
+    ws.onopen = () => {
+      console.log(`[Edge TTS] Connected! Sending SSML for voice=${voice}`);
+      const timestamp = new Date().toISOString();
+      ws.send(
+        `X-Timestamp:${timestamp}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
+        `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
+      );
+
+      const rateStr = rate !== 1.0 ? `${Math.round((rate - 1) * 100)}%` : '+0%';
+      const pitchStr = pitch !== 1.0 ? `${Math.round((pitch - 1) * 50)}%` : '+0%';
+      const xmlLang = voice.substring(0, 5) || 'cs-CZ';
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${xmlLang}'><voice name='${voice}'><prosody rate='${rateStr}' pitch='${pitchStr}'>${escapeXml(text)}</prosody></voice></speak>`;
+
+      ws.send(
+        `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}\r\nPath:ssml\r\n\r\n${ssml}`
+      );
+    };
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        if (event.data.includes('Path:turn.end')) {
+          clearTimeout(timeout);
+          resolved = true;
+          ws.close();
+          if (audioChunks.length === 0) {
+            reject(new Error('Edge TTS: no audio chunks'));
+            return;
+          }
+          const totalLen = audioChunks.reduce((sum, buf) => sum + buf.byteLength, 0);
+          const merged = new Uint8Array(totalLen);
+          let offset = 0;
+          for (const buf of audioChunks) {
+            merged.set(new Uint8Array(buf), offset);
+            offset += buf.byteLength;
+          }
+          let binary = '';
+          for (let i = 0; i < merged.length; i++) binary += String.fromCharCode(merged[i]);
+          console.log(`[Edge TTS] Success: ${audioChunks.length} chunks, ${totalLen} bytes`);
+          resolve(btoa(binary));
+        }
+      } else if (event.data instanceof ArrayBuffer) {
+        // Binary: 2-byte header length prefix + header + audio data
+        const view = new DataView(event.data);
+        const headerLen = view.getUint16(0);
+        if (event.data.byteLength > 2 + headerLen) {
+          audioChunks.push(event.data.slice(2 + headerLen));
+        }
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error('[Edge TTS] WebSocket error:', err);
+      clearTimeout(timeout);
+      if (!resolved) { resolved = true; reject(new Error('Edge TTS WebSocket error')); }
+    };
+
+    ws.onclose = (event) => {
+      clearTimeout(timeout);
+      if (!resolved) {
+        resolved = true;
+        if (audioChunks.length > 0) {
+          const totalLen = audioChunks.reduce((sum, buf) => sum + buf.byteLength, 0);
+          const merged = new Uint8Array(totalLen);
+          let offset = 0;
+          for (const buf of audioChunks) {
+            merged.set(new Uint8Array(buf), offset);
+            offset += buf.byteLength;
+          }
+          let binary = '';
+          for (let i = 0; i < merged.length; i++) binary += String.fromCharCode(merged[i]);
+          resolve(btoa(binary));
+        } else {
+          console.error(`[Edge TTS] Closed with no audio: code=${event.code}, reason=${event.reason}`);
+          reject(new Error(`Edge TTS closed: ${event.code}`));
+        }
+      }
+    };
+  });
+}
+
 // --- Usage tracking ---
 
 const HAIKU_INPUT_PRICE = 0.80;   // $ per 1M input tokens
 const HAIKU_OUTPUT_PRICE = 4.00;  // $ per 1M output tokens
 
-function calcCost(inputTokens, outputTokens) {
-  return (inputTokens * HAIKU_INPUT_PRICE + outputTokens * HAIKU_OUTPUT_PRICE) / 1_000_000;
+const GEMINI_INPUT_PRICE = 0.25;  // $ per 1M input tokens (Gemini 3.1 Flash-Lite)
+const GEMINI_OUTPUT_PRICE = 1.50; // $ per 1M output tokens
+
+function calcCost(inputTokens, outputTokens, provider = 'claude') {
+  const inputPrice = provider === 'gemini' ? GEMINI_INPUT_PRICE : HAIKU_INPUT_PRICE;
+  const outputPrice = provider === 'gemini' ? GEMINI_OUTPUT_PRICE : HAIKU_OUTPUT_PRICE;
+  return (inputTokens * inputPrice + outputTokens * outputPrice) / 1_000_000;
 }
 
 async function trackClaudeUsage(inputTokens, outputTokens) {
@@ -824,9 +1201,39 @@ async function trackClaudeUsage(inputTokens, outputTokens) {
   await chrome.storage.local.set({ claudeUsage: usage });
 }
 
+async function trackGeminiUsage(inputTokens, outputTokens) {
+  const now = Date.now();
+  const cost = calcCost(inputTokens, outputTokens, 'gemini');
+
+  const result = await chrome.storage.local.get('geminiUsage');
+  const usage = result.geminiUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+
+  usage.requests.push({ ts: now, input: inputTokens, output: outputTokens, cost });
+  usage.totalInput += inputTokens;
+  usage.totalOutput += outputTokens;
+  usage.totalCost += cost;
+
+  // Keep only last 90 days
+  const cutoff = now - 90 * 24 * 60 * 60 * 1000;
+  usage.requests = usage.requests.filter(r => r.ts > cutoff);
+
+  await chrome.storage.local.set({ geminiUsage: usage });
+}
+
 async function getUsageStats() {
-  const result = await chrome.storage.local.get('claudeUsage');
-  const usage = result.claudeUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+  const result = await chrome.storage.local.get(['claudeUsage', 'geminiUsage']);
+  const claudeData = result.claudeUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+  const geminiData = result.geminiUsage || { requests: [], totalInput: 0, totalOutput: 0, totalCost: 0 };
+
+  const usage = {
+    requests: [
+      ...claudeData.requests.map(r => ({ ...r, provider: 'claude' })),
+      ...geminiData.requests.map(r => ({ ...r, provider: 'gemini' }))
+    ],
+    totalInput: claudeData.totalInput + geminiData.totalInput,
+    totalOutput: claudeData.totalOutput + geminiData.totalOutput,
+    totalCost: claudeData.totalCost + geminiData.totalCost
+  };
 
   const now = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
@@ -899,4 +1306,329 @@ async function serviceSynthesize(endpoint, authToken, orgId, text, targetLang, v
   }
   const data = await resp.json();
   return data.audioBase64;
+}
+
+// --- VoiceDub unified API (/v1/dub) ---
+async function voicedubDub(endpoint, apiKey, payload) {
+  const resp = await fetch(`${endpoint}/v1/dub`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`VoiceDub ${resp.status}: ${errText.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+
+  // Pokud server vrátil jen audio_url (R2 proxy cesta), stáhneme MP3 a přepočteme na base64.
+  // Content script nemůže přehrát URL bez Auth hlavičky, takže proxujeme binárně přes SW.
+  let audioBase64 = data.audio_base64 || null;
+  if (!audioBase64 && data.audio_url) {
+    try {
+      const audioUrl = data.audio_url.startsWith('http') ? data.audio_url : `${endpoint}${data.audio_url}`;
+      const audioResp = await fetch(audioUrl, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (audioResp.ok) {
+        const buf = await audioResp.arrayBuffer();
+        audioBase64 = arrayBufferToBase64(buf);
+      } else {
+        console.warn(`[VoiceDub] audio fetch ${audioResp.status}`);
+      }
+    } catch (e) {
+      console.warn('[VoiceDub] audio download failed:', e.message);
+    }
+  }
+
+  return {
+    translated: data.translated_text,
+    audioBase64,
+    audioUrl: data.audio_url || null,
+    provider: data.translator_provider,
+    voiceId: data.voice_id,
+    jobId: data.job_id,
+    durationSeconds: data.duration_seconds,
+  };
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function voicedubVoices(endpoint, apiKey, lang) {
+  const url = lang ? `${endpoint}/v1/voices?lang=${lang}` : `${endpoint}/v1/voices`;
+  const resp = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  });
+  if (!resp.ok) throw new Error(`VoiceDub voices ${resp.status}`);
+  const data = await resp.json();
+  return data.voices;
+}
+
+// --- Gemini Translation ---
+
+async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', geminiPrompt = null) {
+  if (!apiKey) throw new Error('No Gemini API key');
+
+  const MODEL = 'gemini-2.5-flash-lite';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+  const systemInstruction = geminiPrompt ||
+    'You are a translator for YouTube video dubbing. Translate to natural spoken language. Return ONLY the translation.';
+
+  const LANG_NAMES = { cs: 'Czech', sk: 'Slovak', pl: 'Polish', hu: 'Hungarian' };
+  const langName = LANG_NAMES[targetLang] || targetLang;
+
+  const userMessage = `This is an ASR transcript from a YouTube video for dubbing. Translate to fluent spoken ${langName}. Use natural colloquial style, not literary. Omit filler words and verbal tics if any remain. Keep separator XSEP9F3A between parts (same number of parts before and after). Keep proper nouns (people, companies, products) in original.\n\n${text}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      generationConfig: {
+        maxOutputTokens: 4096,
+        temperature: 0.3
+      }
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini API ${resp.status}: ${err.substring(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  const translated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!translated) throw new Error('Empty response from Gemini');
+
+  // Track usage
+  const meta = data.usageMetadata;
+  const inputTokens = meta?.promptTokenCount || 0;
+  const outputTokens = meta?.candidatesTokenCount || 0;
+  trackGeminiUsage(inputTokens, outputTokens);
+
+  return translated;
+}
+
+// --- Speaker Detection via Gemini ---
+
+async function detectSpeakers(lines, apiKey) {
+  if (!apiKey) throw new Error('No Gemini API key');
+  if (!lines || lines.length === 0) return [];
+
+  const MODEL = 'gemini-2.5-flash-lite';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+  // Send all lines in one request, ask for one letter per line
+  const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: `These are subtitle lines from a YouTube video. For each line, determine the speaker's likely gender. Reply with ONLY one letter per line: M (male), F (female), C (child), N (narrator). One letter per line, nothing else.\n\n${numbered}` }] }],
+      systemInstruction: { parts: [{ text: 'You classify speaker gender from subtitle text. Output exactly one letter per line: M, F, C, or N. No explanations.' }] },
+      generationConfig: {
+        maxOutputTokens: 2048,
+        temperature: 0.1
+      }
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini speaker detect ${resp.status}: ${err.substring(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!result) return [];
+
+  // Parse: one letter per line
+  const roles = result.split('\n').map(line => {
+    const letter = line.trim().replace(/^\d+\.\s*/, '').charAt(0).toUpperCase();
+    return ['M', 'F', 'C', 'N'].includes(letter) ? letter : null;
+  });
+
+  console.log(`[Speaker] Detected ${roles.filter(Boolean).length}/${lines.length} roles`);
+  return roles;
+}
+
+// --- Gemini AI Chat ---
+
+async function geminiChat(apiKey, systemInstruction, history, message) {
+  if (!apiKey) throw new Error('No Gemini API key');
+
+  const MODEL = 'gemini-2.5-flash-lite';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+  const contents = [
+    ...history,
+    { role: 'user', parts: [{ text: message }] }
+  ];
+
+  const body = {
+    contents,
+    generationConfig: {
+      maxOutputTokens: 2048,
+      temperature: 0.7
+    }
+  };
+
+  if (systemInstruction) {
+    body.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Gemini API ${resp.status}: ${err.substring(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Prázdná odpověď od Gemini');
+
+  // Extract and track usage
+  const meta = data.usageMetadata;
+  const inputTokens = meta?.promptTokenCount || 0;
+  const outputTokens = meta?.candidatesTokenCount || 0;
+  const cost = calcCost(inputTokens, outputTokens, 'gemini');
+  trackGeminiUsage(inputTokens, outputTokens);
+
+  return { text, usage: { input: inputTokens, output: outputTokens, cost } };
+}
+
+// --- Ollama Local AI Chat ---
+
+// Ollama: proxy fetch through active tab to bypass CORS
+// (Ollama rejects chrome-extension:// origin, but allows web origins)
+
+async function ollamaFetchViaTab(tabId, url, body) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (fetchUrl, fetchBody) => {
+      try {
+        const resp = await fetch(fetchUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fetchBody)
+        });
+        if (!resp.ok) return { error: `Ollama ${resp.status}: ${await resp.text()}` };
+        return { data: await resp.json() };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+    args: [url, body]
+  });
+  const result = results?.[0]?.result;
+  if (!result) throw new Error('Tab injection failed');
+  if (result.error) throw new Error(result.error);
+  return result.data;
+}
+
+async function ollamaFetchGetViaTab(tabId, url) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (fetchUrl) => {
+      try {
+        const resp = await fetch(fetchUrl);
+        if (!resp.ok) return { error: `Ollama ${resp.status}` };
+        return { data: await resp.json() };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+    args: [url]
+  });
+  const result = results?.[0]?.result;
+  if (!result) throw new Error('Tab injection failed');
+  if (result.error) throw new Error(result.error);
+  return result.data;
+}
+
+async function ollamaChat(tabId, baseUrl, model, systemInstruction, history, message) {
+  if (!baseUrl) baseUrl = 'http://localhost:11434';
+  if (!model) throw new Error('No Ollama model selected');
+
+  // Convert Gemini-format history to Ollama format
+  const messages = [];
+  if (systemInstruction) {
+    messages.push({ role: 'system', content: systemInstruction });
+  }
+  for (const h of history) {
+    messages.push({
+      role: h.role === 'model' ? 'assistant' : 'user',
+      content: h.parts?.[0]?.text || ''
+    });
+  }
+  messages.push({ role: 'user', content: message });
+
+  const body = {
+    model,
+    messages,
+    stream: false,
+    options: { num_predict: 2048, temperature: 0.7 }
+  };
+
+  let data;
+  if (tabId) {
+    // Proxy via tab (bypasses CORS)
+    data = await ollamaFetchViaTab(tabId, `${baseUrl}/api/chat`, body);
+  } else {
+    // Direct fetch fallback (works if OLLAMA_ORIGINS is configured)
+    const resp = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) throw new Error(`Ollama ${resp.status}: ${(await resp.text()).substring(0, 300)}`);
+    data = await resp.json();
+  }
+
+  const text = data.message?.content;
+  if (!text) throw new Error('Prázdná odpověď od Ollama');
+
+  const inputTokens = data.prompt_eval_count || 0;
+  const outputTokens = data.eval_count || 0;
+
+  return { text, usage: { input: inputTokens, output: outputTokens, cost: 0 } };
+}
+
+async function ollamaListModels(tabId, baseUrl) {
+  if (!baseUrl) baseUrl = 'http://localhost:11434';
+
+  let data;
+  if (tabId) {
+    data = await ollamaFetchGetViaTab(tabId, `${baseUrl}/api/tags`);
+  } else {
+    const resp = await fetch(`${baseUrl}/api/tags`);
+    if (!resp.ok) throw new Error(`Ollama nedostupný (${resp.status})`);
+    data = await resp.json();
+  }
+
+  return (data.models || []).map(m => ({
+    name: m.name,
+    size: m.details?.parameter_size || '',
+    quant: m.details?.quantization_level || '',
+    family: m.details?.family || ''
+  }));
 }

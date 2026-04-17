@@ -21,8 +21,9 @@ class TTSEngine {
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
 
-    // Azure TTS settings
-    this._ttsEngine = 'browser'; // 'browser' or 'azure'
+    // TTS engine settings
+    this._ttsEngine = 'browser'; // 'browser', 'edge', or 'azure'
+    this._edgeVoice = 'cs-CZ-AntoninNeural';
     this._azureKey = null;
     this._azureRegion = null;
     this._azureVoice = 'cs-CZ-VlastaNeural';
@@ -40,12 +41,20 @@ class TTSEngine {
       const result = await chrome.storage.local.get('popupSettings');
       if (result.popupSettings) {
         this._ttsEngine = result.popupSettings.ttsEngine || 'browser';
+        // Migrate old browser-deep to browser
+        if (this._ttsEngine === 'browser-deep') this._ttsEngine = 'browser';
+        this._edgeVoice = result.popupSettings.edgeTtsVoice || 'cs-CZ-AntoninNeural';
+        console.log(`[Dub TTS] Settings loaded: engine=${this._ttsEngine}, edgeVoice=${this._edgeVoice}, azureVoice=${result.popupSettings.azureTtsVoice}`);
         this._azureKey = result.popupSettings.azureTtsKey || null;
         this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
         this._azureVoice = result.popupSettings.azureTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-VlastaNeural';
         if (result.popupSettings.targetLanguage) {
           this._targetLang = result.popupSettings.targetLanguage;
           this._langConfig = getLanguageConfig(this._targetLang);
+        }
+        // Restore saved browser voice preference
+        if (result.popupSettings.browserVoiceName) {
+          this.setVoice(result.popupSettings.browserVoiceName);
         }
       }
     } catch (e) {}
@@ -59,7 +68,10 @@ class TTSEngine {
     this._langConfig = getLanguageConfig(langCode);
     this.selectedVoice = null;
     this.voiceReady = false;
-    this._azureVoice = this._langConfig.azureVoices[0]?.id || this._azureVoice;
+    // Only reset Azure voice if no matching voice for new language is already set
+    if (!this._azureVoice || !this._azureVoice.startsWith(langCode)) {
+      this._azureVoice = this._langConfig.azureVoices[0]?.id || this._azureVoice;
+    }
     this._initVoice();
   }
 
@@ -130,6 +142,15 @@ class TTSEngine {
   }
 
   async waitForVoice() {
+    // Ensure TTS settings are loaded before proceeding
+    await this._loadTTSSettings();
+
+    // Azure TTS doesn't need browser voice selection
+    if (this._ttsEngine === 'azure' || this._ttsEngine === 'edge') {
+      this.voiceReady = true;
+      return;
+    }
+
     if (this.voiceReady && this.selectedVoice) return;
     return new Promise(resolve => {
       const check = () => {
@@ -160,6 +181,23 @@ class TTSEngine {
   }
 
   getVoiceInfo() {
+    if (this._ttsEngine === 'edge') {
+      const voiceLabel = this._edgeVoice.includes('Antonin') ? 'Antonín (muž)' : 'Vlasta (žena)';
+      return {
+        available: true,
+        name: `Edge: ${voiceLabel}`,
+        lang: this._edgeVoice.substring(0, 5),
+        isTargetLang: this._edgeVoice.startsWith(this._targetLang)
+      };
+    }
+    if (this._ttsEngine === 'azure') {
+      return {
+        available: true,
+        name: `Azure: ${this._azureVoice}`,
+        lang: this._azureVoice.substring(0, 5),
+        isTargetLang: this._azureVoice.startsWith(this._targetLang)
+      };
+    }
     if (this.selectedVoice) {
       return {
         available: true,
@@ -180,17 +218,47 @@ class TTSEngine {
   get czechVoice() { return this.selectedVoice; }
 
   speak(text, options = {}) {
-    if (!text || text.trim().length === 0) return Promise.resolve();
+    if (!text || text.replace(/[.\s!?,;:…]+/g, '').length === 0) return Promise.resolve();
+    console.log(`[Dub TTS] speak() engine=${this._ttsEngine}, edgeVoice=${this._edgeVoice}`);
 
     // Service mode: use centralized TTS API
     if (this._serviceClient?.isServiceMode()) {
       return this._speakService(text, options);
     }
 
+    if (this._ttsEngine === 'edge') {
+      return this._speakEdge(text, options);
+    }
     if (this._ttsEngine === 'azure' && this._azureKey) {
       return this._speakAzure(text, options);
     }
     return this._speakBrowser(text, options);
+  }
+
+  /**
+   * Speak with a specific speaker role (M/F/C/N).
+   * Dynamically selects voice and adjusts pitch/rate based on role config.
+   * Falls back to default speak() if role is null or engine is not edge.
+   */
+  speakAs(text, role, options = {}) {
+    if (!role || this._ttsEngine !== 'edge') {
+      return this.speak(text, options);
+    }
+
+    const roleConfig = this._langConfig.voiceRoles?.[role];
+    if (!roleConfig) {
+      return this.speak(text, options);
+    }
+
+    const roleOptions = {
+      ...options,
+      _edgeVoiceOverride: roleConfig.edge,
+      pitch: (options.pitch ?? this.pitch) * roleConfig.pitch,
+      rate: (options.rate ?? this.rate) * roleConfig.rate
+    };
+
+    console.log(`[Dub TTS] speakAs(${role}) voice=${roleConfig.edge}, pitch=${roleOptions.pitch}, rate=${roleOptions.rate}`);
+    return this._speakEdge(text, roleOptions);
   }
 
   async _speakService(text, options) {
@@ -254,7 +322,45 @@ class TTSEngine {
     });
   }
 
+  async _speakEdge(text, options) {
+    let fallback = false;
+    try {
+      this.isSpeaking = true;
+      if (this.onSpeakStart) this.onSpeakStart(text);
+
+      const response = await chrome.runtime.sendMessage({
+        type: 'synthesize-edge-tts',
+        text,
+        voice: options._edgeVoiceOverride || this._edgeVoice,
+        rate: options.rate ?? this.rate,
+        pitch: options.pitch ?? this.pitch
+      });
+
+      if (!response?.success) {
+        console.error('[Dub TTS] Edge TTS FAILED:', response?.error, '→ fallback to Zuzana');
+        fallback = true;
+      } else {
+        console.log(`[Dub TTS] Edge TTS OK: ${response.audioBase64?.length} chars`);
+        await this._playBase64Audio(response.audioBase64, options);
+      }
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return;
+      console.error('[Dub TTS] Edge TTS EXCEPTION → fallback to Zuzana:', e.message);
+      fallback = true;
+    } finally {
+      if (!fallback) {
+        this.isSpeaking = false;
+        this._currentAudio = null;
+        if (this.onSpeakEnd) this.onSpeakEnd(text);
+      }
+    }
+    if (fallback) {
+      return this._speakBrowser(text, options);
+    }
+  }
+
   async _speakAzure(text, options) {
+    let fallback = false;
     try {
       this.isSpeaking = true;
       if (this.onSpeakStart) this.onSpeakStart(text);
@@ -272,18 +378,23 @@ class TTSEngine {
 
       if (!response?.success) {
         console.warn('[Dub TTS] Azure error:', response?.error);
-        return this._speakBrowser(text, options);
+        fallback = true;
+      } else {
+        await this._playBase64Audio(response.audioBase64, options);
       }
-
-      await this._playBase64Audio(response.audioBase64, options);
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.warn('[Dub TTS] Azure TTS failed, falling back to browser:', e);
-      return this._speakBrowser(text, options);
+      fallback = true;
     } finally {
-      this.isSpeaking = false;
-      this._currentAudio = null;
-      if (this.onSpeakEnd) this.onSpeakEnd(text);
+      if (!fallback) {
+        this.isSpeaking = false;
+        this._currentAudio = null;
+        if (this.onSpeakEnd) this.onSpeakEnd(text);
+      }
+    }
+    if (fallback) {
+      return this._speakBrowser(text, options);
     }
   }
 

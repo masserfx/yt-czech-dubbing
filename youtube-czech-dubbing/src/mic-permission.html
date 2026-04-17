@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      text-align: center;
+      padding: 24px;
+    }
+    .mic-icon {
+      width: 48px;
+      height: 48px;
+      fill: #e74c3c;
+      margin-bottom: 16px;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 0.7; }
+    }
+    h2 { font-size: 16px; margin-bottom: 8px; font-weight: 600; }
+    p { font-size: 13px; color: #aaa; margin-bottom: 20px; }
+    .status { font-size: 13px; color: #3498db; }
+    .status.error { color: #e74c3c; }
+    .status.ok { color: #2ecc71; }
+  </style>
+</head>
+<body>
+  <svg class="mic-icon" viewBox="0 0 24 24">
+    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-1-9a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+  </svg>
+  <h2>Povolte mikrofon</h2>
+  <p>YouTube Dubbing AI potřebuje přístup k mikrofonu pro hlasový vstup.</p>
+  <div class="status" id="status">Čekám na povolení...</div>
+
+  <script>
+    (async () => {
+      const statusEl = document.getElementById('status');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+        statusEl.textContent = 'Mikrofon povolen!';
+        statusEl.className = 'status ok';
+        chrome.runtime.sendMessage({ type: 'mic-permission-result', granted: true });
+      } catch (e) {
+        statusEl.textContent = 'Přístup zamítnut';
+        statusEl.className = 'status error';
+        chrome.runtime.sendMessage({ type: 'mic-permission-result', granted: false });
+      }
+    })();
+  </script>
+</body>
+</html>

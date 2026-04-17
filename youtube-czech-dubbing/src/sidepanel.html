@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #11457e 0%, #d7141a 100%);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .header-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .header-btn {
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .header-btn:hover { background: rgba(255,255,255,0.25); }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px 8px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      color: #888;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab:hover { color: #ccc; }
+    .tab.active { color: #3498db; border-bottom-color: #3498db; }
+
+    /* Tab content */
+    .tab-content {
+      flex: 1;
+      overflow-y: auto;
+      display: none;
+    }
+    .tab-content.active { display: flex; flex-direction: column; }
+
+    /* Context section */
+    .context-section {
+      padding: 12px 16px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+    .context-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .context-meta {
+      font-size: 12px;
+      color: #888;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .context-badge {
+      background: rgba(52,152,219,0.15);
+      color: #3498db;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+    }
+    .context-badge.ai { background: rgba(155,89,182,0.15); color: #9b59b6; }
+    .context-badge.audio { background: rgba(46,204,113,0.15); color: #2ecc71; }
+
+    /* Dubbing controls */
+    .dub-controls {
+      padding: 12px 16px;
+      flex-shrink: 0;
+    }
+    .dub-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .dub-btn {
+      background: linear-gradient(135deg, #11457e, #1a6bc4);
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .dub-btn:hover { filter: brightness(1.15); }
+    .dub-btn.stop { background: linear-gradient(135deg, #c0392b, #e74c3c); }
+    .dub-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .dub-btn-sm {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      color: #aaa;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .dub-btn-sm:hover { color: #e0e0e0; border-color: #3498db; }
+    .dub-btn-sm.active { background: #11457e; color: white; border-color: #3498db; }
+    .dub-progress {
+      width: 100%;
+      height: 3px;
+      background: #0f3460;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .dub-progress-bar {
+      height: 100%;
+      background: #3498db;
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .dub-status {
+      font-size: 12px;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    /* Chat */
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+    .chat-msg {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+    .chat-msg.user { align-items: flex-end; }
+    .chat-msg.bot { align-items: flex-start; }
+    .chat-bubble {
+      max-width: 85%;
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      word-wrap: break-word;
+    }
+    .chat-msg.user .chat-bubble {
+      background: #11457e;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-msg.bot .chat-bubble {
+      background: #16213e;
+      color: #e0e0e0;
+      border: 1px solid #0f3460;
+      border-bottom-left-radius: 4px;
+    }
+    .chat-msg.bot .chat-bubble.error {
+      border-color: #e74c3c;
+      color: #e74c3c;
+    }
+
+    /* Markdown formatting inside bot bubbles */
+    .chat-bubble p { margin: 0 0 8px 0; }
+    .chat-bubble p:last-child { margin-bottom: 0; }
+    .chat-bubble h2, .chat-bubble h3, .chat-bubble h4, .chat-bubble h5 {
+      font-size: 13px;
+      font-weight: 700;
+      margin: 10px 0 4px 0;
+      color: #fff;
+    }
+    .chat-bubble h2:first-child, .chat-bubble h3:first-child { margin-top: 0; }
+    .chat-bubble ul, .chat-bubble ol {
+      margin: 6px 0;
+      padding-left: 20px;
+    }
+    .chat-bubble li { margin-bottom: 3px; }
+    .chat-bubble strong { color: #fff; font-weight: 600; }
+    .chat-bubble em { font-style: italic; color: #b0b0b0; }
+    .chat-bubble code {
+      background: rgba(255,255,255,0.08);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 12px;
+      color: #5dade2;
+    }
+    .chat-bubble pre {
+      background: #0d1b2a;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin: 6px 0;
+      overflow-x: auto;
+    }
+    .chat-bubble pre code {
+      background: none;
+      padding: 0;
+      color: #c0c0c0;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .chat-typing {
+      display: flex;
+      gap: 4px;
+      padding: 8px 12px;
+    }
+    .chat-typing span {
+      width: 6px;
+      height: 6px;
+      background: #3498db;
+      border-radius: 50%;
+      animation: typing 1.2s infinite;
+    }
+    .chat-typing span:nth-child(2) { animation-delay: 0.2s; }
+    .chat-typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing {
+      0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-4px); }
+    }
+    .chat-welcome {
+      text-align: center;
+      padding: 24px 16px;
+      color: #666;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .chat-welcome-icon { font-size: 36px; margin-bottom: 8px; }
+    .chat-suggestion {
+      display: inline-block;
+      background: #16213e;
+      border: 1px solid #0f3460;
+      color: #aaa;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      cursor: pointer;
+      margin: 3px;
+    }
+    .chat-suggestion:hover { color: #3498db; border-color: #3498db; }
+
+    /* Token bar */
+    .token-bar {
+      display: none;
+      padding: 4px 12px;
+      background: #16213e;
+      border-top: 1px solid #0f3460;
+      font-size: 11px;
+      color: #888;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .token-bar.visible { display: flex; }
+    .token-cost { color: #27ae60; font-weight: 500; }
+    .token-cost.paid { color: #e67e22; }
+
+    /* Chat action bar */
+    .chat-actions {
+      display: none;
+      padding: 4px 12px;
+      background: #16213e;
+      gap: 4px;
+      justify-content: flex-end;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .chat-actions.visible { display: flex; }
+    .chat-action-btn {
+      background: transparent;
+      border: 1px solid #0f3460;
+      color: #888;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .chat-action-btn:hover { color: #3498db; border-color: #3498db; }
+    .chat-action-btn.active { color: #e67e22; border-color: #e67e22; }
+    .chat-action-btn.flash { color: #27ae60; border-color: #27ae60; }
+
+    /* Pause banner */
+    .chat-paused-banner {
+      display: none;
+      padding: 6px 12px;
+      background: #7f3400;
+      color: #fdebd0;
+      font-size: 12px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .chat-paused-banner.visible { display: block; }
+
+    /* TTS toggle */
+    .chat-tts {
+      background: #2c3e50;
+      border: none;
+      color: #e0e0e0;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+    .chat-tts:hover { background: #34495e; }
+    .chat-tts.active {
+      background: #27ae60;
+      color: white;
+    }
+    .chat-tts.speaking {
+      animation: tts-pulse 1s infinite;
+    }
+    @keyframes tts-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(39, 174, 96, 0); }
+    }
+
+    /* Chat input */
+    .chat-input-area {
+      padding: 8px 12px;
+      border-top: 1px solid #0f3460;
+      background: #16213e;
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+    .chat-input {
+      flex: 1;
+      background: #1a1a2e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      color: #e0e0e0;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      min-height: 36px;
+      max-height: 100px;
+    }
+    .chat-input:focus { border-color: #3498db; }
+    .chat-input::placeholder { color: #555; }
+    .chat-send {
+      background: #3498db;
+      border: none;
+      color: white;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .chat-send:hover { background: #2980b9; }
+    .chat-send:disabled { background: #555; cursor: not-allowed; }
+
+    /* Voice button */
+    .chat-voice {
+      background: #2c3e50;
+      border: none;
+      color: #e0e0e0;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .chat-voice:hover { background: #34495e; }
+    .chat-voice.recording {
+      background: #e74c3c;
+      color: white;
+      animation: voice-pulse 1s infinite;
+    }
+    @keyframes voice-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+    }
+    .voice-hint {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      right: 0;
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
+      white-space: nowrap;
+      color: #aaa;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .chat-voice:hover .voice-hint { opacity: 1; }
+
+    /* SVG inline icons */
+    .icon {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      vertical-align: -0.125em;
+      fill: currentColor;
+      flex-shrink: 0;
+    }
+    .icon-lg { width: 1.3em; height: 1.3em; }
+    .icon-xl { width: 2.4em; height: 2.4em; }
+
+    /* Voice visualizer overlay */
+    .voice-viz {
+      display: none;
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      background: linear-gradient(0deg, #16213e 0%, rgba(22,33,62,0.95) 100%);
+      border-top: 1px solid #e74c3c;
+      padding: 10px 16px 6px;
+      align-items: center;
+      gap: 10px;
+    }
+    .voice-viz.active { display: flex; }
+    .voice-viz-label {
+      font-size: 11px;
+      color: #e74c3c;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .voice-viz-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #e74c3c;
+      animation: voice-dot-blink 1s infinite;
+    }
+    @keyframes voice-dot-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.2; }
+    }
+    .voice-viz canvas {
+      flex: 1;
+      height: 32px;
+      border-radius: 4px;
+    }
+    .voice-viz-time {
+      font-size: 11px;
+      color: #aaa;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+      min-width: 28px;
+      text-align: right;
+    }
+
+    /* Settings panel */
+    .settings-panel {
+      padding: 12px 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .setting-group { margin-bottom: 12px; }
+    .setting-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    .setting-value { color: #e0e0e0; font-weight: 500; }
+    select, input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 6px 8px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+    }
+    select:focus, input:focus { border-color: #3498db; }
+    input[type="range"] {
+      width: 100%;
+      height: 4px;
+      -webkit-appearance: none;
+      background: #0f3460;
+      border-radius: 2px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #3498db;
+      cursor: pointer;
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+    .checkbox-group input { accent-color: #3498db; }
+    .setting-divider {
+      border-top: 1px solid #0f3460;
+      margin: 12px 0;
+      padding-top: 12px;
+    }
+    .hint { font-size: 11px; color: #555; margin-top: 3px; }
+
+    /* Citation badges */
+    .citation-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #1a5276;
+      color: #85c1e9;
+      font-size: 10px;
+      font-weight: 700;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      cursor: pointer;
+      vertical-align: super;
+      line-height: 1;
+      margin: 0 1px;
+      transition: background 0.2s;
+    }
+    .citation-badge:hover {
+      background: #2980b9;
+      color: white;
+    }
+
+    /* Citation tooltip */
+    .citation-tooltip {
+      position: fixed;
+      z-index: 9999;
+      width: 250px;
+      background: #1a1a2e;
+      border: 1px solid #3498db;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      overflow: hidden;
+      animation: cite-fade 0.15s ease;
+    }
+    @keyframes cite-fade {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .citation-tooltip-header {
+      background: #16213e;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #3498db;
+    }
+    .citation-tooltip-body {
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #ccc;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    /* Usage stats */
+    .usage-stats { margin-top: 6px; }
+    .usage-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      font-size: 12px;
+      color: #aaa;
+      border-bottom: 1px solid #0f346033;
+    }
+    .usage-label { flex: 1; }
+    .usage-val { width: 70px; text-align: right; font-family: monospace; font-size: 11px; }
+    .api-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: #3498db;
+      cursor: pointer;
+      text-decoration: none;
+      margin-top: 3px;
+    }
+    .api-link:hover { color: #5dade2; text-decoration: underline; }
+  </style>
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none;">
+    <symbol id="ico-speaker" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.013 9.013 0 0 0 14 3.23z"/></symbol>
+    <symbol id="ico-chat" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></symbol>
+    <symbol id="ico-settings" viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a6.93 6.93 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.484.484 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></symbol>
+    <symbol id="ico-refresh" viewBox="0 0 24 24"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L14 10h7V3l-3.35 3.35z"/></symbol>
+    <symbol id="ico-robot" viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7v1H3v-1a7 7 0 0 1 7-7h1V5.73A2 2 0 0 1 12 2zm-4 14a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM3 18h18v2H3v-2z"/></symbol>
+    <symbol id="ico-mic" viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-1-9a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></symbol>
+    <symbol id="ico-send" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></symbol>
+    <symbol id="ico-link" viewBox="0 0 24 24"><path d="M3.9 12A3.1 3.1 0 0 1 7 8.9h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 0 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z"/></symbol>
+    <symbol id="ico-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+    <symbol id="ico-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
+    <symbol id="ico-prev" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></symbol>
+    <symbol id="ico-next" viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></symbol>
+    <symbol id="ico-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></symbol>
+    <symbol id="ico-export" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></symbol>
+    <symbol id="ico-share" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 1 0 14 5c0 .24.04.47.09.7L7.04 9.81A2.99 2.99 0 0 0 4 12a3 3 0 0 0 3.04 3l7.05 4.11A2.98 2.98 0 0 0 18 22a3 3 0 1 0 0-5.92z"/></symbol>
+    <symbol id="ico-notes" viewBox="0 0 24 24"><path d="M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z"/></symbol>
+    <symbol id="ico-copy" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></symbol>
+  </svg>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-title">
+      <span id="headerFlag">&#x1F1E8;&#x1F1FF;</span>
+      YouTube Dubbing AI
+    </div>
+    <div class="header-actions">
+      <button class="header-btn" id="btnRefresh" title="Obnovit kontext"><svg class="icon"><use href="#ico-refresh"/></svg></button>
+      <button class="header-btn" id="btnSettings" title="Nastaven&#xED;"><svg class="icon"><use href="#ico-settings"/></svg></button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-tab="dubbing"><svg class="icon"><use href="#ico-speaker"/></svg> Dabing</div>
+    <div class="tab" data-tab="chat"><svg class="icon"><use href="#ico-chat"/></svg> Chat AI</div>
+    <div class="tab" data-tab="settings"><svg class="icon"><use href="#ico-settings"/></svg> Nastaven&#xED;</div>
+  </div>
+
+  <!-- Tab: Dubbing -->
+  <div class="tab-content active" id="tab-dubbing">
+    <div class="context-section" id="contextSection">
+      <div class="context-title" id="contextTitle">Na&#x10D;&#xED;t&#xE1;n&#xED;...</div>
+      <div class="context-meta" id="contextMeta"></div>
+    </div>
+    <div class="dub-controls">
+      <div class="dub-row">
+        <button class="dub-btn" id="btnDub">
+          <span id="btnDubIcon"><svg class="icon"><use href="#ico-play"/></svg></span>
+          <span id="btnDubText">Spustit dabing</span>
+        </button>
+      </div>
+      <div class="dub-row">
+        <button class="dub-btn-sm" id="btnPrev" title="P&#x159;edchoz&#xED;"><svg class="icon"><use href="#ico-prev"/></svg></button>
+        <button class="dub-btn-sm" id="btnModeSummary">Shrnut&#xED;</button>
+        <button class="dub-btn-sm" id="btnModeFull">Cel&#xFD; &#x10D;l&#xE1;nek</button>
+        <button class="dub-btn-sm" id="btnNext" title="Dal&#x161;&#xED;"><svg class="icon"><use href="#ico-next"/></svg></button>
+        <button class="dub-btn-sm" id="btnStop" title="Stop"><svg class="icon"><use href="#ico-stop"/></svg></button>
+      </div>
+      <div class="dub-progress">
+        <div class="dub-progress-bar" id="dubProgress"></div>
+      </div>
+      <div class="dub-status" id="dubStatus">P&#x159;ipraveno</div>
+    </div>
+  </div>
+
+  <!-- Tab: Chat -->
+  <div class="tab-content" id="tab-chat">
+    <div class="chat-container">
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-welcome">
+          <div class="chat-welcome-icon"><svg class="icon icon-xl"><use href="#ico-robot"/></svg></div>
+          <div>Zeptejte se na cokoliv o obsahu str&#xE1;nky.<br>
+          Pou&#x17E;&#xED;v&#xE1;m Gemini Flash-Lite pro rychl&#xE9; odpov&#x11B;di.</div>
+          <div style="margin-top: 10px;">
+            <span class="chat-suggestion" data-q="O &#x10D;em je tento &#x10D;l&#xE1;nek?">O &#x10D;em je tento &#x10D;l&#xE1;nek?</span>
+            <span class="chat-suggestion" data-q="Shrň hlavn&#xED; body">Shrň hlavn&#xED; body</span>
+            <span class="chat-suggestion" data-q="Co je nejdůležitější?">Co je nejdůležitější?</span>
+          </div>
+        </div>
+      </div>
+      <div style="position:relative;">
+        <div class="voice-viz" id="voiceViz">
+          <div class="voice-viz-label"><div class="voice-viz-dot"></div>Nahr&#xE1;v&#xE1;m</div>
+          <canvas id="voiceCanvas"></canvas>
+          <div class="voice-viz-time" id="voiceTime">0s</div>
+        </div>
+      </div>
+      <div class="token-bar" id="tokenBar">
+        <span class="token-info" id="tokenInfo">0 tokenů</span>
+        <span class="token-cost" id="tokenCost">$0.000</span>
+      </div>
+      <div class="chat-paused-banner" id="pausedBanner">Dialog pozastaven</div>
+      <div class="chat-actions" id="chatActions">
+        <button class="chat-action-btn" id="btnPause" title="Pozastavit dialog"><svg class="icon"><use href="#ico-pause"/></svg></button>
+        <button class="chat-action-btn" id="btnCopy" title="Kop&#xED;rovat konverzaci"><svg class="icon"><use href="#ico-copy"/></svg></button>
+        <button class="chat-action-btn" id="btnExport" title="Exportovat (Markdown)"><svg class="icon"><use href="#ico-export"/></svg></button>
+        <button class="chat-action-btn" id="btnNotes" title="Ulo&#x17E;it do Pozn&#xE1;mek"><svg class="icon"><use href="#ico-notes"/></svg></button>
+        <button class="chat-action-btn" id="btnShare" title="Sd&#xED;let"><svg class="icon"><use href="#ico-share"/></svg></button>
+      </div>
+      <div class="chat-input-area">
+        <textarea class="chat-input" id="chatInput" placeholder="Zeptejte se... (dr&#x17E; mezern&#xED;k = hlas)" rows="1"></textarea>
+        <button class="chat-voice" id="btnVoice" title="Hlasov&#xFD; vstup (dr&#x17E;te mezern&#xED;k)"><svg class="icon icon-lg"><use href="#ico-mic"/></svg><span class="voice-hint">Dr&#x17E;te mezern&#xED;k</span></button>
+        <button class="chat-tts" id="btnTts" title="Hlasov&#xFD; dialog"><svg class="icon icon-lg"><use href="#ico-speaker"/></svg></button>
+        <button class="chat-send" id="btnSend" title="Odeslat"><svg class="icon icon-lg"><use href="#ico-send"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Settings -->
+  <div class="tab-content" id="tab-settings">
+    <div class="settings-panel">
+      <div class="setting-group">
+        <div class="setting-label"><span data-i18n="langLabel">Jazyk dabingu</span></div>
+        <select id="targetLanguage">
+          <optgroup label="Střední Evropa">
+            <option value="cs">Čeština</option>
+            <option value="sk">Slovenčina</option>
+            <option value="pl">Polski</option>
+            <option value="hu">Magyar</option>
+            <option value="de">Deutsch</option>
+            <option value="nl">Nederlands</option>
+            <option value="ro">Română</option>
+            <option value="bg">Български</option>
+          </optgroup>
+          <optgroup label="Západní Evropa">
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+            <option value="es">Español</option>
+            <option value="pt">Português</option>
+            <option value="it">Italiano</option>
+            <option value="el">Ελληνικά</option>
+          </optgroup>
+          <optgroup label="Skandinávie">
+            <option value="sv">Svenska</option>
+            <option value="da">Dansk</option>
+            <option value="nb">Norsk</option>
+            <option value="fi">Suomi</option>
+          </optgroup>
+          <optgroup label="Východní Evropa">
+            <option value="ru">Русский</option>
+            <option value="uk">Українська</option>
+            <option value="tr">Türkçe</option>
+          </optgroup>
+          <optgroup label="Asie">
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+            <option value="zh">中文 (简体)</option>
+            <option value="zh-TW">中文 (繁體)</option>
+            <option value="hi">हिन्दी</option>
+            <option value="th">ไทย</option>
+            <option value="vi">Tiếng Việt</option>
+            <option value="id">Bahasa Indonesia</option>
+            <option value="ar">العربية</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <div class="setting-label"><span data-i18n="translatorLabel">Překladač</span></div>
+        <select id="translatorEngine">
+          <option value="chromeai">Chrome AI (on-device, zdarma)</option>
+          <option value="google">Google Translate (zdarma)</option>
+          <option value="gemini">Gemini Flash-Lite (zdarma, API kl&#xED;&#x10D;)</option>
+          <option value="deepl">DeepL (500k zn./m&#x11B;s. zdarma)</option>
+          <option value="claude">Claude Haiku 4.5 (API kl&#xED;&#x10D;)</option>
+        </select>
+      </div>
+
+      <div class="setting-group" id="deeplKeyGroup" style="display:none;">
+        <div class="setting-label"><span data-i18n="deeplKey">DeepL API klíč</span></div>
+        <input type="password" id="deeplApiKey" placeholder="xxxxxxxx-xxxx:fx">
+        <a class="api-link" data-url="https://www.deepl.com/your-account/keys"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat DeepL API kl&#xED;&#x10D; (500k zn./m&#x11B;s. zdarma)</a>
+      </div>
+
+      <div class="setting-group" id="apiKeyGroup" style="display:none;">
+        <div class="setting-label"><span data-i18n="claudeKey">Anthropic API klíč</span></div>
+        <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
+        <a class="api-link" data-url="https://console.anthropic.com/settings/keys"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat Claude API kl&#xED;&#x10D; (console.anthropic.com)</a>
+      </div>
+
+      <div class="setting-divider"></div>
+
+      <div class="setting-group">
+        <div class="setting-label"><span data-i18n="aiBackend">AI backend (Chat)</span></div>
+        <select id="aiBackend">
+          <option value="gemini">Gemini Flash-Lite (cloud, free tier)</option>
+          <option value="ollama">Ollama (lok&#xE1;ln&#xED;, offline, zdarma)</option>
+        </select>
+      </div>
+
+      <div class="setting-group" id="geminiKeyGroup">
+        <div class="setting-label"><span data-i18n="geminiKey">Gemini API klíč (Chat AI)</span></div>
+        <input type="password" id="geminiApiKey" placeholder="AIza...">
+        <a class="api-link" data-url="https://aistudio.google.com/apikey"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat Gemini API kl&#xED;&#x10D; (Google AI Studio)</a>
+        <div class="hint">Flash-Lite: free tier k dispozici</div>
+      </div>
+
+      <div class="setting-group" id="ollamaGroup" style="display:none;">
+        <div class="setting-label"><span data-i18n="ollamaUrl">Ollama URL</span></div>
+        <input type="text" id="ollamaUrl" placeholder="http://localhost:11434" value="http://localhost:11434">
+        <div class="setting-label" style="margin-top:6px;"><span data-i18n="ollamaModel">Model</span></div>
+        <select id="ollamaModel">
+          <option value="">Na&#x10D;&#xED;t&#xE1;m modely...</option>
+        </select>
+        <button class="chat-action-btn" id="btnOllamaRefresh" title="Obnovit modely" style="margin-top:6px;width:auto;padding:4px 10px;font-size:11px;display:inline-flex;gap:4px;">
+          <svg class="icon" style="width:12px;height:12px;"><use href="#ico-refresh"/></svg> Obnovit
+        </button>
+        <div class="hint" id="ollamaStatus">Ollama: nekontrolováno</div>
+        <div class="hint" style="margin-top:4px;color:#888;">
+          Vy&#x17E;aduje otev&#x159;enou webovou str&#xE1;nku (nap&#x159;. YouTube)
+        </div>
+      </div>
+
+      <div class="setting-divider"></div>
+
+      <div class="setting-group">
+        <div class="setting-label">
+          <span data-i18n="volumeLabel">Hlasitost dabingu</span>
+          <span class="setting-value" id="volumeValue">95%</span>
+        </div>
+        <input type="range" id="ttsVolume" min="0" max="100" value="95">
+      </div>
+
+      <div class="setting-group">
+        <div class="setting-label">
+          <span data-i18n="rateLabel">Rychlost řeči</span>
+          <span class="setting-value" id="rateValue">1.3x</span>
+        </div>
+        <input type="range" id="ttsRate" min="50" max="200" value="125">
+      </div>
+
+      <div class="setting-group">
+        <div class="setting-label">
+          <span data-i18n="origVolLabel">Hlasitost originálu</span>
+          <span class="setting-value" id="origVolValue">15%</span>
+        </div>
+        <input type="range" id="originalVolume" min="0" max="100" value="15">
+      </div>
+
+      <div class="checkbox-group">
+        <input type="checkbox" id="muteOriginal">
+        <label for="muteOriginal" data-i18n="muteOrig">Úplně ztlumit originál</label>
+      </div>
+
+      <div class="setting-divider"></div>
+
+      <div class="setting-group">
+        <div class="setting-label"><span data-i18n="ttsLabel">Hlasový engine (TTS)</span></div>
+        <select id="ttsEngine">
+          <option value="browser">Zuzana &#x2014; &#x17E;ensk&#xFD; (syst&#xE9;mov&#xFD;, zdarma)</option>
+          <option value="edge-male">Anton&#xED;n &#x2014; mu&#x17E;sk&#xFD; (zdarma, bez kl&#xED;&#x10D;e)</option>
+          <option value="edge-female">Vlasta &#x2014; &#x17E;ensk&#xFD; (zdarma, bez kl&#xED;&#x10D;e)</option>
+          <option value="azure">Azure TTS (vlastn&#xED; nastaven&#xED;)</option>
+        </select>
+      </div>
+
+      <div class="setting-group" id="azureTtsGroup" style="display:none;">
+        <div class="setting-label"><span data-i18n="azureKey">Azure Speech klíč</span></div>
+        <input type="password" id="azureTtsKey" placeholder="xxxxxxxx...">
+        <a class="api-link" data-url="https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices"><svg class="icon" style="width:12px;height:12px;"><use href="#ico-link"/></svg> Z&#xED;skat Azure Speech kl&#xED;&#x10D; (portal.azure.com)</a>
+        <div class="setting-label" style="margin-top:6px;"><span>Region</span></div>
+        <input type="text" id="azureTtsRegion" placeholder="westeurope" value="westeurope">
+        <div class="setting-label" style="margin-top:6px;"><span>Hlas</span></div>
+        <select id="azureTtsVoice">
+          <optgroup label="&#x1F1E8;&#x1F1FF; &#x10C;e&#x161;tina">
+            <option value="cs-CZ-VlastaNeural">Vlasta (cs-CZ)</option>
+            <option value="cs-CZ-AntoninNeural">Anton&#xED;n (cs-CZ)</option>
+          </optgroup>
+          <optgroup label="&#x1F1F8;&#x1F1F0; Sloven&#x10D;ina">
+            <option value="sk-SK-ViktoriaNeural">Vikt&#xF3;ria (sk-SK)</option>
+            <option value="sk-SK-LukasNeural">Luk&#xE1;&#x161; (sk-SK)</option>
+          </optgroup>
+          <optgroup label="&#x1F1F5;&#x1F1F1; Polski">
+            <option value="pl-PL-AgnieszkaNeural">Agnieszka (pl-PL)</option>
+            <option value="pl-PL-MarekNeural">Marek (pl-PL)</option>
+          </optgroup>
+          <optgroup label="&#x1F1ED;&#x1F1FA; Magyar">
+            <option value="hu-HU-NoemiNeural">No&#xE9;mi (hu-HU)</option>
+            <option value="hu-HU-TamasNeural">Tam&#xE1;s (hu-HU)</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="setting-divider"></div>
+
+      <div class="setting-group">
+        <div class="setting-label" style="font-weight:600;">VoiceDub B2B API (staging)</div>
+        <div class="checkbox-group" style="margin-top:6px;">
+          <input type="checkbox" id="voicedubMode">
+          <label for="voicedubMode">Použít VoiceDub API (překlad + TTS v 1 volání)</label>
+        </div>
+        <div id="voicedubConfigGroup" style="display:none; margin-top:8px;">
+          <div class="setting-label"><span>API klíč</span></div>
+          <input type="password" id="voicedubApiKey" placeholder="vd_live_... nebo vd_test_..."
+            style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+          <div class="setting-label" style="margin-top:6px;"><span>Endpoint (výchozí: staging)</span></div>
+          <input type="text" id="voicedubEndpoint" placeholder="https://voicedub-api.masserfx.workers.dev"
+            style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+          <div style="font-size:10px;color:#2ecc71;margin-top:4px;">AI Act čl. 50 watermark default ON.</div>
+        </div>
+        <div style="font-size:10px;color:#555;margin-top:6px;">Unified /v1/dub endpoint, staging zdarma 500k zn./měs (Azure F0).</div>
+      </div>
+
+      <div class="setting-divider"></div>
+
+      <div class="setting-group">
+        <div class="setting-label" style="font-weight:600;">API Usage</div>
+        <div class="usage-stats" id="usageStats">
+          <div class="usage-row">
+            <span class="usage-label">Session</span>
+            <span class="usage-val" id="usageSessTokens">0</span>
+            <span class="usage-val" id="usageSessCost">$0.00</span>
+          </div>
+          <div class="usage-row">
+            <span class="usage-label">Today</span>
+            <span class="usage-val" id="usageTodayTokens">0</span>
+            <span class="usage-val" id="usageTodayCost">$0.00</span>
+          </div>
+          <div class="usage-row">
+            <span class="usage-label">Week</span>
+            <span class="usage-val" id="usageWeekTokens">0</span>
+            <span class="usage-val" id="usageWeekCost">$0.00</span>
+          </div>
+          <div class="usage-row">
+            <span class="usage-label">Month</span>
+            <span class="usage-val" id="usageMonthTokens">0</span>
+            <span class="usage-val" id="usageMonthCost">$0.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

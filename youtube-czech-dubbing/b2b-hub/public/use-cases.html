@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceDub AI — Priklady pouziti</title>
+  <style>
+    :root { --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #e2e8f0; --muted: #94a3b8; --dim: #64748b; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    .header { padding: 32px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; }
+    .header h1 { font-size: 24px; }
+    .header p { color: var(--muted); font-size: 14px; }
+    .back-link { color: #60a5fa; text-decoration: none; font-size: 14px; margin-left: auto; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 32px; }
+
+    .case-section { margin-bottom: 48px; }
+    .case-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center; margin-bottom: 32px; }
+    .case-hero.reverse { direction: rtl; }
+    .case-hero.reverse > * { direction: ltr; }
+    .case-text { }
+    .case-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 8px; margin-bottom: 12px; }
+    .case-text h2 { font-size: 28px; font-weight: 800; margin-bottom: 8px; line-height: 1.2; }
+    .case-text .desc { color: var(--muted); font-size: 15px; line-height: 1.6; margin-bottom: 16px; }
+    .case-stats { display: flex; gap: 24px; margin-bottom: 16px; }
+    .case-stat { }
+    .case-stat .val { font-size: 28px; font-weight: 800; }
+    .case-stat .lbl { font-size: 12px; color: var(--dim); }
+
+    .case-visual { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; min-height: 260px; display: flex; align-items: center; justify-content: center; }
+    .case-visual svg { width: 100%; max-width: 320px; height: auto; }
+
+    .scenario { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 16px; }
+    .scenario h4 { font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .scenario h4 svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .scenario p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .scenario .highlight-box { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); border-radius: 8px; padding: 12px; margin-top: 10px; font-size: 12px; }
+    .scenario .highlight-box strong { color: #60a5fa; }
+
+    .comparison-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+    .comparison-table th { text-align: left; padding: 10px 14px; background: var(--border); color: #f1f5f9; border-radius: 0; }
+    .comparison-table th:first-child { border-radius: 8px 0 0 0; }
+    .comparison-table th:last-child { border-radius: 0 8px 0 0; }
+    .comparison-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .comparison-table .winner { color: #4ade80; font-weight: 700; }
+    .comparison-table .loser { color: #f87171; }
+
+    .flow-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+    .flow-step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; position: relative; }
+    .flow-step::after { content: '\2192'; position: absolute; right: -10px; top: 50%; transform: translateY(-50%); color: var(--dim); font-size: 16px; }
+    .flow-step:last-child::after { display: none; }
+    .flow-step .step-num { width: 28px; height: 28px; border-radius: 50%; background: #3b82f622; color: #60a5fa; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; margin: 0 auto 8px; }
+    .flow-step h5 { font-size: 12px; margin-bottom: 4px; }
+    .flow-step p { font-size: 11px; color: var(--dim); }
+
+    .divider { height: 1px; background: var(--border); margin: 48px 0; }
+
+    @media (max-width: 768px) {
+      .case-hero, .case-hero.reverse { grid-template-columns: 1fr; direction: ltr; }
+      .flow-steps { grid-template-columns: repeat(2, 1fr); }
+      .flow-step::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>Priklady pouziti</h1>
+      <p>Jak VoiceDub AI resi realne problemy firem</p>
+    </div>
+    <a href="/" class="back-link">&larr; Dashboard</a>
+  </div>
+
+  <div class="container">
+
+    <!-- USE CASE 1: E-Learning -->
+    <div class="case-section">
+      <div class="case-hero">
+        <div class="case-text">
+          <div class="case-tag" style="background:#3b82f622;color:#60a5fa">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 3h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M8 8l3 2-3 2V8z" fill="currentColor"/><path d="M3 20h18M7 23h10" stroke-linecap="round"/></svg>
+            E-Learning
+          </div>
+          <h2>Lokalizace online kurzu a skoleni</h2>
+          <p class="desc">Prelozte stovky hodin vzdelavaciho obsahu za zlomek ceny studia. Idealni pro Moodle, iSpring, firemni LMS platformy. Multi-voice detekce automaticky priradi muzsky a zensky hlas.</p>
+          <div class="case-stats">
+            <div class="case-stat"><div class="val" style="color:#4ade80">90%</div><div class="lbl">uspora nakladu</div></div>
+            <div class="case-stat"><div class="val" style="color:#60a5fa">50x</div><div class="lbl">rychlejsi nez studio</div></div>
+            <div class="case-stat"><div class="val" style="color:#c084fc">4</div><div class="lbl">CEE jazyky</div></div>
+          </div>
+        </div>
+        <div class="case-visual">
+          <svg viewBox="0 0 320 200" fill="none">
+            <rect x="10" y="10" width="300" height="180" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+            <rect x="25" y="25" width="180" height="100" rx="8" fill="#0f172a" stroke="#334155"/>
+            <polygon points="95,55 95,95 125,75" fill="#3b82f6" opacity="0.8"/>
+            <rect x="220" y="25" width="75" height="12" rx="3" fill="#334155"/>
+            <rect x="220" y="42" width="75" height="8" rx="2" fill="#334155" opacity="0.5"/>
+            <rect x="220" y="55" width="60" height="8" rx="2" fill="#334155" opacity="0.3"/>
+            <rect x="220" y="72" width="75" height="20" rx="4" fill="#3b82f622" stroke="#3b82f6" stroke-width="0.5"/>
+            <text x="257" y="86" text-anchor="middle" fill="#60a5fa" font-size="8" font-weight="600">CS / SK / PL</text>
+            <rect x="25" y="135" width="270" height="3" rx="1.5" fill="#334155"/>
+            <rect x="25" y="135" width="180" height="3" rx="1.5" fill="#3b82f6"/>
+            <text x="25" y="155" fill="#94a3b8" font-size="8">Prubeh prekladu: 67%</text>
+            <rect x="25" y="165" width="55" height="14" rx="3" fill="#4ade8033"/>
+            <text x="52" y="175" text-anchor="middle" fill="#4ade80" font-size="7" font-weight="600">Antonin</text>
+            <rect x="85" y="165" width="55" height="14" rx="3" fill="#f472b633"/>
+            <text x="112" y="175" text-anchor="middle" fill="#f472b6" font-size="7" font-weight="600">Vlasta</text>
+            <circle cx="160" cy="172" r="5" fill="none" stroke="#facc15" stroke-width="1" opacity="0.6"/>
+            <path d="M158 172l2 2 3-3" stroke="#facc15" stroke-width="1" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>
+          <svg viewBox="0 0 16 16" fill="none" stroke="#60a5fa" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1" stroke-linecap="round"/></svg>
+          Priklad: Acme Corp — 200 hodin firemniho skoleni
+        </h4>
+        <p>Nadnarodni firma s 3000 zamestanci v CZ, SK a PL. Interni skoleni (compliance, bezpecnost, onboarding) dostupne jen v anglictine. Zamestanci na provoznich pozicich anglicky neumeli.</p>
+        <div class="highlight-box">
+          <strong>Studio dabing:</strong> 320 000 EUR, 6 mesicu, 15 hercuu<br>
+          <strong>VoiceDub AI:</strong> 28 000 EUR, 2 tydny, automaticky multi-voice<br>
+          <strong>Uspora: 292 000 EUR (91%) a 5.5 mesice</strong>
+        </div>
+      </div>
+
+      <table class="comparison-table">
+        <tr><th>Kriteriun</th><th>Studio dabing</th><th>VoiceDub AI</th></tr>
+        <tr><td>Cena za hodinu</td><td class="loser">1 600 EUR</td><td class="winner">140 EUR</td></tr>
+        <tr><td>Cas na 1h videa</td><td class="loser">5-10 dnu</td><td class="winner">30 minut</td></tr>
+        <tr><td>Kvalita hlasu</td><td class="winner">Profesionalni herci</td><td>Neural TTS (Antonin/Vlasta)</td></tr>
+        <tr><td>Skalovatelnost</td><td class="loser">Linearni naklady</td><td class="winner">Fixni cena za tier</td></tr>
+        <tr><td>Aktualizace obsahu</td><td class="loser">Znovu platit</td><td class="winner">Automaticky re-preklad</td></tr>
+      </table>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- USE CASE 2: Corporate Communications -->
+    <div class="case-section">
+      <div class="case-hero reverse">
+        <div class="case-text">
+          <div class="case-tag" style="background:#8b5cf622;color:#c084fc">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9l9 4 9-4"/></svg>
+            Corporate
+          </div>
+          <h2>Firemni komunikace bez jazykove bariery</h2>
+          <p class="desc">CEO townhalls, compliance videa, zmeny v procesech — vsechno okamzite v lokalnim jazyce. Automaticka detekce mluvcich rozlisi management od moderatora.</p>
+          <div class="case-stats">
+            <div class="case-stat"><div class="val" style="color:#c084fc">+40%</div><div class="lbl">engagement</div></div>
+            <div class="case-stat"><div class="val" style="color:#4ade80">100%</div><div class="lbl">compliance</div></div>
+          </div>
+        </div>
+        <div class="case-visual">
+          <svg viewBox="0 0 320 200" fill="none">
+            <rect x="60" y="15" width="200" height="115" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+            <!-- Speaker 1 -->
+            <circle cx="120" cy="55" r="18" fill="#8b5cf622" stroke="#8b5cf6" stroke-width="1"/>
+            <circle cx="120" cy="50" r="6" fill="none" stroke="#8b5cf6" stroke-width="1.2"/>
+            <path d="M112 62c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="none" stroke="#8b5cf6" stroke-width="1.2"/>
+            <text x="120" y="82" text-anchor="middle" fill="#c084fc" font-size="7" font-weight="600">CEO [M]</text>
+            <!-- Speaker 2 -->
+            <circle cx="200" cy="55" r="18" fill="#f472b622" stroke="#f472b6" stroke-width="1"/>
+            <circle cx="200" cy="50" r="6" fill="none" stroke="#f472b6" stroke-width="1.2"/>
+            <path d="M192 62c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="none" stroke="#f472b6" stroke-width="1.2"/>
+            <text x="200" y="82" text-anchor="middle" fill="#f472b6" font-size="7" font-weight="600">HR [F]</text>
+            <!-- Subtitle bar -->
+            <rect x="75" y="97" width="170" height="22" rx="4" fill="#000" opacity="0.6"/>
+            <text x="160" y="112" text-anchor="middle" fill="white" font-size="8">"Nase strategie pro rok 2027..."</text>
+            <!-- Languages -->
+            <g transform="translate(80, 145)">
+              <rect width="35" height="18" rx="4" fill="#3b82f622"/><text x="17" y="13" text-anchor="middle" fill="#60a5fa" font-size="8" font-weight="600">CS</text>
+            </g>
+            <g transform="translate(120, 145)">
+              <rect width="35" height="18" rx="4" fill="#10b98122"/><text x="17" y="13" text-anchor="middle" fill="#4ade80" font-size="8" font-weight="600">SK</text>
+            </g>
+            <g transform="translate(160, 145)">
+              <rect width="35" height="18" rx="4" fill="#f59e0b22"/><text x="17" y="13" text-anchor="middle" fill="#facc15" font-size="8" font-weight="600">PL</text>
+            </g>
+            <g transform="translate(200, 145)">
+              <rect width="35" height="18" rx="4" fill="#ec489922"/><text x="17" y="13" text-anchor="middle" fill="#f472b6" font-size="8" font-weight="600">HU</text>
+            </g>
+            <text x="160" y="182" text-anchor="middle" fill="#64748b" font-size="7">CEO mluvi Antoninem, HR Vlastou — automaticky</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>
+          <svg viewBox="0 0 16 16" fill="none" stroke="#c084fc" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6h6M5 8h4M5 10h5"/></svg>
+          Priklad: Banka CEE — ctvrletni compliance video
+        </h4>
+        <p>Mezinarodni banka s pobockami v 4 zemich. Regulace vyzaduje, aby vsichni zamestnanci absolvovali compliance skoleni ve svem jazyce. Dosud: najimani 4 prekladatelskych agentur + 4 studia.</p>
+        <div class="highlight-box">
+          <strong>Pred VoiceDub:</strong> 45min video, 4 jazyky = 32 000 EUR/kvartalne, 3 tydny<br>
+          <strong>S VoiceDub:</strong> 45min video, 4 jazyky = 800 EUR/kvartalne, 2 hodiny<br>
+          <strong>Rocni uspora: 124 800 EUR</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- USE CASE 3: Customer Support -->
+    <div class="case-section">
+      <div class="case-hero">
+        <div class="case-text">
+          <div class="case-tag" style="background:#10b98122;color:#4ade80">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c-5 0-9 3.6-9 8 0 1.6.5 3 1.4 4.3L3 21l5.3-1.7A9.7 9.7 0 0012 20c5 0 9-3.6 9-8s-4-9-9-9z"/></svg>
+            Customer Support
+          </div>
+          <h2>Video navody v jazyce zakaznika</h2>
+          <p class="desc">Automaticky prelozene tutorialy, FAQ videa a produktove dema. Snizeni support tiketu a zvyseni zakaznicke spokojenosti.</p>
+          <div class="case-stats">
+            <div class="case-stat"><div class="val" style="color:#f87171">-25%</div><div class="lbl">support tiketu</div></div>
+            <div class="case-stat"><div class="val" style="color:#4ade80">+12</div><div class="lbl">NPS boduu</div></div>
+          </div>
+        </div>
+        <div class="case-visual">
+          <svg viewBox="0 0 320 200" fill="none">
+            <!-- Browser window -->
+            <rect x="20" y="10" width="280" height="180" rx="10" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+            <circle cx="36" cy="24" r="4" fill="#f87171"/><circle cx="48" cy="24" r="4" fill="#facc15"/><circle cx="60" cy="24" r="4" fill="#4ade80"/>
+            <line x1="20" y1="34" x2="300" y2="34" stroke="#334155" stroke-width="1"/>
+            <!-- Help center -->
+            <text x="160" y="52" text-anchor="middle" fill="#f1f5f9" font-size="10" font-weight="700">Centrum napovedy</text>
+            <!-- Video cards -->
+            <g transform="translate(30, 60)">
+              <rect width="120" height="70" rx="6" fill="#1e293b" stroke="#334155"/>
+              <rect x="5" y="5" width="110" height="40" rx="4" fill="#334155"/>
+              <polygon points="45,15 45,35 65,25" fill="#4ade80" opacity="0.7"/>
+              <text x="60" y="58" text-anchor="middle" fill="#e2e8f0" font-size="7">Jak nastavit ucet</text>
+              <rect x="5" y="62" width="30" height="5" rx="2" fill="#4ade8033"/>
+              <text x="20" y="66" text-anchor="middle" fill="#4ade80" font-size="4">CS</text>
+            </g>
+            <g transform="translate(170, 60)">
+              <rect width="120" height="70" rx="6" fill="#1e293b" stroke="#334155"/>
+              <rect x="5" y="5" width="110" height="40" rx="4" fill="#334155"/>
+              <polygon points="45,15 45,35 65,25" fill="#60a5fa" opacity="0.7"/>
+              <text x="60" y="58" text-anchor="middle" fill="#e2e8f0" font-size="7">Reseni problemu</text>
+              <rect x="5" y="62" width="30" height="5" rx="2" fill="#60a5fa33"/>
+              <text x="20" y="66" text-anchor="middle" fill="#60a5fa" font-size="4">SK</text>
+            </g>
+            <!-- Ticket graph -->
+            <g transform="translate(30, 145)">
+              <text x="0" y="0" fill="#64748b" font-size="7">Support tikety</text>
+              <line x1="0" y1="8" x2="260" y2="8" stroke="#334155" stroke-width="0.5"/>
+              <rect x="0" y="12" width="200" height="6" rx="2" fill="#f8717133"/>
+              <text x="205" y="17" fill="#f87171" font-size="6">Pred: 450/mes</text>
+              <rect x="0" y="22" width="150" height="6" rx="2" fill="#4ade8033"/>
+              <text x="155" y="27" fill="#4ade80" font-size="6">Po: 338/mes (-25%)</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <h4 style="font-size:14px;margin-bottom:12px;">Jak to funguje v praxi</h4>
+      <div class="flow-steps">
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <h5>Nahrajte video</h5>
+          <p>YouTube URL nebo upload souboru</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <h5>AI analyzuje</h5>
+          <p>Extrakce titulku, detekce mluvcich</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <h5>Preklad + dabing</h5>
+          <p>Gemini preklad, Edge TTS synteza</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <h5>Publikace</h5>
+          <p>Embed do help centra nebo LMS</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- USE CASE 4: Sales -->
+    <div class="case-section">
+      <div class="case-hero reverse">
+        <div class="case-text">
+          <div class="case-tag" style="background:#f59e0b22;color:#facc15">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 8l3-3M17 8l3 3" stroke-linecap="round"/></svg>
+            Sales & Meetings
+          </div>
+          <h2>Real-time preklad pri online schuzkach</h2>
+          <p class="desc">Obchodnik vede call v anglictine a vidi ceske titulky v realnem case. Po schuzce: automaticky prelozeny zaznam s multi-voice dabingem pro team review.</p>
+          <div class="case-stats">
+            <div class="case-stat"><div class="val" style="color:#facc15">&lt; 3s</div><div class="lbl">latence</div></div>
+            <div class="case-stat"><div class="val" style="color:#4ade80">+30%</div><div class="lbl">deal close rate</div></div>
+          </div>
+        </div>
+        <div class="case-visual">
+          <svg viewBox="0 0 320 200" fill="none">
+            <!-- Video call UI -->
+            <rect x="10" y="10" width="300" height="180" rx="10" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+            <!-- Participants -->
+            <rect x="20" y="20" width="135" height="95" rx="8" fill="#1e293b" stroke="#334155"/>
+            <circle cx="87" cy="55" r="16" fill="#3b82f622" stroke="#3b82f6" stroke-width="1"/>
+            <circle cx="87" cy="50" r="5" fill="none" stroke="#3b82f6" stroke-width="1"/>
+            <path d="M80 60c0-3.9 3.1-7 7-7s7 3.1 7 7" fill="none" stroke="#3b82f6" stroke-width="1"/>
+            <text x="87" y="82" text-anchor="middle" fill="#60a5fa" font-size="7">You (CZ)</text>
+            <rect x="165" y="20" width="135" height="95" rx="8" fill="#1e293b" stroke="#334155"/>
+            <circle cx="232" cy="55" r="16" fill="#f59e0b22" stroke="#f59e0b" stroke-width="1"/>
+            <circle cx="232" cy="50" r="5" fill="none" stroke="#f59e0b" stroke-width="1"/>
+            <path d="M225 60c0-3.9 3.1-7 7-7s7 3.1 7 7" fill="none" stroke="#f59e0b" stroke-width="1"/>
+            <text x="232" y="82" text-anchor="middle" fill="#facc15" font-size="7">Client (EN)</text>
+            <!-- Live subtitles -->
+            <rect x="20" y="122" width="280" height="30" rx="6" fill="#000" opacity="0.7"/>
+            <text x="160" y="134" text-anchor="middle" fill="#4ade80" font-size="7" font-weight="600">LIVE SUBTITLES</text>
+            <text x="160" y="146" text-anchor="middle" fill="white" font-size="8">"Muzeme nabidnout 15% slevu na rocni predplatne"</text>
+            <!-- Controls -->
+            <g transform="translate(100, 160)">
+              <rect width="120" height="26" rx="6" fill="#1e293b" stroke="#334155"/>
+              <circle cx="20" cy="13" r="8" fill="#dc262644" stroke="#f87171" stroke-width="1"/>
+              <circle cx="60" cy="13" r="8" fill="#3b82f622" stroke="#3b82f6" stroke-width="1"/>
+              <text x="60" y="16" text-anchor="middle" fill="#60a5fa" font-size="6">CS</text>
+              <circle cx="100" cy="13" r="8" fill="#4ade8022" stroke="#4ade80" stroke-width="1"/>
+              <text x="100" y="16" text-anchor="middle" fill="#4ade80" font-size="6">REC</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <h4>
+          <svg viewBox="0 0 16 16" fill="none" stroke="#facc15" stroke-width="1.5"><path d="M2 4l6 4 6-4M2 4v8l6 4 6-4V4L8 8 2 4z"/></svg>
+          Priklad: SaaS startup — prodej do DACH regionu
+        </h4>
+        <p>Cesky SaaS startup prodava do Nemecka. Obchodnici umi anglicky, ale nemecky ne. Demo cally probihaji v anglictine, klient preferuje nemcinu. Po callu: automaticky prelozeny zaznam pro review.</p>
+        <div class="highlight-box">
+          <strong>Pred:</strong> Obchodnik nerozumi nuancim, ztracene dealy kvuli jazykove bariere<br>
+          <strong>Po:</strong> Real-time titulky v cestine, zaznam s dabingem pro team debrief<br>
+          <strong>Vysledek: +30% conversion rate na enterprise dealech</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- USE CASE 5: Media -->
+    <div class="case-section">
+      <div class="case-hero">
+        <div class="case-text">
+          <div class="case-tag" style="background:#ec489922;color:#f472b6">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            Media & Content
+          </div>
+          <h2>Rychly dabing zprav a podcastu</h2>
+          <p class="desc">Prelozit breaking news nebo hodinovy podcast za minuty. Idealni pro medialni domy, podcast studia a content agentury cilic na CEE publikum.</p>
+          <div class="case-stats">
+            <div class="case-stat"><div class="val" style="color:#f472b6">&lt; 10 min</div><div class="lbl">time-to-publish</div></div>
+            <div class="case-stat"><div class="val" style="color:#4ade80">4x</div><div class="lbl">vice publika</div></div>
+          </div>
+        </div>
+        <div class="case-visual">
+          <svg viewBox="0 0 320 200" fill="none">
+            <!-- Podcast player -->
+            <rect x="30" y="20" width="260" height="160" rx="14" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+            <!-- Waveform -->
+            <g transform="translate(50, 50)">
+              <rect x="0" y="15" width="4" height="20" rx="2" fill="#ec4899" opacity="0.4"/>
+              <rect x="8" y="8" width="4" height="34" rx="2" fill="#ec4899" opacity="0.5"/>
+              <rect x="16" y="12" width="4" height="26" rx="2" fill="#ec4899" opacity="0.6"/>
+              <rect x="24" y="5" width="4" height="40" rx="2" fill="#ec4899" opacity="0.7"/>
+              <rect x="32" y="10" width="4" height="30" rx="2" fill="#ec4899" opacity="0.8"/>
+              <rect x="40" y="2" width="4" height="46" rx="2" fill="#ec4899" opacity="0.9"/>
+              <rect x="48" y="8" width="4" height="34" rx="2" fill="#ec4899"/>
+              <rect x="56" y="14" width="4" height="22" rx="2" fill="#ec4899" opacity="0.8"/>
+              <rect x="64" y="6" width="4" height="38" rx="2" fill="#ec4899" opacity="0.7"/>
+              <rect x="72" y="10" width="4" height="30" rx="2" fill="#ec4899" opacity="0.6"/>
+              <rect x="80" y="15" width="4" height="20" rx="2" fill="#334155" opacity="0.4"/>
+              <rect x="88" y="12" width="4" height="26" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="96" y="8" width="4" height="34" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="104" y="14" width="4" height="22" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="112" y="10" width="4" height="30" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="120" y="6" width="4" height="38" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="128" y="12" width="4" height="26" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="136" y="8" width="4" height="34" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="144" y="15" width="4" height="20" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="152" y="10" width="4" height="30" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="160" y="5" width="4" height="40" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="168" y="12" width="4" height="26" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="176" y="8" width="4" height="34" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="184" y="14" width="4" height="22" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="192" y="10" width="4" height="30" rx="2" fill="#334155" opacity="0.3"/>
+              <rect x="200" y="15" width="4" height="20" rx="2" fill="#334155" opacity="0.3"/>
+            </g>
+            <text x="50" y="115" fill="#f1f5f9" font-size="9" font-weight="700">Tech News Daily — Episode 142</text>
+            <text x="50" y="128" fill="#94a3b8" font-size="7">Original: EN | Prelozeno: CS, SK, PL, HU</text>
+            <!-- Language selector -->
+            <g transform="translate(50, 138)">
+              <rect width="28" height="16" rx="4" fill="#ec489944" stroke="#ec4899" stroke-width="0.5"/>
+              <text x="14" y="12" text-anchor="middle" fill="#f472b6" font-size="7" font-weight="600">CS</text>
+              <rect x="32" width="28" height="16" rx="4" fill="#33415544"/>
+              <text x="46" y="12" text-anchor="middle" fill="#94a3b8" font-size="7">SK</text>
+              <rect x="64" width="28" height="16" rx="4" fill="#33415544"/>
+              <text x="78" y="12" text-anchor="middle" fill="#94a3b8" font-size="7">PL</text>
+              <rect x="96" width="28" height="16" rx="4" fill="#33415544"/>
+              <text x="110" y="12" text-anchor="middle" fill="#94a3b8" font-size="7">HU</text>
+              <rect x="128" width="28" height="16" rx="4" fill="#33415544"/>
+              <text x="142" y="12" text-anchor="middle" fill="#64748b" font-size="7">EN</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

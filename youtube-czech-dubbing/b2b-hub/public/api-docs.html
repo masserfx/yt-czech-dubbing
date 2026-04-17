@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceDub AI — API Documentation</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: #0f172a; color: #e2e8f0; }
+    .header { padding: 32px; border-bottom: 1px solid #334155; }
+    .header h1 { font-size: 28px; margin-bottom: 8px; }
+    .header p { color: #94a3b8; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 32px; }
+    .nav { display: flex; gap: 12px; margin-bottom: 32px; flex-wrap: wrap; }
+    .nav a { color: #60a5fa; text-decoration: none; padding: 6px 14px; border-radius: 8px; font-size: 14px; background: #1e293b; border: 1px solid #334155; }
+    .nav a:hover { background: #334155; }
+    .endpoint { background: #1e293b; border: 1px solid #334155; border-radius: 12px; margin-bottom: 24px; overflow: hidden; }
+    .endpoint-header { padding: 16px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #334155; }
+    .method { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; font-family: monospace; }
+    .method.post { background: #16a34a33; color: #4ade80; }
+    .method.get { background: #2563eb33; color: #60a5fa; }
+    .method.delete { background: #dc262633; color: #f87171; }
+    .path { font-family: monospace; font-size: 15px; font-weight: 600; }
+    .desc { color: #94a3b8; font-size: 13px; margin-left: auto; }
+    .endpoint-body { padding: 20px; }
+    .endpoint-body h4 { font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; margin-top: 16px; }
+    .endpoint-body h4:first-child { margin-top: 0; }
+    pre { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+    code { font-family: 'SF Mono', 'Fira Code', monospace; }
+    .param-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .param-table th { text-align: left; padding: 8px 12px; background: #334155; color: #f1f5f9; }
+    .param-table td { padding: 8px 12px; border-bottom: 1px solid #334155; }
+    .param-table .type { color: #facc15; font-family: monospace; }
+    .param-table .required { color: #f87171; font-size: 11px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge.auth { background: #854d0e33; color: #facc15; }
+    .badge.free { background: #16653433; color: #4ade80; }
+    .section-title { font-size: 22px; font-weight: 700; margin: 40px 0 16px; padding-top: 24px; border-top: 1px solid #334155; }
+    .section-title:first-of-type { border-top: none; margin-top: 0; }
+    .rate-limit { background: #854d0e22; border: 1px solid #854d0e55; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; }
+    .rate-limit strong { color: #facc15; }
+    .back-link { display: inline-block; color: #60a5fa; text-decoration: none; margin-bottom: 24px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>VoiceDub AI API v1</h1>
+    <p>REST API pro automaticky preklad a dabing video obsahu</p>
+  </div>
+  <div class="container">
+    <a href="/" class="back-link">&larr; Zpet na dashboard</a>
+
+    <div class="nav">
+      <a href="#auth">Autentizace</a>
+      <a href="#translate">Preklad</a>
+      <a href="#voices">Hlasy</a>
+      <a href="#jobs">Ulohy</a>
+      <a href="#webhooks">Webhooky</a>
+      <a href="#limits">Limity</a>
+    </div>
+
+    <h2 class="section-title" id="auth">Autentizace</h2>
+    <p style="margin-bottom:16px;color:#94a3b8">Vsechny API requesty vyzaduji API klic v hlavicce.</p>
+    <pre><code>Authorization: Bearer vd_live_xxxxxxxxxxxxxxxxxxxx</code></pre>
+
+    <h2 class="section-title" id="translate">Preklad videa</h2>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method post">POST</span>
+        <span class="path">/v1/translate</span>
+        <span class="desc">Zahajit preklad videa</span>
+      </div>
+      <div class="endpoint-body">
+        <h4>Request Body</h4>
+        <table class="param-table">
+          <tr><th>Parametr</th><th>Typ</th><th>Popis</th></tr>
+          <tr><td>source_url <span class="required">required</span></td><td class="type">string</td><td>URL videa (YouTube, Vimeo, primo MP4)</td></tr>
+          <tr><td>target_language <span class="required">required</span></td><td class="type">string</td><td>Cilovy jazyk: cs, sk, pl, hu</td></tr>
+          <tr><td>voice_mode</td><td class="type">string</td><td>auto (detekce mluvcich) | single (jeden hlas) | custom</td></tr>
+          <tr><td>voice_id</td><td class="type">string</td><td>ID vlastniho hlasu (pouze pro voice_mode: custom)</td></tr>
+          <tr><td>quality</td><td class="type">string</td><td>standard | premium (vyssi kvalita prekladu)</td></tr>
+          <tr><td>webhook_url</td><td class="type">string</td><td>URL pro notifikaci po dokonceni</td></tr>
+          <tr><td>glossary_id</td><td class="type">string</td><td>ID firemniho slovniku pro konzistentni terminologii</td></tr>
+        </table>
+
+        <h4>Priklad requestu</h4>
+        <pre><code>curl -X POST https://api.voicedub.ai/v1/translate \
+  -H "Authorization: Bearer vd_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_url": "https://youtube.com/watch?v=example",
+    "target_language": "cs",
+    "voice_mode": "auto",
+    "quality": "standard",
+    "webhook_url": "https://yourapp.com/webhooks/voicedub"
+  }'</code></pre>
+
+        <h4>Response (202 Accepted)</h4>
+        <pre><code>{
+  "job_id": "job_a1b2c3d4e5f6",
+  "status": "processing",
+  "estimated_duration_sec": 120,
+  "created_at": "2026-04-16T10:00:00Z"
+}</code></pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method post">POST</span>
+        <span class="path">/v1/translate/text</span>
+        <span class="desc">Prelozit text s TTS syntezou</span>
+      </div>
+      <div class="endpoint-body">
+        <h4>Request Body</h4>
+        <table class="param-table">
+          <tr><th>Parametr</th><th>Typ</th><th>Popis</th></tr>
+          <tr><td>text <span class="required">required</span></td><td class="type">string</td><td>Text k prekladu (max 5000 znaku)</td></tr>
+          <tr><td>source_language</td><td class="type">string</td><td>Zdrojovy jazyk (auto-detect pokud nevyplneno)</td></tr>
+          <tr><td>target_language <span class="required">required</span></td><td class="type">string</td><td>Cilovy jazyk</td></tr>
+          <tr><td>voice_role</td><td class="type">string</td><td>M (muzsky) | F (zensky) | C (detsky) | N (narrator)</td></tr>
+          <tr><td>output_format</td><td class="type">string</td><td>mp3 | wav | ogg (default: mp3)</td></tr>
+        </table>
+
+        <h4>Response (200 OK)</h4>
+        <pre><code>{
+  "translated_text": "Prelozeny text v cestine...",
+  "audio_url": "https://cdn.voicedub.ai/audio/abc123.mp3",
+  "duration_ms": 3200,
+  "detected_language": "en",
+  "voice_used": "cs-CZ-AntoninNeural"
+}</code></pre>
+      </div>
+    </div>
+
+    <h2 class="section-title" id="voices">Hlasy</h2>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="path">/v1/voices</span>
+        <span class="desc">Seznam dostupnych hlasu</span>
+      </div>
+      <div class="endpoint-body">
+        <h4>Query parametry</h4>
+        <table class="param-table">
+          <tr><th>Parametr</th><th>Typ</th><th>Popis</th></tr>
+          <tr><td>language</td><td class="type">string</td><td>Filtr podle jazyka (cs, sk, pl, hu)</td></tr>
+          <tr><td>gender</td><td class="type">string</td><td>male | female</td></tr>
+        </table>
+
+        <h4>Response</h4>
+        <pre><code>{
+  "voices": [
+    {
+      "id": "cs-CZ-AntoninNeural",
+      "name": "Antonin",
+      "language": "cs",
+      "gender": "male",
+      "style": "neutral",
+      "preview_url": "https://cdn.voicedub.ai/previews/antonin.mp3"
+    },
+    {
+      "id": "cs-CZ-VlastaNeural",
+      "name": "Vlasta",
+      "language": "cs",
+      "gender": "female",
+      "style": "neutral",
+      "preview_url": "https://cdn.voicedub.ai/previews/vlasta.mp3"
+    }
+  ]
+}</code></pre>
+      </div>
+    </div>
+
+    <h2 class="section-title" id="jobs">Sprava uloh</h2>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="path">/v1/jobs/{job_id}</span>
+        <span class="desc">Stav prekladu</span>
+      </div>
+      <div class="endpoint-body">
+        <h4>Response</h4>
+        <pre><code>{
+  "job_id": "job_a1b2c3d4e5f6",
+  "status": "completed",
+  "progress": 100,
+  "source_url": "https://youtube.com/watch?v=example",
+  "target_language": "cs",
+  "result": {
+    "audio_url": "https://cdn.voicedub.ai/results/job_a1b2.mp3",
+    "subtitle_url": "https://cdn.voicedub.ai/results/job_a1b2.srt",
+    "duration_ms": 185000,
+    "speakers_detected": 3,
+    "word_count": 2840
+  },
+  "created_at": "2026-04-16T10:00:00Z",
+  "completed_at": "2026-04-16T10:02:05Z"
+}</code></pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method get">GET</span>
+        <span class="path">/v1/jobs</span>
+        <span class="desc">Seznam uloh</span>
+      </div>
+      <div class="endpoint-body">
+        <h4>Query parametry</h4>
+        <table class="param-table">
+          <tr><th>Parametr</th><th>Typ</th><th>Popis</th></tr>
+          <tr><td>status</td><td class="type">string</td><td>processing | completed | failed</td></tr>
+          <tr><td>limit</td><td class="type">integer</td><td>Max pocet vysledku (default: 20, max: 100)</td></tr>
+          <tr><td>offset</td><td class="type">integer</td><td>Offset pro strankovani</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method delete">DELETE</span>
+        <span class="path">/v1/jobs/{job_id}</span>
+        <span class="desc">Smazat ulohu a jeji vysledky</span>
+      </div>
+    </div>
+
+    <h2 class="section-title" id="webhooks">Webhooky</h2>
+    <p style="margin-bottom:16px;color:#94a3b8">Po dokonceni prekladu posleme POST na vas webhook_url:</p>
+    <pre><code>{
+  "event": "job.completed",
+  "job_id": "job_a1b2c3d4e5f6",
+  "status": "completed",
+  "result": {
+    "audio_url": "https://cdn.voicedub.ai/results/job_a1b2.mp3",
+    "subtitle_url": "https://cdn.voicedub.ai/results/job_a1b2.srt"
+  },
+  "timestamp": "2026-04-16T10:02:05Z"
+}</code></pre>
+    <p style="margin-top:12px;color:#94a3b8;font-size:14px">Webhook obsahuje HMAC-SHA256 podpis v hlavicce <code>X-VoiceDub-Signature</code> pro overeni autenticity.</p>
+
+    <h2 class="section-title" id="limits">Rate limity</h2>
+    <div class="rate-limit">
+      <strong>Free:</strong> 10 req/min, 100 min prekladu/mesic<br>
+      <strong>Pro:</strong> 60 req/min, 500 min/mesic<br>
+      <strong>Business:</strong> 120 req/min, 2000 min/mesic<br>
+      <strong>Enterprise:</strong> Custom limity dle SLA
+    </div>
+    <p style="color:#94a3b8;font-size:14px">Rate limit info je v response hlavickach: <code>X-RateLimit-Remaining</code>, <code>X-RateLimit-Reset</code></p>
+  </div>
+</body>
+</html>

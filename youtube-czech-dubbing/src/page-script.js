@@ -234,18 +234,34 @@
       } else {
         segments = _parseTimedTextXml(text);
       }
-      // Detect language from captured URL (tlang= parameter) and content
+      // Detect language from captured URL parameters and content
       var capturedUrl = _capturedTimedtext['_latestUrl'] || '';
-      var tlangMatch = capturedUrl.match(/[?&]tlang=([a-z]{2})/);
-      var detectedLang = tlangMatch ? tlangMatch[1] : null;
+      var detectedLang = null;
 
-      // If no tlang in URL, detect from content — check for Czech diacritics
+      // 1. Check tlang= (auto-translate target language) — most reliable
+      var tlangMatch = capturedUrl.match(/[?&]tlang=([a-z]{2})/);
+      if (tlangMatch) {
+        detectedLang = tlangMatch[1];
+      }
+
+      // 2. Check lang= (source track language) when no tlang
+      if (!detectedLang) {
+        var langMatch = capturedUrl.match(/[?&]lang=([a-z]{2})/);
+        if (langMatch) {
+          detectedLang = langMatch[1];
+        }
+      }
+
+      // 3. Fallback: detect from content — check for diacritics (CS/SK/PL/HU)
       if (!detectedLang && segments.length > 0) {
         var sampleText = segments.slice(0, Math.min(10, segments.length)).map(function(s) { return s.text; }).join(' ');
         var czechChars = (sampleText.match(/[áčďéěíňóřšťúůýž]/gi) || []).length;
-        // If more than 3% Czech diacritics, it's likely Czech
-        if (sampleText.length > 0 && (czechChars / sampleText.length) > 0.03) {
-          detectedLang = 'cs';
+        var slovakChars = (sampleText.match(/[ľôŕĺ]/gi) || []).length;
+        var polishChars = (sampleText.match(/[ąćęłńśźż]/gi) || []).length;
+        if (sampleText.length > 0) {
+          if ((czechChars / sampleText.length) > 0.03) detectedLang = 'cs';
+          else if ((slovakChars / sampleText.length) > 0.02) detectedLang = 'sk';
+          else if ((polishChars / sampleText.length) > 0.02) detectedLang = 'pl';
         }
       }
 

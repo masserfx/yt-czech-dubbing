@@ -1,11 +1,15 @@
 {
   "manifest_version": 3,
   "name": "YouTube Dubbing — CS SK PL HU",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "YouTube video dubbing - automatic translation and voice output in Czech, Slovak, Polish, Hungarian",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "scripting",
+    "sidePanel",
+    "offscreen",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
@@ -19,10 +23,16 @@
     "https://api-free.deepl.com/*",
     "https://api.deepl.com/*",
     "https://*.tts.speech.microsoft.com/*",
-    "https://*.api.cognitive.microsoft.com/*"
+    "https://*.api.cognitive.microsoft.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "wss://speech.platform.bing.com/*",
+    "https://speech.platform.bing.com/*",
+    "https://api.voicedub.ai/*",
+    "https://*.workers.dev/*"
   ],
   "optional_host_permissions": [
-    "https://*/*"
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "src/background.js"
@@ -47,9 +57,12 @@
       "js": [
         "src/caption-extractor.js",
         "src/language-config.js",
+        "src/speaker-detector.js",
         "src/service-mode.js",
+        "src/voicedub-client.js",
         "src/translator.js",
         "src/tts-engine.js",
+        "src/dubbing-cache.js",
         "src/dubbing-controller.js",
         "src/content.js"
       ],
@@ -60,12 +73,23 @@
     }
   ],
   "action": {
-    "default_popup": "src/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel.html"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "edge_tts_headers",
+        "enabled": true,
+        "path": "rules/edge-tts-headers.json"
+      }
+    ]
   },
   "icons": {
     "16": "icons/icon16.png",

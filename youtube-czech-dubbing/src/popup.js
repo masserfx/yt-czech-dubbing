@@ -13,12 +13,25 @@ async function init() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
 
-  if (!tab || !tab.url || !tab.url.includes('youtube.com/watch')) {
-    document.getElementById('controlsSection').innerHTML =
-      '<div class="no-video">Otevřete YouTube video pro aktivaci dabingu.</div>';
+  const isYouTube = tab?.url?.includes('youtube.com/watch');
+  const isArticlePage = tab?.url && !tab.url.includes('youtube.com') && (tab.url.startsWith('https://') || tab.url.startsWith('http://'));
+
+  if (!isYouTube && !isArticlePage) {
+    const noVideoDiv = document.createElement('div');
+    noVideoDiv.className = 'no-video';
+    noVideoDiv.textContent = 'Otevřete YouTube video nebo článek pro aktivaci dabingu.';
+    const controlsSection = document.getElementById('controlsSection');
+    controlsSection.textContent = '';
+    controlsSection.appendChild(noVideoDiv);
     document.getElementById('settingsSection').style.display = 'none';
-    document.getElementById('statusText').textContent = 'Žádné YouTube video';
+    document.getElementById('statusText').textContent = 'Žádná stránka k dabingu';
     return;
+  }
+
+  // Article mode: show article-specific controls
+  if (isArticlePage) {
+    document.getElementById('btnText').textContent = 'Dabovat článek';
+    document.getElementById('btnToggle').onclick = () => toggleArticleDubbing(tab.id);
   }
 
   activeTabId = tab.id;
@@ -41,6 +54,35 @@ async function init() {
 
   // Load usage stats
   loadUsageStats();
+}
+
+/**
+ * Toggle article dubbing — injects scripts and starts article player.
+ */
+async function toggleArticleDubbing(tabId) {
+  const btn = document.getElementById('btnToggle');
+  const btnText = document.getElementById('btnText');
+
+  if (currentStatus === 'playing' || currentStatus === 'ready') {
+    btn.disabled = true;
+    await chrome.tabs.sendMessage(tabId, { type: 'article-stop' });
+    updateStatus('idle', 'Zastaveno');
+    btn.disabled = false;
+  } else {
+    btn.disabled = true;
+    btnText.textContent = 'Spouštím...';
+    updateStatus('loading', 'Injektuji skripty...');
+
+    // Inject article scripts via background
+    const resp = await chrome.runtime.sendMessage({ type: 'inject-article-scripts', tabId });
+    btn.disabled = false;
+
+    if (resp?.success) {
+      updateStatus('ready', 'Článek připraven');
+    } else {
+      updateStatus('error', resp?.error || 'Nepodařilo se spustit');
+    }
+  }
 }
 
 /**
@@ -107,6 +149,7 @@ function updateSetting(setting, value) {
       settings.translatorEngine = value;
       document.getElementById('apiKeyGroup').style.display = value === 'claude' ? 'block' : 'none';
       document.getElementById('deeplKeyGroup').style.display = value === 'deepl' ? 'block' : 'none';
+      document.getElementById('chromeAiNote').style.display = value === 'chromeai' ? 'block' : 'none';
       loadUsageStats();
       break;
     case 'anthropicApiKey':
@@ -117,6 +160,13 @@ function updateSetting(setting, value) {
       break;
     case 'ttsEngine':
       settings.ttsEngine = value;
+      if (value === 'edge-male') {
+        settings.ttsEngine = 'edge';
+        settings.edgeTtsVoice = 'cs-CZ-AntoninNeural';
+      } else if (value === 'edge-female') {
+        settings.ttsEngine = 'edge';
+        settings.edgeTtsVoice = 'cs-CZ-VlastaNeural';
+      }
       document.getElementById('azureTtsGroup').style.display = value === 'azure' ? 'block' : 'none';
       break;
     case 'azureTtsKey':
@@ -147,6 +197,16 @@ function updateSetting(setting, value) {
     case 'serviceOrganizationId':
       settings.serviceOrganizationId = value;
       break;
+    case 'voicedubMode':
+      settings.voicedubMode = value;
+      document.getElementById('voicedubConfigGroup').style.display = value ? 'block' : 'none';
+      break;
+    case 'voicedubApiKey':
+      settings.voicedubApiKey = value;
+      break;
+    case 'voicedubEndpoint':
+      settings.voicedubEndpoint = value;
+      break;
   }
 
   sendMessage({ type: 'update-settings', settings });
@@ -159,6 +219,12 @@ function updateSetting(setting, value) {
 function setVoice(voiceName) {
   if (voiceName) {
     sendMessage({ type: 'set-voice', voiceName });
+    // Persist browser voice selection
+    chrome.storage.local.get('popupSettings', (result) => {
+      const settings = result.popupSettings || {};
+      settings.browserVoiceName = voiceName;
+      chrome.storage.local.set({ popupSettings: settings });
+    });
   }
 }
 
@@ -235,6 +301,7 @@ async function sendMessage(msg) {
  * Save settings to storage.
  */
 function saveSettings() {
+  const voiceSelect = document.getElementById('voiceSelect');
   const settings = {
     ttsVolume: document.getElementById('ttsVolume').value,
     ttsRate: document.getElementById('ttsRate').value,
@@ -246,14 +313,26 @@ function saveSettings() {
     translatorEngine: document.getElementById('translatorEngine').value,
     anthropicApiKey: document.getElementById('anthropicApiKey').value,
     deeplApiKey: document.getElementById('deeplApiKey').value,
-    ttsEngine: document.getElementById('ttsEngine').value,
+    ttsEngine: (() => {
+      const v = document.getElementById('ttsEngine').value;
+      return (v === 'edge-male' || v === 'edge-female') ? 'edge' : v;
+    })(),
+    edgeTtsVoice: (() => {
+      const v = document.getElementById('ttsEngine').value;
+      if (v === 'edge-female') return 'cs-CZ-VlastaNeural';
+      return 'cs-CZ-AntoninNeural';
+    })(),
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
+    browserVoiceName: voiceSelect.value || undefined,
     serviceMode: document.getElementById('serviceMode').value,
     serviceApiEndpoint: document.getElementById('serviceApiEndpoint').value,
     serviceAuthToken: document.getElementById('serviceAuthToken').value,
-    serviceOrganizationId: document.getElementById('serviceOrganizationId').value
+    serviceOrganizationId: document.getElementById('serviceOrganizationId').value,
+    voicedubMode: document.getElementById('voicedubMode').checked,
+    voicedubApiKey: document.getElementById('voicedubApiKey').value,
+    voicedubEndpoint: document.getElementById('voicedubEndpoint').value
   };
   chrome.storage.local.set({ popupSettings: settings });
 }
@@ -293,6 +372,7 @@ async function loadSettings() {
         document.getElementById('translatorEngine').value = s.translatorEngine;
         document.getElementById('apiKeyGroup').style.display = s.translatorEngine === 'claude' ? 'block' : 'none';
         document.getElementById('deeplKeyGroup').style.display = s.translatorEngine === 'deepl' ? 'block' : 'none';
+        document.getElementById('chromeAiNote').style.display = s.translatorEngine === 'chromeai' ? 'block' : 'none';
       }
       if (s.anthropicApiKey) {
         document.getElementById('anthropicApiKey').value = s.anthropicApiKey;
@@ -301,7 +381,11 @@ async function loadSettings() {
         document.getElementById('deeplApiKey').value = s.deeplApiKey;
       }
       if (s.ttsEngine) {
-        document.getElementById('ttsEngine').value = s.ttsEngine;
+        let displayEngine = s.ttsEngine;
+        if (s.ttsEngine === 'edge') {
+          displayEngine = (s.edgeTtsVoice && s.edgeTtsVoice.includes('Vlasta')) ? 'edge-female' : 'edge-male';
+        }
+        document.getElementById('ttsEngine').value = displayEngine;
         document.getElementById('azureTtsGroup').style.display = s.ttsEngine === 'azure' ? 'block' : 'none';
       }
       if (s.azureTtsKey) {
@@ -330,6 +414,16 @@ async function loadSettings() {
       }
       if (s.serviceOrganizationId) {
         document.getElementById('serviceOrganizationId').value = s.serviceOrganizationId;
+      }
+      if (typeof s.voicedubMode === 'boolean') {
+        document.getElementById('voicedubMode').checked = s.voicedubMode;
+        document.getElementById('voicedubConfigGroup').style.display = s.voicedubMode ? 'block' : 'none';
+      }
+      if (s.voicedubApiKey) {
+        document.getElementById('voicedubApiKey').value = s.voicedubApiKey;
+      }
+      if (s.voicedubEndpoint) {
+        document.getElementById('voicedubEndpoint').value = s.voicedubEndpoint;
       }
     }
   } catch (e) {
@@ -434,6 +528,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('serviceApiEndpoint').addEventListener('change', (e) => updateSetting('serviceApiEndpoint', e.target.value));
   document.getElementById('serviceAuthToken').addEventListener('change', (e) => updateSetting('serviceAuthToken', e.target.value));
   document.getElementById('serviceOrganizationId').addEventListener('change', (e) => updateSetting('serviceOrganizationId', e.target.value));
+
+  // VoiceDub B2B API
+  document.getElementById('voicedubMode').addEventListener('change', (e) => updateSetting('voicedubMode', e.target.checked));
+  document.getElementById('voicedubApiKey').addEventListener('change', (e) => updateSetting('voicedubApiKey', e.target.value));
+  document.getElementById('voicedubEndpoint').addEventListener('change', (e) => updateSetting('voicedubEndpoint', e.target.value));
 
   // Reset usage
   document.getElementById('btnResetUsage').addEventListener('click', resetUsage);
