@@ -1,5 +1,5 @@
 import { json, error } from '../utils/response.js';
-import { translateBatch } from '../providers/gemini.js';
+import { translate } from '../providers/translator.js';
 import { synthesizeSSML } from '../providers/azure-tts.js';
 
 const SUPPORTED_LANGS = ['cs', 'sk', 'pl', 'hu'];
@@ -58,11 +58,13 @@ export async function handleDub(request, env, ctx, { apiKey }) {
 
   // QUICK path (source_text) — synchronní překlad + TTS, vrátí audio URL.
   try {
-    const translated = await translateBatch(
+    const result = await translate(
       [body.source_text],
       body.target_language,
-      { apiKey: env.GEMINI_API_KEY }
+      env,
+      { force: body.translator, tier: apiKey.tier, glossary: body.glossary }
     );
+    const translated = result.text;
 
     const voiceId = body.voice_id || defaultVoiceFor(body.target_language);
     // AI Act čl. 50: watermark default ON; Enterprise může disable (kontrakt).
@@ -88,6 +90,7 @@ export async function handleDub(request, env, ctx, { apiKey }) {
       tenant_id: apiKey.tenant_id,
       source_text: body.source_text,
       translated_text: translated[0],
+      translator_provider: result.provider,
       target_language: body.target_language,
       voice_id: voiceId,
       audio_url: audioUrl,
@@ -101,6 +104,7 @@ export async function handleDub(request, env, ctx, { apiKey }) {
       status: 'completed',
       source_text: body.source_text,
       translated_text: translated[0],
+      translator_provider: result.provider,
       audio_url: audioUrl,
       audio_base64: audioUrl ? undefined : arrayBufferToBase64(audioBuf),
       voice_id: voiceId,

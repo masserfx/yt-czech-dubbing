@@ -80,8 +80,32 @@ Pro reálné volání Gemini + Azure:
 export GEMINI_API_KEY=<z aistudio.google.com>
 export AZURE_SPEECH_KEY=<z Azure portal>
 export AZURE_SPEECH_REGION=westeurope
+# Volitelné fallback providery (runtime auto-select při Gemini error):
+export DEEPL_API_KEY=<z developers.deepl.com>
+export OPENAI_API_KEY=<z platform.openai.com>
 npx wrangler dev --port 8787
 ```
+
+### Translator fallback chain
+
+Runtime selektor (`src/providers/translator.js`) vybere provider v pořadí:
+
+1. **Gemini 2.5 Flash** (primary, free tier + nejlevnější)
+2. **DeepL** (fallback, nejvyšší kvalita CEE)
+3. **OpenAI GPT-4o-mini** (secondary fallback, nejspolehlivější dostupnost)
+
+- Na 429/5xx primary → automaticky spadne na další provider
+- Enterprise tier preferuje DeepL (kvalita > cena)
+- Per-job override: `{"translator": "openai"}` v POST body
+- Response vrací `translator_provider` pole pro observability
+
+### AI Act čl. 50 (effective 2026-08-02)
+
+Každý audio výstup má pre-pend disclosure:
+- CS: "Tato nahrávka byla vygenerována umělou inteligencí."
+- SK / PL / HU / EN: lokalizované varianty
+- Layered s ID3 metadata tag `VoiceDub-Generated: true`
+- Enterprise tier: `{"disable_watermark": true}` pouze s contractual opt-out
 
 ## Deploy na Cloudflare
 
