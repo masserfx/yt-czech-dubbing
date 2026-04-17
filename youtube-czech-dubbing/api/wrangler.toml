@@ -4,30 +4,28 @@ compatibility_date = "2026-04-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "staging"
 
-# Secrets jsou nastavené přes: wrangler secret put <NAME>
-# Potřebné secrets:
+# Secrets (wrangler secret put <NAME>):
 #   GEMINI_API_KEY        — Gemini překlad (aistudio.google.com)
+#   DEEPL_API_KEY         — DeepL fallback (free tier: suffix :fx)
+#   OPENAI_API_KEY        — OpenAI fallback (GPT-4o-mini)
 #   AZURE_SPEECH_KEY      — Azure Neural TTS
 #   AZURE_SPEECH_REGION   — např. "westeurope"
 #   API_SIGNING_SECRET    — pro HMAC API klíče
 
-# KV namespace pro API keys + rate limiting
-# Vytvoř:  wrangler kv namespace create API_KEYS
-# Pak sem: [[kv_namespaces]] binding = "API_KEYS" id = "..."
+[[kv_namespaces]]
+binding = "API_KEYS"
+id = "9907b4db08c44155bd7053d5fa0a7a7d"
 
-# R2 bucket pro výstupní audio soubory
-# Vytvoř:  wrangler r2 bucket create voicedub-audio
-# [[r2_buckets]] binding = "AUDIO_STORE" bucket_name = "voicedub-audio"
+[[d1_databases]]
+binding = "JOBS_DB"
+database_name = "voicedub-jobs"
+database_id = "a5c8601d-e451-437b-ae7a-9d39a703c076"
 
-# D1 database pro jobs metadata
-# Vytvoř:  wrangler d1 create voicedub-jobs
-# [[d1_databases]] binding = "JOBS_DB" database_name = "voicedub-jobs" database_id = "..."
-
-# Queue pro asynchronní zpracování dlouhých videí
-# [[queues.producers]] binding = "DUB_QUEUE" queue = "dub-jobs"
-# [[queues.consumers]] queue = "dub-jobs" max_batch_size = 5
+[[r2_buckets]]
+binding = "AUDIO_STORE"
+bucket_name = "voicedub-audio"
 
 [observability]
 enabled = true
