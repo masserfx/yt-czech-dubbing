@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B2B Strategy Hub — VoiceDub AI</title>
+  <style>
+    :root {
+      --bg-primary: #0f172a; --bg-card: #1e293b; --bg-hover: #334155;
+      --border: #334155; --text: #e2e8f0; --text-muted: #94a3b8; --text-dim: #64748b;
+      --blue: #60a5fa; --green: #4ade80; --yellow: #facc15; --purple: #c084fc;
+      --red: #f87171; --pink: #f472b6; --orange: #fb923c; --cyan: #22d3ee;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-primary); color: var(--text); }
+
+    /* Header */
+    .header { background: linear-gradient(135deg, #1e293b 0%, #0f172a 50%, #172554 100%); padding: 20px 32px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 20px; }
+    .logo-svg { flex-shrink: 0; }
+    .header-text h1 { font-size: 22px; color: #f1f5f9; display: flex; align-items: center; gap: 8px; }
+    .header-text h1 .version { font-size: 11px; background: var(--blue); color: #0f172a; padding: 2px 8px; border-radius: 6px; font-weight: 700; }
+    .header-text .subtitle { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+    .header-nav { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+    .header-nav a { color: var(--blue); text-decoration: none; padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+    .header-nav a:hover { background: rgba(59,130,246,0.2); border-color: rgba(59,130,246,0.4); }
+    .header-nav a svg { width: 14px; height: 14px; }
+
+    .container { max-width: 1440px; margin: 0 auto; padding: 24px; }
+
+    /* Stats with SVG icons + sparklines */
+    .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 28px; }
+    .stat-card { background: var(--bg-card); border-radius: 14px; padding: 18px; border: 1px solid var(--border); position: relative; overflow: hidden; transition: transform 0.15s, box-shadow 0.15s; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .stat-card .stat-icon { position: absolute; top: 14px; right: 14px; opacity: 0.15; }
+    .stat-card .label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+    .stat-card .value { font-size: 30px; font-weight: 800; margin-top: 6px; }
+    .stat-card .trend { font-size: 11px; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+    .stat-card .trend.up { color: var(--green); }
+    .stat-card .trend.neutral { color: var(--text-dim); }
+
+    /* Charts row */
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+    .chart-panel { background: var(--bg-card); border-radius: 14px; border: 1px solid var(--border); padding: 20px; }
+    .chart-panel h3 { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* Team */
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 14px; color: #f1f5f9; display: flex; align-items: center; gap: 8px; }
+    .section-title svg { width: 18px; height: 18px; opacity: 0.6; }
+    .team { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 28px; }
+    .team-member { background: var(--bg-card); border-radius: 14px; padding: 16px 12px; border: 1px solid var(--border); text-align: center; transition: all 0.2s; position: relative; }
+    .team-member:hover { border-color: var(--blue); transform: translateY(-2px); }
+    .team-member .avatar { width: 52px; height: 52px; border-radius: 50%; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; }
+    .team-member .avatar svg { width: 28px; height: 28px; }
+    .team-member .name { font-weight: 700; font-size: 13px; }
+    .team-member .role { font-size: 11px; color: var(--text-muted); margin-top: 3px; line-height: 1.3; }
+    .team-member .task-count { position: absolute; top: 8px; right: 8px; background: var(--blue); color: #0f172a; width: 20px; height: 20px; border-radius: 50%; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+    /* Grid panels */
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+    .panel { background: var(--bg-card); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; }
+    .panel-header { padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+    .panel-header svg { width: 16px; height: 16px; opacity: 0.6; }
+    .panel-body { padding: 6px 18px; max-height: 420px; overflow-y: auto; }
+    .panel-body::-webkit-scrollbar { width: 4px; }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* Tasks */
+    .task-item { padding: 12px 0; border-bottom: 1px solid rgba(51,65,85,0.5); display: flex; align-items: flex-start; gap: 10px; }
+    .task-item:last-child { border-bottom: none; }
+    .task-check { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center; }
+    .task-check.done { background: var(--green); border-color: var(--green); }
+    .task-check.done svg { width: 10px; height: 10px; }
+    .task-check.in-progress { border-color: var(--blue); background: rgba(96,165,250,0.15); }
+    .task-check.pending { border-color: var(--yellow); }
+    .task-content { flex: 1; min-width: 0; }
+    .task-title { font-weight: 500; font-size: 13px; line-height: 1.4; }
+    .task-title.done-text { text-decoration: line-through; opacity: 0.5; }
+    .task-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; display: flex; gap: 8px; align-items: center; }
+    .agent-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+
+    /* Messages */
+    .msg-item { padding: 10px 0; border-bottom: 1px solid rgba(51,65,85,0.5); }
+    .msg-item:last-child { border-bottom: none; }
+    .msg-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .msg-avatar { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+    .msg-from { font-weight: 700; font-size: 12px; }
+    .msg-to { font-size: 11px; color: var(--text-dim); }
+    .msg-type-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.3px; }
+    .msg-type-badge.challenge { background: #dc262622; color: var(--red); }
+    .msg-type-badge.response { background: #16a34a22; color: var(--green); }
+    .msg-type-badge.summary { background: #7c3aed22; color: var(--purple); }
+    .msg-type-badge.warning { background: #ea580c22; color: var(--orange); }
+    .msg-type-badge.announcement { background: #2563eb22; color: var(--blue); }
+    .msg-type-badge.update { background: #0891b222; color: var(--cyan); }
+    .msg-content { font-size: 13px; line-height: 1.5; color: var(--text); }
+    .msg-time { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
+    /* Reports */
+    .reports-section { margin-bottom: 28px; }
+    .report-card { background: var(--bg-card); border-radius: 14px; border: 1px solid var(--border); margin-bottom: 12px; overflow: hidden; transition: border-color 0.2s; }
+    .report-card:hover { border-color: rgba(96,165,250,0.3); }
+    .report-header { padding: 14px 18px; cursor: pointer; display: flex; align-items: center; gap: 12px; }
+    .report-header:hover { background: rgba(51,65,85,0.3); }
+    .report-chevron { transition: transform 0.2s; flex-shrink: 0; }
+    .report-chevron.open { transform: rotate(90deg); }
+    .report-header h3 { font-size: 14px; flex: 1; }
+    .report-agent { font-size: 11px; color: var(--text-dim); }
+    .report-section-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+    .report-section-badge.analyza { background: #2563eb22; color: var(--blue); }
+    .report-section-badge.strategie { background: #7c3aed22; color: var(--purple); }
+    .report-section-badge.marketing { background: #ea580c22; color: var(--orange); }
+    .report-section-badge.produkt { background: #ec489922; color: var(--pink); }
+    .report-section-badge.oponentura { background: #dc262622; color: var(--red); }
+    .report-body { padding: 0 18px 18px; line-height: 1.7; font-size: 13px; display: none; white-space: pre-wrap; border-top: 1px solid var(--border); margin-top: 0; }
+    .report-body.open { display: block; padding-top: 16px; }
+
+    /* Use cases section */
+    .use-cases-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
+    .use-case-card { background: var(--bg-card); border-radius: 14px; border: 1px solid var(--border); padding: 20px; transition: all 0.2s; position: relative; overflow: hidden; }
+    .use-case-card:hover { border-color: rgba(96,165,250,0.4); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+    .use-case-card .uc-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+    .use-case-card .uc-icon svg { width: 24px; height: 24px; }
+    .use-case-card h4 { font-size: 14px; margin-bottom: 6px; color: #f1f5f9; }
+    .use-case-card p { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 10px; }
+    .use-case-card .uc-stat { font-size: 20px; font-weight: 800; }
+    .use-case-card .uc-stat-label { font-size: 11px; color: var(--text-dim); }
+    .use-case-card .uc-example { font-size: 11px; color: var(--text-dim); background: rgba(0,0,0,0.2); padding: 8px 10px; border-radius: 8px; margin-top: 10px; line-height: 1.4; }
+    .use-case-card .uc-example strong { color: var(--text-muted); }
+
+    /* Refresh */
+    .refresh-btn { position: fixed; bottom: 24px; right: 24px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; border: none; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-size: 13px; font-weight: 700; box-shadow: 0 4px 16px rgba(59,130,246,0.4); display: flex; align-items: center; gap: 6px; transition: transform 0.15s; }
+    .refresh-btn:hover { transform: scale(1.05); }
+    .refresh-btn svg { width: 16px; height: 16px; }
+
+    @media (max-width: 1024px) { .stats { grid-template-columns: repeat(3, 1fr); } .charts-row { grid-template-columns: 1fr; } .team { grid-template-columns: repeat(3, 1fr); } .use-cases-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 768px) { .stats { grid-template-columns: repeat(2, 1fr); } .grid { grid-template-columns: 1fr; } .team { grid-template-columns: repeat(2, 1fr); } .use-cases-grid { grid-template-columns: 1fr; } .header { flex-direction: column; align-items: flex-start; } .header-nav { margin-left: 0; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <svg class="logo-svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
+      <rect width="40" height="40" rx="10" fill="url(#logo-grad)"/>
+      <path d="M12 14 L12 26 M12 20 Q20 10 28 20 Q20 30 12 20" stroke="white" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+      <circle cx="28" cy="20" r="3" fill="white" opacity="0.9"/>
+      <path d="M24 14 L28 14 M24 26 L28 26" stroke="white" stroke-width="2" stroke-linecap="round"/>
+      <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="40" y2="40"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
+    </svg>
+    <div class="header-text">
+      <h1>VoiceDub AI <span class="version">B2B Hub</span></h1>
+      <div class="subtitle">Strategy Dashboard &mdash; Video Localization Platform</div>
+    </div>
+    <div class="header-nav">
+      <a href="/pitch.html" style="background: linear-gradient(135deg, rgba(59,130,246,0.25), rgba(168,85,247,0.25)); border-color: rgba(168,85,247,0.4);">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8l6-6 6 6-6 6z"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></svg>
+        Pitch 2026
+      </a>
+      <a href="/demo.html" style="background: linear-gradient(135deg, rgba(236,72,153,0.2), rgba(249,115,22,0.2)); border-color: rgba(236,72,153,0.4);">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="5,3 5,13 13,8" fill="currentColor"/></svg>
+        Cinematic Demo
+      </a>
+      <a href="/landing.html">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 6h12M6 6v8"/></svg>
+        Landing
+      </a>
+      <a href="/pricing.html">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v12M5 5h4.5a2.5 2.5 0 010 5H5M5 10h5a2.5 2.5 0 010 5H5"/></svg>
+        Pricing
+      </a>
+      <a href="/api-docs.html">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5l-2 3 2 3M12 5l2 3-2 3M9 3l-2 10"/></svg>
+        API Docs
+      </a>
+      <a href="/use-cases.html">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="6" height="5" rx="1"/><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="1" y="10" width="6" height="5" rx="1"/><rect x="9" y="10" width="6" height="5" rx="1"/></svg>
+        Use Cases
+      </a>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Stats -->
+    <div class="stats" id="stats"></div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+      <div class="chart-panel">
+        <h3>Postup ukolu</h3>
+        <div id="task-donut" style="display:flex;align-items:center;justify-content:center;gap:20px;"></div>
+      </div>
+      <div class="chart-panel">
+        <h3>Aktivita tymu</h3>
+        <div id="activity-chart"></div>
+      </div>
+      <div class="chart-panel">
+        <h3>Financni projekce (revidovane)</h3>
+        <div id="revenue-chart"></div>
+      </div>
+    </div>
+
+    <!-- Use Cases -->
+    <div class="section-title">
+      <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h4v5H3zM11 3h4v5h-4zM3 11h4v5H3zM11 11h4v5h-4z"/></svg>
+      Priklady pouziti
+    </div>
+    <div class="use-cases-grid" id="use-cases"></div>
+
+    <!-- Team -->
+    <div class="section-title">
+      <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="6" r="3"/><path d="M3 16c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
+      Strategicky tym
+    </div>
+    <div class="team" id="team"></div>
+
+    <!-- Panels -->
+    <div class="grid">
+      <div class="panel">
+        <div class="panel-header">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8h2v5H3zM7 5h2v8H7zM11 3h2v10h-2z"/></svg>
+          Ukoly
+        </div>
+        <div class="panel-body" id="tasks"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4zM2 4a2 2 0 012-2h8a2 2 0 012 2M6 7h4"/></svg>
+          Komunikace tymu
+        </div>
+        <div class="panel-body" id="messages"></div>
+      </div>
+    </div>
+
+    <!-- Reports -->
+    <div class="section-title">
+      <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h7l4 4v10a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M11 2v4h4M6 9h6M6 12h4"/></svg>
+      Reporty a analyzy
+    </div>
+    <div class="reports-section" id="reports"></div>
+  </div>
+
+  <button class="refresh-btn" onclick="loadAll()">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0111.5-2.3M14 8a6 6 0 01-11.5 2.3"/><path d="M14 2v4h-4M2 14v-4h4"/></svg>
+    Obnovit
+  </button>
+
+  <script>
+    const TEAM = [
+      { name: 'Strateg', role: 'Team Leader & Strategie', color: '#8b5cf6',
+        svg: '<circle cx="14" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14 6v4M12 8h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4 8l4-4 3 3 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' },
+      { name: 'Analytik', role: 'Trzni analyza & Data', color: '#3b82f6',
+        svg: '<rect x="3" y="10" width="3" height="6" rx="0.5" fill="currentColor" opacity="0.4"/><rect x="8" y="7" width="3" height="9" rx="0.5" fill="currentColor" opacity="0.6"/><rect x="13" y="4" width="3" height="12" rx="0.5" fill="currentColor" opacity="0.8"/>' },
+      { name: 'Obchodnik', role: 'Sales & Partnerstvi', color: '#10b981',
+        svg: '<path d="M5 12 A5 5 0 0 1 15 12" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="7" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>' },
+      { name: 'Marketar', role: 'Web, SEO & Marketing', color: '#f59e0b',
+        svg: '<path d="M4 10 L4 16 L8 13 L8 16" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 5v3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' },
+      { name: 'Produktak', role: 'Product & Roadmap', color: '#ec4899',
+        svg: '<rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 8h14M8 8v8" stroke="currentColor" stroke-width="1.5"/><circle cx="5.5" cy="6" r="0.5" fill="currentColor"/><circle cx="7.5" cy="6" r="0.5" fill="currentColor"/><circle cx="9.5" cy="6" r="0.5" fill="currentColor"/>' },
+      { name: 'Kritik', role: "Devil's Advocate & QA", color: '#ef4444',
+        svg: '<circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v5M10 13v1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' },
+    ];
+
+    const AGENT_COLORS = {};
+    TEAM.forEach(t => AGENT_COLORS[t.name] = t.color);
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+    // SVG chart helpers
+    function createDonutChart(container, data) {
+      const total = data.reduce((a, b) => a + b.value, 0);
+      if (total === 0) return;
+      const size = 120, cx = size/2, cy = size/2, r = 42, sw = 18;
+      let cumulative = 0;
+
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', size);
+      svg.setAttribute('height', size);
+      svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+
+      data.forEach(d => {
+        const pct = d.value / total;
+        const dashArray = 2 * Math.PI * r;
+        const dashOffset = dashArray * (1 - pct);
+        const rotation = cumulative * 360 - 90;
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', cx);
+        circle.setAttribute('cy', cy);
+        circle.setAttribute('r', r);
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', d.color);
+        circle.setAttribute('stroke-width', sw);
+        circle.setAttribute('stroke-dasharray', `${dashArray}`);
+        circle.setAttribute('stroke-dashoffset', `${dashOffset}`);
+        circle.setAttribute('transform', `rotate(${rotation} ${cx} ${cy})`);
+        circle.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(circle);
+        cumulative += pct;
+      });
+
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', cx); text.setAttribute('y', cy - 4);
+      text.setAttribute('text-anchor', 'middle'); text.setAttribute('fill', '#f1f5f9');
+      text.setAttribute('font-size', '22'); text.setAttribute('font-weight', '800');
+      text.textContent = total;
+      const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      sub.setAttribute('x', cx); sub.setAttribute('y', cy + 14);
+      sub.setAttribute('text-anchor', 'middle'); sub.setAttribute('fill', '#94a3b8');
+      sub.setAttribute('font-size', '10');
+      sub.textContent = 'celkem';
+      svg.appendChild(text);
+      svg.appendChild(sub);
+
+      const legend = document.createElement('div');
+      data.forEach(d => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;';
+        const dot = document.createElement('div');
+        dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${d.color};flex-shrink:0;`;
+        const lbl = document.createElement('span');
+        lbl.style.color = '#94a3b8';
+        lbl.textContent = `${d.label}: ${d.value}`;
+        row.appendChild(dot);
+        row.appendChild(lbl);
+        legend.appendChild(row);
+      });
+
+      container.textContent = '';
+      container.appendChild(svg);
+      container.appendChild(legend);
+    }
+
+    function createBarChart(container, data, maxVal) {
+      container.textContent = '';
+      const max = maxVal || Math.max(...data.map(d => d.value), 1);
+      data.forEach(d => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;';
+        const lbl = document.createElement('span');
+        lbl.style.cssText = 'font-size:11px;color:#94a3b8;width:70px;text-align:right;flex-shrink:0;';
+        lbl.textContent = d.label;
+        const barBg = document.createElement('div');
+        barBg.style.cssText = 'flex:1;height:20px;background:rgba(255,255,255,0.05);border-radius:6px;overflow:hidden;';
+        const bar = document.createElement('div');
+        const pct = Math.max((d.value / max) * 100, 2);
+        bar.style.cssText = `width:${pct}%;height:100%;background:${d.color};border-radius:6px;transition:width 0.5s ease;`;
+        barBg.appendChild(bar);
+        const val = document.createElement('span');
+        val.style.cssText = 'font-size:11px;font-weight:700;color:#f1f5f9;width:45px;flex-shrink:0;';
+        val.textContent = d.valueLabel || d.value;
+        row.appendChild(lbl);
+        row.appendChild(barBg);
+        row.appendChild(val);
+        container.appendChild(row);
+      });
+    }
+
+    function createLineChart(container, data) {
+      container.textContent = '';
+      const w = 280, h = 130, pad = { t: 10, r: 10, b: 25, l: 40 };
+      const cw = w - pad.l - pad.r, ch = h - pad.t - pad.b;
+      const max = Math.max(...data.map(d => d.value)) * 1.2;
+
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', '100%'); svg.setAttribute('height', h);
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      // Grid lines
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.t + (ch / 4) * i;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', pad.l); line.setAttribute('y1', y);
+        line.setAttribute('x2', w - pad.r); line.setAttribute('y2', y);
+        line.setAttribute('stroke', '#334155'); line.setAttribute('stroke-width', '0.5');
+        svg.appendChild(line);
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', pad.l - 4); text.setAttribute('y', y + 3);
+        text.setAttribute('text-anchor', 'end'); text.setAttribute('fill', '#64748b');
+        text.setAttribute('font-size', '9');
+        text.textContent = Math.round(max - (max / 4) * i) + 'k';
+        svg.appendChild(text);
+      }
+
+      // Area + line
+      const points = data.map((d, i) => {
+        const x = pad.l + (cw / (data.length - 1)) * i;
+        const y = pad.t + ch - (d.value / max) * ch;
+        return { x, y };
+      });
+
+      const areaPath = `M${points[0].x},${pad.t + ch} ` + points.map(p => `L${p.x},${p.y}`).join(' ') + ` L${points[points.length-1].x},${pad.t + ch} Z`;
+      const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      area.setAttribute('d', areaPath);
+      area.setAttribute('fill', 'url(#area-grad)');
+      svg.appendChild(area);
+
+      const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
+      line.setAttribute('stroke', '#3b82f6'); line.setAttribute('stroke-width', '2');
+      svg.appendChild(line);
+
+      points.forEach(p => {
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
+        dot.setAttribute('r', '3'); dot.setAttribute('fill', '#3b82f6');
+        dot.setAttribute('stroke', '#0f172a'); dot.setAttribute('stroke-width', '1.5');
+        svg.appendChild(dot);
+      });
+
+      // X labels
+      data.forEach((d, i) => {
+        const x = pad.l + (cw / (data.length - 1)) * i;
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', x); text.setAttribute('y', h - 5);
+        text.setAttribute('text-anchor', 'middle'); text.setAttribute('fill', '#64748b');
+        text.setAttribute('font-size', '9');
+        text.textContent = d.label;
+        svg.appendChild(text);
+      });
+
+      // Gradient def
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      const grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+      grad.setAttribute('id', 'area-grad'); grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
+      grad.setAttribute('x2', '0'); grad.setAttribute('y2', '1');
+      const s1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+      s1.setAttribute('offset', '0'); s1.setAttribute('stop-color', '#3b82f6'); s1.setAttribute('stop-opacity', '0.3');
+      const s2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+      s2.setAttribute('offset', '1'); s2.setAttribute('stop-color', '#3b82f6'); s2.setAttribute('stop-opacity', '0.02');
+      grad.appendChild(s1); grad.appendChild(s2); defs.appendChild(grad);
+      svg.insertBefore(defs, svg.firstChild);
+
+      container.appendChild(svg);
+    }
+
+    // Render use cases
+    function renderUseCases() {
+      const cases = [
+        { title: 'E-learning lokalizace', desc: 'Automaticky preklad online kurzu pro CEE studenty. Moodle, iSpring, Coursera.', color: '#3b82f6', stat: '90%', statLabel: 'uspora nakladu',
+          example: 'Firma Acme Corp ma 200h skoleni v EN. Studio dabing: 320 000 EUR. VoiceDub AI: 28 000 EUR. Hotovo za 2 tydny misto 6 mesicu.',
+          svg: '<path d="M4 3h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 2-3 2V8z" fill="currentColor"/><path d="M3 20h18M7 23h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' },
+        { title: 'Firemni komunikace', desc: 'CEO all-hands, compliance videa a onboarding materialy v lokalnim jazyce.', color: '#8b5cf6', stat: '40%', statLabel: 'vyssi engagement',
+          example: 'Nadnarodni banka s 5000 zamestnanci v CZ. Ctvrletni compliance video (45 min) prelozeno za 20 min. Vsichni rozumi, compliance splneno.',
+          svg: '<rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 9l9 4 9-4" stroke="currentColor" stroke-width="1.5"/>' },
+        { title: 'Zakaznicka podpora', desc: 'Video navody a tutorialy automaticky v jazyce zakaznika.', color: '#10b981', stat: '-25%', statLabel: 'support tiketu',
+          example: 'SaaS firma s 50 video tutorialy. Zakaznici v CZ/SK/PL reklamovali anglicke navody. Po prekladu: NPS +12, tikety -25%.',
+          svg: '<path d="M12 3c-4.97 0-9 3.58-9 8 0 1.6.52 3.08 1.4 4.33L3 21l5.29-1.65A9.7 9.7 0 0012 20c4.97 0 9-3.58 9-8s-4.03-9-9-9z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 11h6M9 14h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' },
+        { title: 'Sales naseptavac', desc: 'Real-time preklad pri online schuzce s zahranicnim klientem.', color: '#f59e0b', stat: '< 3s', statLabel: 'latence prekladu',
+          example: 'Obchodnik ma call s nemeckym partnerem. VoiceDub AI prepisuje, preklada a zobrazuje titulky v realnem case. Zadny tlumocnik potreba.',
+          svg: '<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M17 8l3-3M17 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' },
+      ];
+
+      const container = document.getElementById('use-cases');
+      container.textContent = '';
+      cases.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'use-case-card';
+
+        const icon = document.createElement('div');
+        icon.className = 'uc-icon';
+        icon.style.background = c.color + '22';
+        icon.style.color = c.color;
+        const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        iconSvg.setAttribute('viewBox', '0 0 24 24');
+        iconSvg.setAttribute('width', '24'); iconSvg.setAttribute('height', '24');
+        iconSvg.setAttribute('fill', 'none');
+        iconSvg.innerHTML = c.svg;
+        icon.appendChild(iconSvg);
+
+        const h4 = document.createElement('h4');
+        h4.textContent = c.title;
+        const p = document.createElement('p');
+        p.textContent = c.desc;
+
+        const stat = document.createElement('div');
+        stat.className = 'uc-stat';
+        stat.style.color = c.color;
+        stat.textContent = c.stat;
+        const statLabel = document.createElement('div');
+        statLabel.className = 'uc-stat-label';
+        statLabel.textContent = c.statLabel;
+
+        const example = document.createElement('div');
+        example.className = 'uc-example';
+        example.textContent = c.example;
+
+        card.appendChild(icon);
+        card.appendChild(h4);
+        card.appendChild(p);
+        card.appendChild(stat);
+        card.appendChild(statLabel);
+        card.appendChild(example);
+        container.appendChild(card);
+      });
+    }
+
+    function renderTeam(tasks) {
+      const container = document.getElementById('team');
+      container.textContent = '';
+      const taskCounts = {};
+      (tasks || []).forEach(t => { taskCounts[t.agent] = (taskCounts[t.agent] || 0) + 1; });
+
+      TEAM.forEach(m => {
+        const card = document.createElement('div');
+        card.className = 'team-member';
+
+        if (taskCounts[m.name]) {
+          const tc = document.createElement('div');
+          tc.className = 'task-count';
+          tc.textContent = taskCounts[m.name];
+          card.appendChild(tc);
+        }
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.style.background = m.color + '22';
+        avatar.style.color = m.color;
+        const avatarSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        avatarSvg.setAttribute('viewBox', '0 0 20 20');
+        avatarSvg.setAttribute('width', '28'); avatarSvg.setAttribute('height', '28');
+        avatarSvg.innerHTML = m.svg;
+        avatar.appendChild(avatarSvg);
+
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = m.name;
+        const role = document.createElement('div');
+        role.className = 'role';
+        role.textContent = m.role;
+
+        card.appendChild(avatar);
+        card.appendChild(name);
+        card.appendChild(role);
+        container.appendChild(card);
+      });
+    }
+
+    async function loadAll() {
+      try {
+        const [summary, tasks, messages, reports] = await Promise.all([
+          fetch('/api/summary').then(r => r.json()),
+          fetch('/api/tasks').then(r => r.json()),
+          fetch('/api/messages').then(r => r.json()),
+          fetch('/api/reports').then(r => r.json()),
+        ]);
+        renderStats(summary);
+        renderCharts(summary, tasks);
+        renderTeam(tasks);
+        renderTasks(tasks);
+        renderMessages(messages);
+        renderReports(reports);
+      } catch (e) { console.error('Load failed:', e); }
+    }
+
+    function renderStats(summary) {
+      const counts = {};
+      (summary.taskStats || []).forEach(s => counts[s.status] = s.count);
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      const done = counts.done || 0;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      const items = [
+        { label: 'Celkem ukolu', value: total, color: 'var(--blue)', icon: '<rect x="3" y="3" width="10" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>', trend: null },
+        { label: 'Dokonceno', value: done, color: 'var(--green)', icon: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>', trend: pct + '% hotovo' },
+        { label: 'Rozpracovano', value: counts['in-progress'] || 0, color: 'var(--yellow)', icon: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>', trend: null },
+        { label: 'Reporty', value: summary.reportCount || 0, color: 'var(--purple)', icon: '<path d="M4 2h6l4 4v10a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2v4h4" fill="none" stroke="currentColor" stroke-width="1.5"/>', trend: null },
+        { label: 'Zpravy', value: summary.recentMessages?.length || 0, color: 'var(--cyan)', icon: '<path d="M3 5h10v7H6l-3 3V5z" fill="none" stroke="currentColor" stroke-width="1.5"/>', trend: 'poslednich 10' },
+      ];
+
+      const container = document.getElementById('stats');
+      container.textContent = '';
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'stat-card';
+
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'stat-icon';
+        const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        iconSvg.setAttribute('width', '32'); iconSvg.setAttribute('height', '32');
+        iconSvg.setAttribute('viewBox', '0 0 16 16');
+        iconSvg.style.color = item.color;
+        iconSvg.innerHTML = item.icon;
+        iconDiv.appendChild(iconSvg);
+
+        const lbl = document.createElement('div');
+        lbl.className = 'label';
+        lbl.textContent = item.label;
+        const val = document.createElement('div');
+        val.className = 'value';
+        val.style.color = item.color;
+        val.textContent = item.value;
+
+        card.appendChild(iconDiv);
+        card.appendChild(lbl);
+        card.appendChild(val);
+
+        if (item.trend) {
+          const trend = document.createElement('div');
+          trend.className = 'trend neutral';
+          trend.textContent = item.trend;
+          card.appendChild(trend);
+        }
+        container.appendChild(card);
+      });
+    }
+
+    function renderCharts(summary, tasks) {
+      const counts = {};
+      (summary.taskStats || []).forEach(s => counts[s.status] = s.count);
+      createDonutChart(document.getElementById('task-donut'), [
+        { label: 'Hotovo', value: counts.done || 0, color: '#4ade80' },
+        { label: 'V prubehu', value: counts['in-progress'] || 0, color: '#60a5fa' },
+        { label: 'Cekajici', value: counts.pending || 0, color: '#facc15' },
+      ]);
+
+      const agentCounts = {};
+      (tasks || []).forEach(t => { agentCounts[t.agent] = (agentCounts[t.agent] || 0) + 1; });
+      createBarChart(document.getElementById('activity-chart'),
+        Object.entries(agentCounts).map(([name, count]) => ({
+          label: name, value: count, color: AGENT_COLORS[name] || '#60a5fa', valueLabel: count + ' ukolu'
+        }))
+      );
+
+      createLineChart(document.getElementById('revenue-chart'), [
+        { label: 'Q3\'26', value: 15 },
+        { label: 'Q4\'26', value: 35 },
+        { label: 'Q1\'27', value: 55 },
+        { label: 'Q2\'27', value: 85 },
+        { label: 'Q3\'27', value: 120 },
+        { label: 'Q4\'27', value: 150 },
+      ]);
+    }
+
+    function renderTasks(tasks) {
+      const container = document.getElementById('tasks');
+      container.textContent = '';
+      if (!tasks.length) { const e = document.createElement('div'); e.style.cssText = 'color:var(--text-dim);padding:20px;text-align:center'; e.textContent = 'Zadne ukoly'; container.appendChild(e); return; }
+      tasks.forEach(t => {
+        const item = document.createElement('div');
+        item.className = 'task-item';
+
+        const check = document.createElement('div');
+        check.className = 'task-check ' + t.status;
+        if (t.status === 'done') {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svg.setAttribute('viewBox', '0 0 10 10'); svg.setAttribute('width', '10'); svg.setAttribute('height', '10');
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', 'M2 5l2 2 4-4'); path.setAttribute('stroke', '#0f172a');
+          path.setAttribute('stroke-width', '1.5'); path.setAttribute('fill', 'none');
+          path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(path); check.appendChild(svg);
+        }
+
+        const content = document.createElement('div');
+        content.className = 'task-content';
+        const title = document.createElement('div');
+        title.className = 'task-title' + (t.status === 'done' ? ' done-text' : '');
+        title.textContent = t.title;
+        const meta = document.createElement('div');
+        meta.className = 'task-meta';
+        const agentTag = document.createElement('span');
+        agentTag.className = 'agent-tag';
+        agentTag.style.background = (AGENT_COLORS[t.agent] || '#60a5fa') + '22';
+        agentTag.style.color = AGENT_COLORS[t.agent] || '#60a5fa';
+        agentTag.textContent = t.agent;
+        meta.appendChild(agentTag);
+
+        content.appendChild(title);
+        content.appendChild(meta);
+        item.appendChild(check);
+        item.appendChild(content);
+        container.appendChild(item);
+      });
+    }
+
+    function renderMessages(messages) {
+      const container = document.getElementById('messages');
+      container.textContent = '';
+      if (!messages.length) { const e = document.createElement('div'); e.style.cssText = 'color:var(--text-dim);padding:20px;text-align:center'; e.textContent = 'Zadne zpravy'; container.appendChild(e); return; }
+      messages.forEach(m => {
+        const item = document.createElement('div');
+        item.className = 'msg-item';
+
+        const header = document.createElement('div');
+        header.className = 'msg-header';
+        const avatar = document.createElement('div');
+        avatar.className = 'msg-avatar';
+        const color = AGENT_COLORS[m.from_agent] || '#60a5fa';
+        avatar.style.background = color + '33';
+        avatar.style.color = color;
+        avatar.textContent = (m.from_agent || '?')[0];
+        const from = document.createElement('span');
+        from.className = 'msg-from';
+        from.style.color = color;
+        from.textContent = m.from_agent;
+        header.appendChild(avatar);
+        header.appendChild(from);
+
+        if (m.to_agent) {
+          const to = document.createElement('span');
+          to.className = 'msg-to';
+          to.textContent = '\u2192 ' + m.to_agent;
+          header.appendChild(to);
+        }
+        if (m.type && m.type !== 'message') {
+          const badge = document.createElement('span');
+          badge.className = 'msg-type-badge ' + m.type;
+          badge.textContent = m.type;
+          header.appendChild(badge);
+        }
+
+        const content = document.createElement('div');
+        content.className = 'msg-content';
+        content.textContent = m.content;
+        const time = document.createElement('div');
+        time.className = 'msg-time';
+        time.textContent = new Date(m.created_at).toLocaleString('cs-CZ');
+
+        item.appendChild(header);
+        item.appendChild(content);
+        item.appendChild(time);
+        container.appendChild(item);
+      });
+    }
+
+    function renderReports(reports) {
+      const container = document.getElementById('reports');
+      container.textContent = '';
+      if (!reports.length) { const e = document.createElement('div'); e.style.cssText = 'color:var(--text-dim);padding:20px;text-align:center'; e.textContent = 'Zadne reporty'; container.appendChild(e); return; }
+      reports.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'report-card';
+
+        const header = document.createElement('div');
+        header.className = 'report-header';
+
+        const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chevron.setAttribute('width', '14'); chevron.setAttribute('height', '14');
+        chevron.setAttribute('viewBox', '0 0 14 14');
+        chevron.setAttribute('class', 'report-chevron');
+        chevron.style.color = '#64748b';
+        const chPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        chPath.setAttribute('d', 'M5 3l4 4-4 4'); chPath.setAttribute('stroke', 'currentColor');
+        chPath.setAttribute('stroke-width', '1.5'); chPath.setAttribute('fill', 'none');
+        chPath.setAttribute('stroke-linecap', 'round'); chPath.setAttribute('stroke-linejoin', 'round');
+        chevron.appendChild(chPath);
+
+        const h3 = document.createElement('h3');
+        h3.textContent = r.title;
+        const agent = document.createElement('span');
+        agent.className = 'report-agent';
+        agent.textContent = r.agent;
+        const sectionBadge = document.createElement('span');
+        sectionBadge.className = 'report-section-badge ' + (r.section || '').toLowerCase();
+        sectionBadge.textContent = r.section;
+
+        header.appendChild(chevron);
+        header.appendChild(h3);
+        header.appendChild(agent);
+        header.appendChild(sectionBadge);
+
+        const body = document.createElement('div');
+        body.className = 'report-body';
+        body.textContent = r.content;
+
+        header.addEventListener('click', () => {
+          body.classList.toggle('open');
+          chevron.classList.toggle('open');
+        });
+
+        card.appendChild(header);
+        card.appendChild(body);
+        container.appendChild(card);
+      });
+    }
+
+    renderUseCases();
+    loadAll();
+    setInterval(loadAll, 10000);
+  </script>
+</body>
+</html>

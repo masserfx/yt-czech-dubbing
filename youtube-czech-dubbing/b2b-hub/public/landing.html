@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceDub AI — Automaticky dabing videi pro firmy</title>
+  <meta name="description" content="Prelozte a nadabujte kazde video do cestiny, slovenstiny, polstiny a madarstiny. AI-powered lokalizace za zlomek ceny studia.">
+  <meta name="keywords" content="automaticky dabing, preklad videi, AI lokalizace, cesky TTS, video preklad, e-learning lokalizace">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; line-height: 1.6; }
+
+    /* Hero */
+    .hero { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%); color: white; padding: 80px 24px; text-align: center; position: relative; overflow: hidden; }
+    .hero::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 50%); animation: pulse 8s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+    .hero h1 { font-size: 48px; font-weight: 800; max-width: 800px; margin: 0 auto 16px; position: relative; }
+    .hero .highlight { background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { font-size: 20px; color: #94a3b8; max-width: 600px; margin: 0 auto 32px; position: relative; }
+    .hero .cta { display: inline-block; background: #3b82f6; color: white; padding: 16px 40px; border-radius: 12px; font-size: 18px; font-weight: 700; text-decoration: none; transition: all 0.3s; position: relative; }
+    .hero .cta:hover { background: #2563eb; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(59,130,246,0.4); }
+    .hero .sub-cta { display: block; margin-top: 12px; color: #64748b; font-size: 14px; position: relative; }
+
+    /* Stats bar */
+    .stats-bar { background: #f8fafc; padding: 40px 24px; display: flex; justify-content: center; gap: 64px; flex-wrap: wrap; border-bottom: 1px solid #e2e8f0; }
+    .stat { text-align: center; }
+    .stat .number { font-size: 36px; font-weight: 800; color: #3b82f6; }
+    .stat .desc { font-size: 14px; color: #64748b; margin-top: 4px; }
+
+    /* Sections */
+    .section { padding: 80px 24px; max-width: 1100px; margin: 0 auto; }
+    .section-title { font-size: 32px; font-weight: 700; text-align: center; margin-bottom: 16px; }
+    .section-subtitle { font-size: 18px; color: #64748b; text-align: center; max-width: 600px; margin: 0 auto 48px; }
+
+    /* Pain points */
+    .pain-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .pain-card { background: #fef2f2; border: 1px solid #fecaca; border-radius: 16px; padding: 32px; text-align: center; }
+    .pain-card .icon { font-size: 40px; margin-bottom: 16px; }
+    .pain-card h3 { font-size: 18px; color: #991b1b; margin-bottom: 8px; }
+    .pain-card p { color: #7f1d1d; font-size: 14px; }
+
+    /* How it works */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
+    .step { text-align: center; position: relative; }
+    .step .number { width: 56px; height: 56px; border-radius: 50%; background: #3b82f6; color: white; font-size: 24px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+    .step h3 { font-size: 18px; margin-bottom: 8px; }
+    .step p { color: #64748b; font-size: 14px; }
+
+    /* Use cases */
+    .use-cases { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+    .use-case { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; }
+    .use-case .tag { display: inline-block; background: #dbeafe; color: #1d4ed8; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 9999px; margin-bottom: 12px; }
+    .use-case h3 { font-size: 20px; margin-bottom: 8px; }
+    .use-case p { color: #64748b; font-size: 14px; margin-bottom: 12px; }
+    .use-case .benefit { color: #16a34a; font-weight: 600; font-size: 14px; }
+
+    /* Pricing */
+    .pricing-bg { background: #f8fafc; padding: 80px 24px; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; max-width: 1100px; margin: 0 auto; }
+    .price-card { background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px 24px; text-align: center; position: relative; }
+    .price-card.featured { border-color: #3b82f6; box-shadow: 0 4px 24px rgba(59,130,246,0.15); }
+    .price-card.featured::before { content: 'Nejoblibenejsi'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 16px; border-radius: 9999px; }
+    .price-card .tier { font-size: 14px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+    .price-card .price { font-size: 40px; font-weight: 800; margin: 16px 0 4px; }
+    .price-card .period { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+    .price-card ul { list-style: none; text-align: left; margin-bottom: 24px; }
+    .price-card li { padding: 6px 0; font-size: 14px; color: #475569; }
+    .price-card li::before { content: '\2713'; color: #16a34a; font-weight: 700; margin-right: 8px; }
+    .price-card .btn { display: block; padding: 12px; border-radius: 10px; font-weight: 600; text-decoration: none; font-size: 14px; }
+    .price-card .btn.primary { background: #3b82f6; color: white; }
+    .price-card .btn.secondary { background: #f1f5f9; color: #475569; }
+
+    /* CTA */
+    .final-cta { background: linear-gradient(135deg, #1e3a5f, #0f172a); color: white; padding: 80px 24px; text-align: center; }
+    .final-cta h2 { font-size: 36px; font-weight: 700; margin-bottom: 16px; }
+    .final-cta p { color: #94a3b8; font-size: 18px; margin-bottom: 32px; }
+    .final-cta .cta { display: inline-block; background: #3b82f6; color: white; padding: 16px 48px; border-radius: 12px; font-size: 18px; font-weight: 700; text-decoration: none; }
+
+    /* Footer */
+    footer { background: #0f172a; color: #64748b; padding: 32px 24px; text-align: center; font-size: 14px; }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 32px; }
+      .pain-grid, .steps, .use-cases, .pricing-grid { grid-template-columns: 1fr; }
+      .stats-bar { gap: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <h1>Prelozte kazde video do <span class="highlight">cestiny za minuty</span></h1>
+    <p>AI-powered automaticky dabing pro firmy. 10x levnejsi nez studio, pripraveny za minuty misto dnu.</p>
+    <a href="#pricing" class="cta">Zacnete zdarma</a>
+    <span class="sub-cta">100 minut prekladu mesicne zdarma. Zadna kreditni karta.</span>
+    <div style="margin-top:40px;position:relative;">
+      <svg width="480" height="140" viewBox="0 0 480 140" fill="none" style="max-width:100%;height:auto;">
+        <rect x="10" y="10" width="460" height="120" rx="14" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+        <rect x="25" y="25" width="200" height="90" rx="8" fill="#0f172a" stroke="#334155"/>
+        <polygon points="105,50 105,85 135,67" fill="#3b82f6" opacity="0.8"/>
+        <text x="125" y="105" text-anchor="middle" fill="#64748b" font-size="8">Original: English</text>
+        <path d="M240 67 L270 67" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 3"/>
+        <circle cx="280" cy="67" r="12" fill="#3b82f622" stroke="#3b82f6" stroke-width="1.5"/>
+        <text x="280" y="71" text-anchor="middle" fill="#60a5fa" font-size="10" font-weight="700">AI</text>
+        <path d="M292 67 L320 67" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 3"/>
+        <g transform="translate(330, 30)">
+          <rect width="120" height="22" rx="5" fill="#4ade8022" stroke="#4ade8055" stroke-width="0.5"/>
+          <text x="12" y="15" fill="#4ade80" font-size="9" font-weight="600">CS Cestina</text>
+          <rect x="85" y="5" width="28" height="12" rx="3" fill="#4ade8033"/><text x="99" y="14" text-anchor="middle" fill="#4ade80" font-size="7">M</text>
+        </g>
+        <g transform="translate(330, 58)">
+          <rect width="120" height="22" rx="5" fill="#f472b622" stroke="#f472b655" stroke-width="0.5"/>
+          <text x="12" y="15" fill="#f472b6" font-size="9" font-weight="600">SK Slovenstina</text>
+          <rect x="85" y="5" width="28" height="12" rx="3" fill="#f472b633"/><text x="99" y="14" text-anchor="middle" fill="#f472b6" font-size="7">F</text>
+        </g>
+        <g transform="translate(330, 86)">
+          <rect width="120" height="22" rx="5" fill="#facc1522" stroke="#facc1555" stroke-width="0.5"/>
+          <text x="12" y="15" fill="#facc15" font-size="9" font-weight="600">PL Polstina</text>
+          <rect x="85" y="5" width="28" height="12" rx="3" fill="#facc1533"/><text x="99" y="14" text-anchor="middle" fill="#facc15" font-size="7">M</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <div class="stats-bar">
+    <div class="stat"><div class="number">10x</div><div class="desc">Levnejsi nez studio</div></div>
+    <div class="stat"><div class="number">4</div><div class="desc">CEE jazyky</div></div>
+    <div class="stat"><div class="number">Real-time</div><div class="desc">Okamzity preklad</div></div>
+    <div class="stat"><div class="number">AI</div><div class="desc">Multi-voice detekce</div></div>
+  </div>
+
+  <section class="section">
+    <h2 class="section-title">Proc firmy prichazeji o zakazniky?</h2>
+    <p class="section-subtitle">Video obsah v anglictine nezasahne 60% vaseho CEE publika.</p>
+    <div class="pain-grid">
+      <div class="pain-card">
+        <div class="icon">\u{1F4B0}</div>
+        <h3>Studio dabing je drahy</h3>
+        <p>800-2000 EUR za hodinu videa. Pro pravidelny obsah neunosne.</p>
+      </div>
+      <div class="pain-card">
+        <div class="icon">\u{23F3}</div>
+        <h3>Trvá to dny az tydny</h3>
+        <p>5-10 pracovnich dnu na lokalizaci jednoho videa. Obsah zastara driv, nez je prelozen.</p>
+      </div>
+      <div class="pain-card">
+        <div class="icon">\u{1F30D}</div>
+        <h3>Jazykova bariera</h3>
+        <p>73% firem v CEE ma interni videa jen v anglictine. Zamestnanci jim nerozumi.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">Jak to funguje</h2>
+    <p class="section-subtitle">Tri jednoduche kroky k prelozenemuvideu.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="number">1</div>
+        <h3>Nahrajte video</h3>
+        <p>YouTube odkaz, nebo nahrajte soubor. Podporujeme vsechny bezne formaty.</p>
+      </div>
+      <div class="step">
+        <div class="number">2</div>
+        <h3>AI prelozi a nadabuje</h3>
+        <p>Automaticka detekce mluvcich, preklad do zvoleného jazyka, synteza prirozeneho hlasu.</p>
+      </div>
+      <div class="step">
+        <div class="number">3</div>
+        <h3>Stahnete vysledek</h3>
+        <p>Prelozene video s profesionalnim dabingem. Muzsky, zensky i detsky hlas.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">Kde to vyuzijete</h2>
+    <p class="section-subtitle">Nase technologie resi realne problemy firem.</p>
+    <div class="use-cases">
+      <div class="use-case">
+        <span class="tag">E-learning</span>
+        <h3>Online kurzy a skoleni</h3>
+        <p>Lokalizujte tisice hodin vzdelavaciho obsahu pro cesky, slovensky, polsky a madarsky trh.</p>
+        <div class="benefit">Uspora 90% nakladu na lokalizaci</div>
+      </div>
+      <div class="use-case">
+        <span class="tag">Corporate</span>
+        <h3>Firemni komunikace</h3>
+        <p>CEO all-hands, compliance videa, onboarding materialy — okamzite v lokalnim jazyce.</p>
+        <div class="benefit">Vyssi engagement zamestnancu o 40%</div>
+      </div>
+      <div class="use-case">
+        <span class="tag">Support</span>
+        <h3>Zakaznicka podpora</h3>
+        <p>Video navody a tutorialy automaticky prelozene do jazyka vaseho zakaznika.</p>
+        <div class="benefit">Snizeni support tiketu o 25%</div>
+      </div>
+      <div class="use-case">
+        <span class="tag">Media</span>
+        <h3>Zpravodajstvi a podcasty</h3>
+        <p>Rychly preklad breaking news, rozhovoru a podcastu pro CEE publikum.</p>
+        <div class="benefit">Time-to-market pod 10 minut</div>
+      </div>
+    </div>
+    <p style="text-align:center;margin-top:24px;"><a href="/use-cases.html" style="color:#3b82f6;font-weight:600;font-size:16px;text-decoration:none;">Zobrazit detailni priklady pouziti &rarr;</a></p>
+  </section>
+
+  <section class="pricing-bg" id="pricing">
+    <h2 class="section-title">Jednoduchy a transparentni pricing</h2>
+    <p class="section-subtitle">Zacnete zdarma. Skalujte, az budete pripraveni.</p>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="tier">Free</div>
+        <div class="price">0 EUR</div>
+        <div class="period">navzdy</div>
+        <ul>
+          <li>100 minut / mesic</li>
+          <li>4 CEE jazyky</li>
+          <li>Chrome extenze</li>
+          <li>Community podpora</li>
+        </ul>
+        <a href="#" class="btn secondary">Zacit zdarma</a>
+      </div>
+      <div class="price-card">
+        <div class="tier">Pro</div>
+        <div class="price">29 EUR</div>
+        <div class="period">/ mesic</div>
+        <ul>
+          <li>500 minut / mesic</li>
+          <li>4 CEE jazyky</li>
+          <li>API pristup</li>
+          <li>Email podpora</li>
+        </ul>
+        <a href="#" class="btn secondary">Zkusit 14 dni</a>
+      </div>
+      <div class="price-card featured">
+        <div class="tier">Business</div>
+        <div class="price">99 EUR</div>
+        <div class="period">/ mesic</div>
+        <ul>
+          <li>2000 minut / mesic</li>
+          <li>8+ jazyku</li>
+          <li>Team management</li>
+          <li>Prioritni podpora</li>
+          <li>Batch processing</li>
+        </ul>
+        <a href="#" class="btn primary">Zacit s Business</a>
+      </div>
+      <div class="price-card">
+        <div class="tier">Enterprise</div>
+        <div class="price">499+ EUR</div>
+        <div class="period">/ mesic</div>
+        <ul>
+          <li>Neomezene minuty</li>
+          <li>Vsechny jazyky</li>
+          <li>Custom hlasy</li>
+          <li>SSO / SAML</li>
+          <li>Dedicated podpora</li>
+          <li>On-premise moznost</li>
+        </ul>
+        <a href="#" class="btn secondary">Kontaktovat sales</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="final-cta">
+    <h2>Pripraveni prelozit svuj obsah?</h2>
+    <p>Zacnete s 100 minutami zdarma. Zadna kreditni karta, zadne zavazky.</p>
+    <a href="#" class="cta">Zacit zdarma</a>
+  </section>
+
+  <footer>
+    <p>VoiceDub AI &mdash; Automaticky dabing videi pro firmy &bull; 2026</p>
+  </footer>
+</body>
+</html>

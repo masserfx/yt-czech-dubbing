@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoiceDub AI — Cenova kalkulacka</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    .header { padding: 32px; border-bottom: 1px solid #334155; }
+    .header h1 { font-size: 28px; margin-bottom: 4px; }
+    .header p { color: #94a3b8; font-size: 14px; }
+    .container { max-width: 900px; margin: 0 auto; padding: 32px; }
+    .back-link { display: inline-block; color: #60a5fa; text-decoration: none; margin-bottom: 24px; font-size: 14px; }
+    .calc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+    .input-panel { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; }
+    .result-panel { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; }
+    .field { margin-bottom: 24px; }
+    .field label { display: block; font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .field input[type="range"] { width: 100%; accent-color: #3b82f6; }
+    .field .range-labels { display: flex; justify-content: space-between; font-size: 12px; color: #64748b; margin-top: 4px; }
+    .field .current-value { font-size: 24px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
+    .field select { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-size: 14px; }
+    .comparison { margin-top: 32px; }
+    .comparison h3 { font-size: 16px; margin-bottom: 16px; color: #f1f5f9; }
+    .compare-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #334155; }
+    .compare-row:last-child { border-bottom: none; }
+    .compare-row .name { font-size: 14px; }
+    .compare-row .price { font-size: 14px; font-weight: 600; }
+    .compare-row .price.our { color: #4ade80; }
+    .compare-row .price.other { color: #f87171; }
+    .savings { background: linear-gradient(135deg, #16a34a22, #16a34a11); border: 1px solid #16a34a55; border-radius: 12px; padding: 20px; margin-top: 24px; text-align: center; }
+    .savings .amount { font-size: 36px; font-weight: 800; color: #4ade80; }
+    .savings .label { font-size: 14px; color: #94a3b8; margin-top: 4px; }
+    .result-section { margin-bottom: 24px; }
+    .result-section h3 { font-size: 14px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .result-big { font-size: 40px; font-weight: 800; color: #f1f5f9; }
+    .result-period { font-size: 16px; color: #64748b; font-weight: 400; }
+    .result-detail { font-size: 14px; color: #94a3b8; margin-top: 4px; }
+    .tier-badge { display: inline-block; padding: 4px 14px; border-radius: 9999px; font-size: 13px; font-weight: 600; margin-top: 8px; }
+    .tier-badge.free { background: #16653433; color: #4ade80; }
+    .tier-badge.pro { background: #2563eb33; color: #60a5fa; }
+    .tier-badge.business { background: #7c3aed33; color: #c084fc; }
+    .tier-badge.enterprise { background: #854d0e33; color: #facc15; }
+    .cta-btn { display: block; width: 100%; padding: 14px; background: #3b82f6; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 24px; text-align: center; text-decoration: none; }
+    .cta-btn:hover { background: #2563eb; }
+    @media (max-width: 768px) { .calc-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Cenova kalkulacka</h1>
+    <p>Spocitejte si, kolik usetrite oproti studiovemu dabingu</p>
+  </div>
+  <div class="container">
+    <a href="/" class="back-link">&larr; Zpet na dashboard</a>
+    <div class="calc-grid">
+      <div class="input-panel">
+        <div class="field">
+          <label>Pocet minut videa mesicne</label>
+          <div class="current-value" id="minutes-display">200 min</div>
+          <input type="range" id="minutes" min="10" max="5000" value="200" step="10">
+          <div class="range-labels"><span>10 min</span><span>5000 min</span></div>
+        </div>
+        <div class="field">
+          <label>Pocet jazyku</label>
+          <div class="current-value" id="languages-display">1 jazyk</div>
+          <input type="range" id="languages" min="1" max="8" value="1" step="1">
+          <div class="range-labels"><span>1</span><span>8</span></div>
+        </div>
+        <div class="field">
+          <label>Kvalita</label>
+          <select id="quality">
+            <option value="standard">Standard (AI preklad + TTS)</option>
+            <option value="premium">Premium (AI preklad + post-editing)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Typ obsahu</label>
+          <select id="content-type">
+            <option value="elearning">E-learning kurzy</option>
+            <option value="corporate">Firemni komunikace</option>
+            <option value="support">Zakaznicka podpora</option>
+            <option value="media">Media / podcasty</option>
+          </select>
+        </div>
+
+        <div class="comparison">
+          <h3>Porovnani s alternativami</h3>
+          <div id="comparison-rows"></div>
+        </div>
+      </div>
+
+      <div class="result-panel">
+        <div class="result-section">
+          <h3>Doporuceny plan</h3>
+          <div id="tier-name" class="tier-badge business">Business</div>
+        </div>
+        <div class="result-section">
+          <h3>Vase cena u VoiceDub</h3>
+          <div class="result-big">
+            <span id="our-price-value">99</span> EUR <span class="result-period">/ mesic</span>
+          </div>
+          <div class="result-detail" id="per-minute">0.50 EUR / minuta</div>
+        </div>
+        <div class="result-section">
+          <h3>Studiovy dabing by stal</h3>
+          <div class="result-big" style="color:#f87171">
+            <span id="studio-price-value">3 200</span> EUR <span class="result-period">/ mesic</span>
+          </div>
+        </div>
+        <div class="savings">
+          <div class="amount" id="savings-amount">3 101 EUR</div>
+          <div class="label">Mesicni uspora oproti studiu</div>
+          <div class="label" id="savings-percent" style="color:#4ade80;font-weight:600;margin-top:4px">97% levnejsi</div>
+        </div>
+        <div class="result-section" style="margin-top:24px">
+          <h3>Rocni uspora</h3>
+          <div class="result-big" id="yearly-savings" style="color:#4ade80;font-size:32px">37 212 EUR</div>
+        </div>
+        <a href="landing.html#pricing" class="cta-btn">Zacit s timto planem</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TIERS = [
+      { name: 'Free', max: 100, price: 0, cls: 'free' },
+      { name: 'Pro', max: 500, price: 29, cls: 'pro' },
+      { name: 'Business', max: 2000, price: 99, cls: 'business' },
+      { name: 'Enterprise', max: Infinity, price: 499, cls: 'enterprise' },
+    ];
+
+    const STUDIO_RATE = 16;
+    const COMPETITORS = [
+      { name: 'Studiovy dabing', rate: 16 },
+      { name: 'Synthesia', rate: 0.5 },
+      { name: 'HeyGen', rate: 0.3 },
+      { name: 'Rask.ai', rate: 0.2 },
+    ];
+
+    function calculate() {
+      const minutes = parseInt(document.getElementById('minutes').value);
+      const languages = parseInt(document.getElementById('languages').value);
+      const quality = document.getElementById('quality').value;
+      const totalMinutes = minutes * languages;
+      const qualityMultiplier = quality === 'premium' ? 1.5 : 1;
+
+      document.getElementById('minutes-display').textContent = minutes + ' min';
+      document.getElementById('languages-display').textContent = languages + (languages === 1 ? ' jazyk' : languages < 5 ? ' jazyky' : ' jazyku');
+
+      let tier = TIERS[TIERS.length - 1];
+      for (const t of TIERS) {
+        if (totalMinutes <= t.max) { tier = t; break; }
+      }
+
+      let ourPrice = tier.price * qualityMultiplier;
+      if (tier.name === 'Enterprise') {
+        ourPrice = Math.max(499, Math.ceil(totalMinutes * 0.08) * qualityMultiplier);
+      }
+      const studioPrice = totalMinutes * STUDIO_RATE;
+      const saving = studioPrice - ourPrice;
+      const savingPercent = studioPrice > 0 ? Math.round((saving / studioPrice) * 100) : 0;
+      const perMinute = totalMinutes > 0 ? (ourPrice / totalMinutes).toFixed(2) : '0.00';
+
+      const tierBadge = document.getElementById('tier-name');
+      tierBadge.textContent = tier.name;
+      tierBadge.className = 'tier-badge ' + tier.cls;
+
+      document.getElementById('our-price-value').textContent = Math.round(ourPrice).toLocaleString('cs-CZ');
+      document.getElementById('per-minute').textContent = perMinute + ' EUR / minuta';
+      document.getElementById('studio-price-value').textContent = studioPrice.toLocaleString('cs-CZ');
+      document.getElementById('savings-amount').textContent = saving.toLocaleString('cs-CZ') + ' EUR';
+      document.getElementById('savings-percent').textContent = savingPercent + '% levnejsi';
+      document.getElementById('yearly-savings').textContent = (saving * 12).toLocaleString('cs-CZ') + ' EUR';
+
+      const compContainer = document.getElementById('comparison-rows');
+      compContainer.textContent = '';
+      const allPrices = [
+        { name: 'VoiceDub AI', price: ourPrice, ours: true },
+        ...COMPETITORS.map(c => ({ name: c.name, price: totalMinutes * c.rate, ours: false }))
+      ].sort((a, b) => a.price - b.price);
+
+      allPrices.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'compare-row';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'name';
+        nameEl.textContent = item.name;
+        const priceEl = document.createElement('span');
+        priceEl.className = 'price ' + (item.ours ? 'our' : 'other');
+        priceEl.textContent = Math.round(item.price).toLocaleString('cs-CZ') + ' EUR/mes';
+        row.appendChild(nameEl);
+        row.appendChild(priceEl);
+        compContainer.appendChild(row);
+      });
+    }
+
+    document.getElementById('minutes').addEventListener('input', calculate);
+    document.getElementById('languages').addEventListener('input', calculate);
+    document.getElementById('quality').addEventListener('change', calculate);
+    document.getElementById('content-type').addEventListener('change', calculate);
+    calculate();
+  </script>
+</body>
+</html>

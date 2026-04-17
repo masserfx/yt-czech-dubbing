@@ -1,0 +1,8 @@
+node_modules/
+*.db
+*.db-shm
+*.db-wal
+public/keyframes/
+public/videos/
+.env
+.DS_Store

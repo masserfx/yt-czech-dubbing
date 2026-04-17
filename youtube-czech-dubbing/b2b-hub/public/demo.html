@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoiceDub AI — Cinematic Demo</title>
+<meta name="description" content="Scroll-driven cinematic demo toho, jak VoiceDub AI překládá a dabuje video.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- GSAP + ScrollTrigger via CDN (free) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js"></script>
+<style>
+:root {
+  --bg: #000; --surface: #0a0a0a; --card: #111; --border: rgba(255,255,255,0.08);
+  --text: #f5f5f7; --muted: #86868b; --dim: #6e6e73;
+  --accent: #0071e3; --green: #30d158; --orange: #ff9f0a;
+  --gradient: linear-gradient(135deg, #0071e3 0%, #a855f7 50%, #ec4899 100%);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+
+/* ========== NAV ========== */
+.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); padding: 14px 32px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid var(--border); }
+.nav .logo { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; }
+.nav .logo .dot { display: inline-block; width: 8px; height: 8px; background: var(--gradient); border-radius: 50%; margin-right: 8px; box-shadow: 0 0 12px rgba(0,113,227,0.5); }
+.nav .links { display: flex; gap: 4px; margin-left: auto; }
+.nav .links a { color: var(--muted); text-decoration: none; font-size: 13px; padding: 8px 14px; border-radius: 8px; font-weight: 500; }
+.nav .links a:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+/* ========== PROGRESS BAR ========== */
+.progress { position: fixed; top: 50px; left: 0; height: 2px; background: var(--gradient); width: 0%; z-index: 99; transition: width 0.1s linear; box-shadow: 0 0 12px rgba(0,113,227,0.6); }
+
+/* ========== STAGE ========== */
+.stage {
+  position: relative;
+  min-height: 100vh;
+}
+
+.chapter {
+  height: 100vh;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 32px 40px;
+  overflow: hidden;
+}
+
+.chapter-inner { width: 100%; max-width: 1200px; margin: 0 auto; position: relative; z-index: 2; }
+
+.chapter-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--accent); font-weight: 600; margin-bottom: 20px; opacity: 0.8; display: inline-block; }
+.chapter-title { font-size: clamp(40px, 7vw, 96px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin-bottom: 28px; }
+.chapter-title .grad { background: var(--gradient); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.chapter-lead { font-size: clamp(18px, 2vw, 22px); color: var(--muted); max-width: 640px; font-weight: 400; line-height: 1.55; }
+
+/* ========== INTRO ========== */
+#ch-intro { background: #000; }
+#ch-intro .chapter-inner { text-align: center; }
+#ch-intro .orb {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 600px; height: 600px; border-radius: 50%;
+  background: var(--gradient);
+  filter: blur(100px); opacity: 0.35; z-index: 1;
+  animation: orbFloat 12s ease-in-out infinite;
+}
+@keyframes orbFloat {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.15); }
+}
+
+/* ========== VIDEO FRAME (evolving mockup) ========== */
+.video-frame {
+  position: relative; background: #0a0a0a; border-radius: 24px;
+  border: 1px solid var(--border);
+  aspect-ratio: 16/9; max-width: 700px; margin: 0 auto;
+  overflow: hidden; box-shadow: 0 40px 120px rgba(0,0,0,0.6);
+}
+.video-frame .thumb { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a1a2e, #0f172a); }
+.video-frame .play-btn {
+  width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.95);
+  display: flex; align-items: center; justify-content: center;
+}
+.video-frame .play-btn svg { margin-left: 5px; }
+.video-frame .title-bar { position: absolute; bottom: 0; left: 0; right: 0; padding: 16px 20px; background: linear-gradient(to top, rgba(0,0,0,0.9), transparent); color: white; font-size: 14px; font-weight: 600; }
+.video-frame .ttl { font-weight: 600; font-size: 15px; }
+.video-frame .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+/* ========== WAVEFORM ========== */
+.waveform { display: flex; align-items: center; justify-content: center; gap: 3px; height: 120px; }
+.wave-bar { width: 4px; background: var(--gradient); border-radius: 2px; transform-origin: center; }
+
+/* ========== TRANSLATION TEXT FLOW ========== */
+.translate-frame { display: grid; grid-template-columns: 1fr auto 1fr; gap: 24px; align-items: center; margin-top: 40px; }
+.trans-col { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
+.trans-col .lang { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 8px; }
+.trans-col .text { font-size: 16px; line-height: 1.6; color: var(--text); min-height: 80px; }
+.trans-arrow { color: var(--accent); font-size: 28px; animation: arrowMove 1.5s ease-in-out infinite; }
+@keyframes arrowMove { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(8px); } }
+
+/* ========== VOICE CARDS ========== */
+.voice-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 48px; }
+.voice-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; text-align: center; transition: all 0.3s; }
+.voice-card.playing { border-color: var(--accent); transform: translateY(-6px); box-shadow: 0 10px 40px rgba(0,113,227,0.25); }
+.voice-card .flag { font-size: 32px; margin-bottom: 10px; }
+.voice-card .name { font-weight: 600; font-size: 15px; }
+.voice-card .tech { font-size: 11px; color: var(--dim); margin-top: 4px; }
+.voice-card .bars { display: flex; gap: 2px; justify-content: center; margin-top: 12px; height: 20px; align-items: flex-end; }
+.voice-card .bar-mini { width: 3px; background: var(--accent); border-radius: 1px; height: 100%; }
+
+/* ========== COMPARE (before/after) ========== */
+.compare-box { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 32px; margin-top: 40px; }
+.compare-row { display: grid; grid-template-columns: 120px 1fr 1fr; gap: 20px; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.compare-row:last-child { border-bottom: none; }
+.compare-row .k { font-size: 13px; color: var(--muted); }
+.compare-row .v-studio { font-weight: 600; color: #ff453a; text-decoration: line-through; }
+.compare-row .v-us { font-weight: 700; font-size: 20px; color: var(--green); }
+
+/* ========== OUTRO ========== */
+#ch-outro { background: radial-gradient(ellipse at center, rgba(0,113,227,0.12) 0%, transparent 70%), #000; }
+#ch-outro .chapter-inner { text-align: center; }
+#ch-outro .huge { font-size: clamp(60px, 12vw, 160px); font-weight: 900; letter-spacing: -0.06em; line-height: 0.9; margin-bottom: 32px; }
+#ch-outro .huge .grad { background: var(--gradient); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.btn-big { display: inline-flex; align-items: center; gap: 10px; padding: 18px 36px; background: var(--accent); color: white; text-decoration: none; border-radius: 999px; font-size: 17px; font-weight: 600; margin: 12px; transition: all 0.2s; }
+.btn-big:hover { background: #0077ed; transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,113,227,0.4); }
+.btn-big.ghost { background: rgba(255,255,255,0.06); border: 1px solid var(--border); }
+
+/* ========== PIN STAGE (for scrolljack) ========== */
+.pin-stage {
+  position: relative;
+  height: 500vh; /* 5 "viewports" of scroll */
+}
+.pin-wrap {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* ========== SCENE CONTENT (inside pinned area) ========== */
+.scene {
+  position: absolute;
+  width: 100%;
+  max-width: 1200px;
+  padding: 0 32px;
+  opacity: 0;
+  transform: translateY(50px);
+  pointer-events: none;
+}
+.scene.active { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+/* ========== CAPTION STREAM (animated text) ========== */
+.caption-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+  margin: 40px auto 0;
+}
+.caption-line {
+  padding: 12px 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 15px;
+  opacity: 0;
+  transform: translateX(-20px);
+}
+.caption-line.en { color: var(--muted); }
+.caption-line.cs { color: var(--text); border-color: rgba(0,113,227,0.4); background: rgba(0,113,227,0.06); }
+
+/* ========== TIMER ========== */
+.timer-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 40px; }
+.timer-card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 32px; text-align: center; }
+.timer-card.ours { border-color: var(--accent); background: linear-gradient(180deg, rgba(0,113,227,0.08), var(--card)); }
+.timer-card .t-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
+.timer-card .t-value { font-size: 64px; font-weight: 800; letter-spacing: -0.03em; margin-top: 12px; }
+.timer-card.ours .t-value { background: var(--gradient); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.timer-card .t-unit { font-size: 18px; color: var(--muted); font-weight: 500; }
+.timer-card .t-desc { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+@media (max-width: 900px) {
+  .translate-frame { grid-template-columns: 1fr; }
+  .trans-arrow { transform: rotate(90deg); justify-self: center; }
+  .voice-grid { grid-template-columns: repeat(2, 1fr); }
+  .timer-compare { grid-template-columns: 1fr; }
+  .compare-row { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="logo"><span class="dot"></span>VoiceDub AI</div>
+  <div class="links">
+    <a href="/">Dashboard</a>
+    <a href="pitch.html">Pitch</a>
+    <a href="landing.html">Produkt</a>
+  </div>
+</nav>
+<div class="progress" id="progressBar"></div>
+
+<div class="stage">
+
+<!-- CHAPTER 1: INTRO -->
+<section id="ch-intro" class="chapter">
+  <div class="orb" id="introOrb"></div>
+  <div class="chapter-inner">
+    <div class="chapter-label">Cinematic Demo · 2026</div>
+    <h1 class="chapter-title">Podívejte se,<br>jak <span class="grad">VoiceDub AI</span> pracuje.</h1>
+    <p class="chapter-lead" style="margin: 0 auto;">Od surového video souboru po nativně nadabované video — ve čtyřech krocích, za méně než 4 minuty.</p>
+    <div style="margin-top: 40px; color: var(--dim); font-size: 13px;">↓ Scrollujte, ať se vše rozjede ↓</div>
+  </div>
+</section>
+
+<!-- PINNED STAGE: 4 scenes, one scrolljacked -->
+<section class="pin-stage" id="pinStage">
+  <div class="pin-wrap">
+
+    <!-- SCENE 1: Upload -->
+    <div class="scene" id="scene1">
+      <div class="chapter-label">Krok 1</div>
+      <h2 class="chapter-title">Nahrajte video.</h2>
+      <p class="chapter-lead">YouTube URL, Vimeo, přímý MP4 upload, Google Drive. Pracujeme s čímkoliv, co máte.</p>
+      <div class="video-frame" id="vidUpload">
+        <div class="thumb" id="vidThumb1">
+          <div class="play-btn"><svg width="32" height="32" viewBox="0 0 24 24" fill="#000"><path d="M8 5v14l11-7z"/></svg></div>
+        </div>
+        <div class="title-bar">
+          <div class="ttl" id="vidTtl">Cybersecurity Essentials — Module 1</div>
+          <div class="meta">🎥 EN · 08:42 · E-Learning Corp</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 2: Transcribe -->
+    <div class="scene" id="scene2">
+      <div class="chapter-label">Krok 2</div>
+      <h2 class="chapter-title">AI zachytí každé <span class="grad">slovo.</span></h2>
+      <p class="chapter-lead">Gemini 2.5 Flash přepíše zvuk v reálném čase. Detekce mluvčích, vyhlazení filler-words, pauzy.</p>
+      <div class="waveform" id="waveform"></div>
+      <div class="caption-stream" id="enStream">
+        <div class="caption-line en">Welcome to cybersecurity training…</div>
+        <div class="caption-line en">Today we'll cover phishing attacks.</div>
+        <div class="caption-line en">Let's look at common indicators.</div>
+      </div>
+    </div>
+
+    <!-- SCENE 3: Translate -->
+    <div class="scene" id="scene3">
+      <div class="chapter-label">Krok 3</div>
+      <h2 class="chapter-title">Kontextově <span class="grad">přeloží.</span></h2>
+      <p class="chapter-lead">Firemní terminologie, idiomy, tón řeči. Vše zachováno v nativní češtině, slovenštině, polštině i maďarštině.</p>
+      <div class="translate-frame">
+        <div class="trans-col">
+          <div class="lang">🇬🇧 Source · English</div>
+          <div class="text" id="transEn">Welcome to cybersecurity training.</div>
+        </div>
+        <div class="trans-arrow">→</div>
+        <div class="trans-col">
+          <div class="lang" id="transLangL">🇨🇿 Czech · Target</div>
+          <div class="text" id="transCs">Vítejte ve školení o kybernetické bezpečnosti.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 4: Voices -->
+    <div class="scene" id="scene4">
+      <div class="chapter-label">Krok 4</div>
+      <h2 class="chapter-title">Namluvíme <span class="grad">nativními hlasy.</span></h2>
+      <p class="chapter-lead">Azure Neural TTS — čtyři profesionální hlasy pro každý jazyk. Přirozená prozódie, ne robotický tón.</p>
+      <div class="voice-grid" id="voiceGrid">
+        <div class="voice-card"><div class="flag">🇨🇿</div><div class="name">Vlasta</div><div class="tech">Azure Neural</div><div class="bars"><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div></div></div>
+        <div class="voice-card"><div class="flag">🇸🇰</div><div class="name">Viktória</div><div class="tech">Azure Neural</div><div class="bars"><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div></div></div>
+        <div class="voice-card"><div class="flag">🇵🇱</div><div class="name">Zofia</div><div class="tech">Azure Neural</div><div class="bars"><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div></div></div>
+        <div class="voice-card"><div class="flag">🇭🇺</div><div class="name">Noémi</div><div class="tech">Azure Neural</div><div class="bars"><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div><div class="bar-mini"></div></div></div>
+      </div>
+    </div>
+
+    <!-- SCENE 5: Result -->
+    <div class="scene" id="scene5">
+      <div class="chapter-label">Výsledek</div>
+      <h2 class="chapter-title">Za <span class="grad">3 minuty 47 sekund</span>.<br>Místo 7 dnů.</h2>
+      <p class="chapter-lead">Hotové video ke stažení. Automaticky označené jako AI-generated per EU AI Act.</p>
+      <div class="timer-compare">
+        <div class="timer-card">
+          <div class="t-label">Studio</div>
+          <div class="t-value" style="color: #ff453a;">7<span class="t-unit"> dnů</span></div>
+          <div class="t-desc">€1 400 · ruční práce · 3× revize</div>
+        </div>
+        <div class="timer-card ours">
+          <div class="t-label">VoiceDub AI</div>
+          <div class="t-value">3m 47s</div>
+          <div class="t-desc">€2.10 · plně automatické · okamžité</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- CHAPTER OUTRO: CTA -->
+<section id="ch-outro" class="chapter">
+  <div class="chapter-inner">
+    <div class="chapter-label">Začněte dnes</div>
+    <h1 class="huge">Vyzkoušejte<br><span class="grad">zdarma.</span></h1>
+    <p class="chapter-lead" style="margin: 0 auto;">30 minut dabingu, žádná kreditní karta, 4 nativní jazyky. Pilot pro e-learning firmy: prvních 5 zákazníků za náklady.</p>
+    <div style="margin-top: 40px;">
+      <a href="pitch.html#business" class="btn-big">Spustit finanční model →</a>
+      <a href="mailto:pilot@voicedub.ai" class="btn-big ghost">Přihlásit se do pilotu</a>
+    </div>
+    <div style="margin-top: 60px; color: var(--dim); font-size: 12px;">
+      <a href="/" style="color: var(--muted); text-decoration: none;">← Zpět na dashboard</a>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+/* ========== LENIS SMOOTH SCROLL ========== */
+const lenis = new Lenis({
+  duration: 1.2,
+  easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+  smoothWheel: true,
+});
+function raf(time) { lenis.raf(time); requestAnimationFrame(raf); }
+requestAnimationFrame(raf);
+
+/* ========== PROGRESS BAR ========== */
+const progressBar = document.getElementById('progressBar');
+lenis.on('scroll', ({ scroll, limit }) => {
+  progressBar.style.width = ((scroll / limit) * 100) + '%';
+});
+
+/* ========== INTRO ORB MOTION ========== */
+gsap.to('#introOrb', {
+  scrollTrigger: {
+    trigger: '#ch-intro',
+    start: 'top top',
+    end: 'bottom top',
+    scrub: 1,
+  },
+  scale: 1.6,
+  opacity: 0,
+  y: -100,
+});
+
+gsap.from('#ch-intro .chapter-title', {
+  scrollTrigger: { trigger: '#ch-intro', start: 'top 80%' },
+  opacity: 0, y: 40, duration: 1.2, ease: 'power3.out'
+});
+gsap.from('#ch-intro .chapter-lead', {
+  scrollTrigger: { trigger: '#ch-intro', start: 'top 80%' },
+  opacity: 0, y: 30, duration: 1.2, ease: 'power3.out', delay: 0.15
+});
+
+/* ========== PINNED STAGE: 5 scenes ========== */
+const scenes = gsap.utils.toArray('.scene');
+const pinWrap = document.querySelector('.pin-stage');
+const totalScenes = scenes.length;
+
+// Pin + scrub: show one scene at a time
+ScrollTrigger.create({
+  trigger: pinWrap,
+  start: 'top top',
+  end: 'bottom bottom',
+  pin: '.pin-wrap',
+  pinSpacing: false,
+  onUpdate: (self) => {
+    const progress = self.progress;
+    const sceneIdx = Math.min(totalScenes - 1, Math.floor(progress * totalScenes));
+    scenes.forEach((s, i) => {
+      if (i === sceneIdx) s.classList.add('active');
+      else s.classList.remove('active');
+    });
+  }
+});
+
+/* Add scene-to-scene GSAP fade between them */
+scenes.forEach((scene, i) => {
+  gsap.fromTo(scene,
+    { opacity: 0, y: 60, scale: 0.98 },
+    {
+      opacity: 1, y: 0, scale: 1,
+      scrollTrigger: {
+        trigger: pinWrap,
+        start: `top+=${(i / totalScenes) * 100}% top`,
+        end: `top+=${((i + 0.5) / totalScenes) * 100}% top`,
+        scrub: true,
+      }
+    }
+  );
+  // Fade out near end of scene (except last one)
+  if (i < totalScenes - 1) {
+    gsap.to(scene, {
+      opacity: 0, y: -60, scale: 1.02,
+      scrollTrigger: {
+        trigger: pinWrap,
+        start: `top+=${((i + 0.6) / totalScenes) * 100}% top`,
+        end: `top+=${((i + 1) / totalScenes) * 100}% top`,
+        scrub: true,
+      }
+    });
+  }
+});
+
+/* ========== SCENE 2: WAVEFORM ========== */
+const waveformEl = document.getElementById('waveform');
+const BAR_COUNT = 64;
+for (let i = 0; i < BAR_COUNT; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'wave-bar';
+  const h = 8 + Math.abs(Math.sin(i * 0.4)) * 60 + Math.random() * 40;
+  bar.style.height = h + 'px';
+  waveformEl.appendChild(bar);
+}
+gsap.to('.wave-bar', {
+  scaleY: () => 0.3 + Math.random() * 1.5,
+  duration: 0.4,
+  repeat: -1,
+  yoyo: true,
+  stagger: { each: 0.02, from: 'start' },
+  ease: 'sine.inOut'
+});
+
+/* Caption stream reveal */
+ScrollTrigger.create({
+  trigger: pinWrap,
+  start: `top+=${(1 / totalScenes) * 100}% top`,
+  end: `top+=${(2 / totalScenes) * 100}% top`,
+  onEnter: () => {
+    gsap.to('#enStream .caption-line', {
+      opacity: 1, x: 0, duration: 0.6, stagger: 0.2, ease: 'power2.out'
+    });
+  },
+  onLeaveBack: () => {
+    gsap.set('#enStream .caption-line', { opacity: 0, x: -20 });
+  },
+});
+
+/* ========== SCENE 3: CYCLING TRANSLATIONS ========== */
+const TRANSLATIONS = [
+  { en: 'Welcome to cybersecurity training.', cs: 'Vítejte ve školení o kybernetické bezpečnosti.', lang: '🇨🇿 Czech · Target' },
+  { en: 'Today we\'ll cover phishing attacks.', cs: 'Dnes probereme phishingové útoky.', lang: '🇨🇿 Czech · Target' },
+  { en: 'Let\'s look at common indicators.', cs: 'Vitajte na školení o kybernetickej bezpečnosti.', lang: '🇸🇰 Slovak · Target' },
+  { en: 'Check the sender address carefully.', cs: 'Witamy na szkoleniu z cyberbezpieczeństwa.', lang: '🇵🇱 Polish · Target' },
+  { en: 'When in doubt, report to IT.', cs: 'Üdvözöljük a kiberbiztonsági tréningen.', lang: '🇭🇺 Hungarian · Target' },
+];
+let transIdx = 0;
+function cycleTranslation() {
+  const t = TRANSLATIONS[transIdx];
+  const enEl = document.getElementById('transEn');
+  const csEl = document.getElementById('transCs');
+  const langEl = document.getElementById('transLangL');
+  if (!enEl || !csEl) return;
+  gsap.to([enEl, csEl, langEl], { opacity: 0, y: -10, duration: 0.25, onComplete: () => {
+    enEl.textContent = t.en;
+    csEl.textContent = t.cs;
+    langEl.textContent = t.lang;
+    gsap.to([enEl, csEl, langEl], { opacity: 1, y: 0, duration: 0.4 });
+  }});
+  transIdx = (transIdx + 1) % TRANSLATIONS.length;
+}
+setInterval(cycleTranslation, 2500);
+
+/* ========== SCENE 4: VOICE CARDS ANIMATION ========== */
+const voiceCards = document.querySelectorAll('.voice-card');
+let voiceIdx = 0;
+setInterval(() => {
+  voiceCards.forEach(c => c.classList.remove('playing'));
+  voiceCards[voiceIdx].classList.add('playing');
+  // Animate bars
+  voiceCards[voiceIdx].querySelectorAll('.bar-mini').forEach((bar, i) => {
+    gsap.fromTo(bar, { height: '100%' }, {
+      height: (10 + Math.random() * 90) + '%',
+      duration: 0.3, repeat: 3, yoyo: true, ease: 'sine.inOut', delay: i * 0.05
+    });
+  });
+  voiceIdx = (voiceIdx + 1) % voiceCards.length;
+}, 1500);
+
+/* ========== SCENE 1: Video frame pan-in (cinematic) ========== */
+gsap.fromTo('#vidUpload',
+  { scale: 1.15, y: 40 },
+  {
+    scale: 1, y: 0,
+    scrollTrigger: {
+      trigger: pinWrap,
+      start: 'top top',
+      end: `top+=${(1 / totalScenes) * 100}% top`,
+      scrub: 1,
+    }
+  }
+);
+
+/* ========== OUTRO HUGE text cinematic reveal ========== */
+gsap.from('#ch-outro .huge', {
+  scrollTrigger: { trigger: '#ch-outro', start: 'top 70%' },
+  opacity: 0, scale: 0.85, y: 60, duration: 1.4, ease: 'power4.out'
+});
+gsap.from('#ch-outro .btn-big', {
+  scrollTrigger: { trigger: '#ch-outro', start: 'top 70%' },
+  opacity: 0, y: 30, stagger: 0.15, duration: 0.8, ease: 'power2.out', delay: 0.3
+});
+
+/* ========== REFRESH SCROLLTRIGGER after load ========== */
+window.addEventListener('load', () => setTimeout(() => ScrollTrigger.refresh(), 100));
+</script>
+</body>
+</html>
