@@ -5,10 +5,16 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "pdf": "node export-pitch-pdf.js",
+    "keyframes": "node generate-keyframes.js",
+    "veo": "node generate-veo-clip.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
     "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "puppeteer": "^23.0.0"
   }
 }
