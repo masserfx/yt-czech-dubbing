@@ -65,9 +65,12 @@ export async function handleDub(request, env, ctx, { apiKey }) {
     );
 
     const voiceId = body.voice_id || defaultVoiceFor(body.target_language);
+    // AI Act čl. 50: watermark default ON; Enterprise může disable (kontrakt).
+    const disableWatermark = apiKey.tier === 'enterprise' && body.disable_watermark === true;
     const audioBuf = await synthesizeSSML(translated[0], voiceId, {
       key: env.AZURE_SPEECH_KEY,
       region: env.AZURE_SPEECH_REGION,
+      disableWatermark,
     });
 
     // Uložit do R2 (pokud binding existuje)
