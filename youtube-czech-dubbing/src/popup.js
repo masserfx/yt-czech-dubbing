@@ -197,6 +197,16 @@ function updateSetting(setting, value) {
     case 'serviceOrganizationId':
       settings.serviceOrganizationId = value;
       break;
+    case 'voicedubMode':
+      settings.voicedubMode = value;
+      document.getElementById('voicedubConfigGroup').style.display = value ? 'block' : 'none';
+      break;
+    case 'voicedubApiKey':
+      settings.voicedubApiKey = value;
+      break;
+    case 'voicedubEndpoint':
+      settings.voicedubEndpoint = value;
+      break;
   }
 
   sendMessage({ type: 'update-settings', settings });
@@ -319,7 +329,10 @@ function saveSettings() {
     serviceMode: document.getElementById('serviceMode').value,
     serviceApiEndpoint: document.getElementById('serviceApiEndpoint').value,
     serviceAuthToken: document.getElementById('serviceAuthToken').value,
-    serviceOrganizationId: document.getElementById('serviceOrganizationId').value
+    serviceOrganizationId: document.getElementById('serviceOrganizationId').value,
+    voicedubMode: document.getElementById('voicedubMode').checked,
+    voicedubApiKey: document.getElementById('voicedubApiKey').value,
+    voicedubEndpoint: document.getElementById('voicedubEndpoint').value
   };
   chrome.storage.local.set({ popupSettings: settings });
 }
@@ -401,6 +414,16 @@ async function loadSettings() {
       }
       if (s.serviceOrganizationId) {
         document.getElementById('serviceOrganizationId').value = s.serviceOrganizationId;
+      }
+      if (typeof s.voicedubMode === 'boolean') {
+        document.getElementById('voicedubMode').checked = s.voicedubMode;
+        document.getElementById('voicedubConfigGroup').style.display = s.voicedubMode ? 'block' : 'none';
+      }
+      if (s.voicedubApiKey) {
+        document.getElementById('voicedubApiKey').value = s.voicedubApiKey;
+      }
+      if (s.voicedubEndpoint) {
+        document.getElementById('voicedubEndpoint').value = s.voicedubEndpoint;
       }
     }
   } catch (e) {
@@ -505,6 +528,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('serviceApiEndpoint').addEventListener('change', (e) => updateSetting('serviceApiEndpoint', e.target.value));
   document.getElementById('serviceAuthToken').addEventListener('change', (e) => updateSetting('serviceAuthToken', e.target.value));
   document.getElementById('serviceOrganizationId').addEventListener('change', (e) => updateSetting('serviceOrganizationId', e.target.value));
+
+  // VoiceDub B2B API
+  document.getElementById('voicedubMode').addEventListener('change', (e) => updateSetting('voicedubMode', e.target.checked));
+  document.getElementById('voicedubApiKey').addEventListener('change', (e) => updateSetting('voicedubApiKey', e.target.value));
+  document.getElementById('voicedubEndpoint').addEventListener('change', (e) => updateSetting('voicedubEndpoint', e.target.value));
 
   // Reset usage
   document.getElementById('btnResetUsage').addEventListener('click', resetUsage);

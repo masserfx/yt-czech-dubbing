@@ -10,7 +10,7 @@
 class VoiceDubClient {
   constructor() {
     this._enabled = false;
-    this._endpoint = 'https://api.voicedub.ai';
+    this._endpoint = 'https://voicedub-api.masserfx.workers.dev';
     this._apiKey = null;
     this._tier = 'business';
   }
