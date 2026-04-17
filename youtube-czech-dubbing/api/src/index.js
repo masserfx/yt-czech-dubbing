@@ -2,6 +2,7 @@ import { handleDub } from './handlers/dub.js';
 import { handleVoices } from './handlers/voices.js';
 import { handleJob } from './handlers/job.js';
 import { handleHealth } from './handlers/health.js';
+import { handleAudio } from './handlers/audio.js';
 import { authenticate } from './middleware/auth.js';
 import { cors } from './middleware/cors.js';
 import { rateLimit } from './middleware/rate-limit.js';
@@ -13,6 +14,7 @@ const ROUTES = [
   { method: 'GET',  pattern: /^\/v1\/voices$/,          handler: handleVoices, auth: true  },
   { method: 'POST', pattern: /^\/v1\/dub$/,             handler: handleDub,    auth: true  },
   { method: 'GET',  pattern: /^\/v1\/jobs\/([a-z0-9-]+)$/, handler: handleJob, auth: true  },
+  { method: 'GET',  pattern: /^\/v1\/audio\/([a-z0-9-]{1,64})\/([a-z0-9-]{1,64}\.mp3)$/, handler: handleAudio, auth: true },
 ];
 
 export default {

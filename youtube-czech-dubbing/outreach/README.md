@@ -67,6 +67,15 @@ Pokud po T3 žádná reakce → archiv, retarget za 90 dní s novou case study.
 6. **Contract (jednoduchý, 2 stránky):** cena, SLA, data processing (GDPR DPA), EU AI Act disclosure commitment
 7. **Měsíční NPS + expand:** po 30 dnech review, target → roční kontrakt 15 000 EUR
 
+## Právní dokumenty k dispozici
+
+Před prvním pilotem máme připravené drafty v [`../legal/`](../legal/README.md):
+- **AUP** (Acceptable Use Policy) — click-through při activation
+- **DPA** (Data Processing Agreement) — podpis před první job
+- **TIA** (Transfer Impact Assessment, Schrems II) — informativní read-only
+
+Všechno vyžaduje právní review před podpisem. Pro první pilot ČSOB / Škoda / banky doporučuji externí counsel (CZ + EU GDPR specialista).
+
 ## Právní poznámky
 
 - **GDPR:** B2B cold email = legitimate interest (čl. 6(1)(f)) pokud na pracovní mail + relevant produkt + easy opt-out
