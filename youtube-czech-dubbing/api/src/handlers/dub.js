@@ -67,8 +67,9 @@ export async function handleDub(request, env, ctx, { apiKey }) {
     const translated = result.text;
 
     const voiceId = body.voice_id || defaultVoiceFor(body.target_language);
-    // AI Act čl. 50: watermark default ON; Enterprise může disable (kontrakt).
-    const disableWatermark = apiKey.tier === 'enterprise' && body.disable_watermark === true;
+    // AI Act čl. 50: client decides per-request. Per-sentence live mode disables WM
+    // and handles session-level disclosure on its side. Server honors the flag.
+    const disableWatermark = body.disable_watermark === true;
     const audioBuf = await synthesizeSSML(translated[0], voiceId, {
       key: env.AZURE_SPEECH_KEY,
       region: env.AZURE_SPEECH_REGION,

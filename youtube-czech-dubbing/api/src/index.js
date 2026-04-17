@@ -17,6 +17,13 @@ const ROUTES = [
   { method: 'GET',  pattern: /^\/v1\/audio\/([a-z0-9-]{1,64})\/([a-z0-9-]{1,64}\.mp3)$/, handler: handleAudio, auth: true },
 ];
 
+function withCors(response) {
+  const headers = new Headers(response.headers);
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Expose-Headers', 'X-VoiceDub-Tenant, X-RateLimit-Remaining');
+  return new Response(response.body, { status: response.status, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const corsRes = cors(request);
@@ -24,25 +31,26 @@ export default {
 
     const url = new URL(request.url);
     const route = ROUTES.find(r => r.method === request.method && r.pattern.test(url.pathname));
-    if (!route) return error(404, 'not_found', `No route for ${request.method} ${url.pathname}`);
+    if (!route) return withCors(error(404, 'not_found', `No route for ${request.method} ${url.pathname}`));
 
     try {
       let apiKey = null;
       if (route.auth) {
         const auth = await authenticate(request, env);
-        if (!auth.ok) return error(auth.status, auth.code, auth.message);
+        if (!auth.ok) return withCors(error(auth.status, auth.code, auth.message));
         apiKey = auth.apiKey;
 
         const rl = await rateLimit(apiKey, env);
-        if (!rl.ok) return error(429, 'rate_limited', `Rate limit: ${rl.limit}/min. Retry in ${rl.retryAfter}s.`);
+        if (!rl.ok) return withCors(error(429, 'rate_limited', `Rate limit: ${rl.limit}/min. Retry in ${rl.retryAfter}s.`));
       }
 
       const match = url.pathname.match(route.pattern);
       const params = match.slice(1);
-      return await route.handler(request, env, ctx, { apiKey, params });
+      const resp = await route.handler(request, env, ctx, { apiKey, params });
+      return withCors(resp);
     } catch (e) {
       console.error('Handler error:', e);
-      return error(500, 'internal_error', env.ENVIRONMENT === 'development' ? e.stack : 'Internal error');
+      return withCors(error(500, 'internal_error', env.ENVIRONMENT === 'development' ? e.stack : 'Internal error'));
     }
   },
 };

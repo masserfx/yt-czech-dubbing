@@ -49,6 +49,9 @@ class VoiceDubClient {
           target_language: targetLang,
           voice_id: voiceId,
           glossary: glossary || undefined,
+          // Per-sentence mode: session-level disclosure is handled client-side
+          // (overlay banner at dubbing start). Per-segment WM would be absurd in live dubbing.
+          disable_watermark: true,
         },
       });
       if (response?.success && response.data) return response.data;

@@ -1323,16 +1323,46 @@ async function voicedubDub(endpoint, apiKey, payload) {
     throw new Error(`VoiceDub ${resp.status}: ${errText.substring(0, 200)}`);
   }
   const data = await resp.json();
-  // Normalizace response — extension očekává { translated, audioBase64, audioUrl, provider, voiceId }
+
+  // Pokud server vrátil jen audio_url (R2 proxy cesta), stáhneme MP3 a přepočteme na base64.
+  // Content script nemůže přehrát URL bez Auth hlavičky, takže proxujeme binárně přes SW.
+  let audioBase64 = data.audio_base64 || null;
+  if (!audioBase64 && data.audio_url) {
+    try {
+      const audioUrl = data.audio_url.startsWith('http') ? data.audio_url : `${endpoint}${data.audio_url}`;
+      const audioResp = await fetch(audioUrl, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (audioResp.ok) {
+        const buf = await audioResp.arrayBuffer();
+        audioBase64 = arrayBufferToBase64(buf);
+      } else {
+        console.warn(`[VoiceDub] audio fetch ${audioResp.status}`);
+      }
+    } catch (e) {
+      console.warn('[VoiceDub] audio download failed:', e.message);
+    }
+  }
+
   return {
     translated: data.translated_text,
-    audioBase64: data.audio_base64 || null,
+    audioBase64,
     audioUrl: data.audio_url || null,
     provider: data.translator_provider,
     voiceId: data.voice_id,
     jobId: data.job_id,
     durationSeconds: data.duration_seconds,
   };
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }
 
 async function voicedubVoices(endpoint, apiKey, lang) {
@@ -1350,7 +1380,7 @@ async function voicedubVoices(endpoint, apiKey, lang) {
 async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', geminiPrompt = null) {
   if (!apiKey) throw new Error('No Gemini API key');
 
-  const MODEL = 'gemini-2.0-flash-lite';
+  const MODEL = 'gemini-2.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   const systemInstruction = geminiPrompt ||
@@ -1398,7 +1428,7 @@ async function detectSpeakers(lines, apiKey) {
   if (!apiKey) throw new Error('No Gemini API key');
   if (!lines || lines.length === 0) return [];
 
-  const MODEL = 'gemini-2.0-flash-lite';
+  const MODEL = 'gemini-2.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   // Send all lines in one request, ask for one letter per line
@@ -1441,7 +1471,7 @@ async function detectSpeakers(lines, apiKey) {
 async function geminiChat(apiKey, systemInstruction, history, message) {
   if (!apiKey) throw new Error('No Gemini API key');
 
-  const MODEL = 'gemini-2.0-flash-lite';
+  const MODEL = 'gemini-2.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   const contents = [
