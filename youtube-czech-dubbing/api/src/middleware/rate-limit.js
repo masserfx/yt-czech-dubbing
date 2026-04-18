@@ -3,7 +3,16 @@
  * Používá KV counter, pro produkci doporučuji Durable Objects.
  * Dev fallback: žádný limit.
  */
-const LIMITS = { free: 10, starter: 60, business: 300, enterprise: 1200 };
+export const LIMITS = { free: 10, starter: 60, business: 300, enterprise: 1200 };
+
+export async function getRateLimitState(apiKey, env) {
+  const tier = apiKey.tier || 'starter';
+  const limit = LIMITS[tier] || LIMITS.starter;
+  if (!env.API_KEYS) return { limit, current: 0, remaining: limit, tier };
+  const bucket = Math.floor(Date.now() / 60_000);
+  const current = parseInt(await env.API_KEYS.get(`rl:${apiKey.key}:${bucket}`) || '0', 10);
+  return { limit, current, remaining: Math.max(0, limit - current), tier };
+}
 
 export async function rateLimit(apiKey, env) {
   if (!env.API_KEYS) return { ok: true }; // dev

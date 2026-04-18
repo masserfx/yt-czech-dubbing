@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify manifest version matches tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TAG_VER="${REF_NAME#v}"
+          MANIFEST_VER=$(node -p "require('./manifest.json').version")
+          echo "Tag version: $TAG_VER"
+          echo "Manifest version: $MANIFEST_VER"
+          # Allow pre-release suffixes (v3.0.0-a7 → manifest 3.0.0)
+          BASE_TAG="${TAG_VER%%-*}"
+          if [ "$BASE_TAG" != "$MANIFEST_VER" ]; then
+            echo "::error::manifest.json version ($MANIFEST_VER) must match tag base ($BASE_TAG)"
+            exit 1
+          fi
+      - name: Build zip
+        run: |
+          chmod +x build.sh
+          bash build.sh
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "$REF_NAME" \
+            --title "$REF_NAME" \
+            --notes "Automated release. Install: download zip, chrome://extensions, Load unpacked." \
+            --draft \
+            youtube-czech-dubbing-*.zip

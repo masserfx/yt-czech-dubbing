@@ -1,0 +1,39 @@
+name: Build extension
+
+on:
+  push:
+    branches: [main, release/**]
+    paths:
+      - 'src/**'
+      - 'manifest.json'
+      - 'icons/**'
+      - 'build.sh'
+      - '.github/workflows/build-extension.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'manifest.json'
+      - 'icons/**'
+      - 'build.sh'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make build.sh executable
+        run: chmod +x build.sh
+      - name: Build zip
+        run: bash build.sh
+      - name: Read version
+        id: ver
+        run: |
+          VER=$(node -p "require('./manifest.json').version")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-czech-dubbing-${{ steps.ver.outputs.version }}
+          path: 'youtube-czech-dubbing-*.zip'
+          if-no-files-found: error
+          retention-days: 14

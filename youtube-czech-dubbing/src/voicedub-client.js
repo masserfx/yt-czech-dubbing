@@ -66,6 +66,38 @@ class VoiceDubClient {
   }
 
   /**
+   * TTS-only pro transcript mode: překlad už proběhl (Gemini),
+   * server jen nasyntetizuje audio + cachuje do R2 (SHA-256 klíč).
+   * Vrací { audioBase64, voiceId, cached, durationSeconds } nebo null.
+   */
+  async synthesize(text, { voiceId, language = 'cs', speed, pitch } = {}) {
+    if (!this.isEnabled()) return null;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'voicedub-synthesize',
+        endpoint: this._endpoint,
+        apiKey: this._apiKey,
+        payload: {
+          text,
+          voice_id: voiceId,
+          language,
+          speed,
+          pitch,
+          disable_watermark: true,
+        },
+      });
+      if (response?.success && response.data) return response.data;
+      if (response?.error) console.warn('[VoiceDub] Synthesize error:', response.error);
+      return null;
+    } catch (e) {
+      if (!/Extension context invalidated/.test(e.message || '')) {
+        console.warn('[VoiceDub] Synthesize call failed:', e);
+      }
+      return null;
+    }
+  }
+
+  /**
    * Vrátí dostupné hlasy pro daný jazyk z /v1/voices endpointu.
    * Cachováno do chrome.storage.local po první invokaci.
    */

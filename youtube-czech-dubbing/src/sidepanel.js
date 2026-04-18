@@ -1397,7 +1397,83 @@ async function refreshUsageStats() {
   } catch (e) {
     console.warn('[Usage] Stats load failed:', e);
   }
+
+  refreshTenantUsage().catch(() => {});
 }
+
+// ── VoiceDub tenant usage (/v1/usage) ──────────────────
+
+let _tenantUsageTimer = null;
+let _tenantUsagePeriod = 'today';
+
+async function refreshTenantUsage() {
+  const group = document.getElementById('tenantUsageGroup');
+  const divider = document.getElementById('tenantUsageDivider');
+  if (!group) return;
+
+  const { popupSettings } = await chrome.storage.local.get('popupSettings');
+  const s = popupSettings || {};
+  const enabled = !!s.voicedubMode && /^vd_(live|test)_[A-Za-z0-9]{20,}$/.test(s.voicedubApiKey || '');
+
+  group.style.display = enabled ? 'block' : 'none';
+  if (divider) divider.style.display = enabled ? 'block' : 'none';
+  if (!enabled) return;
+
+  const endpoint = s.voicedubEndpoint || 'https://voicedub-api.masserfx.workers.dev';
+  const period = _tenantUsagePeriod;
+
+  try {
+    const resp = await fetch(`${endpoint}/v1/usage?period=${period}&group_by=day`, {
+      headers: { 'Authorization': 'Bearer ' + s.voicedubApiKey },
+    });
+    if (!resp.ok) {
+      document.getElementById('tuRequests').textContent = `err ${resp.status}`;
+      return;
+    }
+    const data = await resp.json();
+    renderTenantUsage(data);
+  } catch (e) {
+    console.warn('[TenantUsage] fetch failed:', e.message);
+  }
+}
+
+function renderTenantUsage(data) {
+  const sum = data.summary || {};
+  document.getElementById('tuRequests').textContent = fmtTokens(sum.requests_total || 0);
+  document.getElementById('tuErrors').textContent = `${sum.errors || 0} err`;
+  document.getElementById('tuChars').textContent = fmtTokens(sum.characters_synthesized || 0) + ' zn';
+  const audioMin = ((sum.audio_seconds || 0) / 60).toFixed(1);
+  document.getElementById('tuAudio').textContent = audioMin + ' min';
+
+  const providers = data.providers || {};
+  const provText = Object.keys(providers).length
+    ? Object.entries(providers).map(([p, n]) => `${p}:${n}`).join(' · ')
+    : '—';
+  document.getElementById('tuProviders').textContent = provText;
+
+  const rl = data.rate_limit || {};
+  document.getElementById('tuRateLimit').textContent =
+    `${rl.tier || '—'} · ${rl.current || 0}/${rl.limit_per_minute || '?'}/min`;
+}
+
+function initTenantUsageRefresh() {
+  const sel = document.getElementById('tenantUsagePeriod');
+  if (sel) {
+    sel.addEventListener('change', (e) => {
+      _tenantUsagePeriod = e.target.value;
+      refreshTenantUsage().catch(() => {});
+    });
+  }
+  if (_tenantUsageTimer) clearInterval(_tenantUsageTimer);
+  _tenantUsageTimer = setInterval(() => {
+    const tab = document.getElementById('tab-settings');
+    if (tab && tab.classList.contains('active')) refreshTenantUsage().catch(() => {});
+  }, 30_000);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initTenantUsageRefresh();
+});
 
 // ── Voice Dialogue (TTS output) ─────────────────────────
 

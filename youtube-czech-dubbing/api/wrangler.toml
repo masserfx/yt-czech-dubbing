@@ -22,6 +22,7 @@ id = "9907b4db08c44155bd7053d5fa0a7a7d"
 binding = "JOBS_DB"
 database_name = "voicedub-jobs"
 database_id = "a5c8601d-e451-437b-ae7a-9d39a703c076"
+migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "AUDIO_STORE"

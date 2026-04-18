@@ -1,4 +1,6 @@
 import { handleDub } from './handlers/dub.js';
+import { handleSynthesize } from './handlers/synthesize.js';
+import { handleUsage } from './handlers/usage.js';
 import { handleVoices } from './handlers/voices.js';
 import { handleJob } from './handlers/job.js';
 import { handleHealth } from './handlers/health.js';
@@ -13,6 +15,8 @@ const ROUTES = [
   { method: 'GET',  pattern: /^\/v1\/health$/,          handler: handleHealth, auth: false },
   { method: 'GET',  pattern: /^\/v1\/voices$/,          handler: handleVoices, auth: true  },
   { method: 'POST', pattern: /^\/v1\/dub$/,             handler: handleDub,    auth: true  },
+  { method: 'POST', pattern: /^\/v1\/synthesize$/,      handler: handleSynthesize, auth: true },
+  { method: 'GET',  pattern: /^\/v1\/usage$/,           handler: handleUsage,  auth: true  },
   { method: 'GET',  pattern: /^\/v1\/jobs\/([a-z0-9-]+)$/, handler: handleJob, auth: true  },
   { method: 'GET',  pattern: /^\/v1\/audio\/([a-z0-9-]{1,64})\/([a-z0-9-]{1,64}\.mp3)$/, handler: handleAudio, auth: true },
 ];

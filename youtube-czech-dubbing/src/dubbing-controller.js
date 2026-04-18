@@ -581,7 +581,25 @@ class DubbingController {
 
       const speakerTag = segment.speaker ? `[${segment.speaker}]` : '';
       console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s @${segRate.toFixed(1)}x]${speakerTag}: "${czechText.substring(0, 100)}" (orig: "${(segment.originalText || '').substring(0, 80)}")`);
-      await this.tts.speakAs(czechText, segment.speaker);
+
+      let played = false;
+      if (this.voicedubClient.isEnabled()) {
+        // SSML rate maps from TTS rate multiplier: 1.0 → 0%, 1.25 → +25%, 1.8 → +80%
+        const ssmlSpeed = Math.round((segRate - 1) * 100);
+        const result = await this.voicedubClient.synthesize(czechText, {
+          language: this._targetLang,
+          speed: ssmlSpeed,
+        });
+        if (result?.audioBase64) {
+          console.log(`[CzechDub] VoiceDub TTS (cached=${result.cached}): "${czechText.substring(0, 60)}"`);
+          await this._playAudioBase64(result.audioBase64);
+          played = true;
+        }
+      }
+
+      if (!played) {
+        await this.tts.speakAs(czechText, segment.speaker);
+      }
 
       // Restore default rate if we changed it
       if (segment._ttsRate) {

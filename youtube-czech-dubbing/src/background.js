@@ -221,6 +221,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'voicedub-synthesize') {
+    voicedubSynthesize(msg.endpoint, msg.apiKey, msg.payload)
+      .then(data => sendResponse({ success: true, data }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   // Usage stats
   if (msg.type === 'get-usage-stats') {
     getUsageStats()
@@ -1363,6 +1370,29 @@ function arrayBufferToBase64(buffer) {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+async function voicedubSynthesize(endpoint, apiKey, payload) {
+  const resp = await fetch(`${endpoint}/v1/synthesize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`VoiceDub synthesize ${resp.status}: ${errText.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+  return {
+    audioBase64: data.audio_base64,
+    voiceId: data.voice_id,
+    cached: data.cached,
+    durationSeconds: data.duration_seconds,
+    characters: data.characters,
+  };
 }
 
 async function voicedubVoices(endpoint, apiKey, lang) {

@@ -96,6 +96,8 @@ export async function handleDub(request, env, ctx, { apiKey }) {
       voice_id: voiceId,
       audio_url: audioUrl,
       duration_seconds: estimateDurationSeconds(translated[0]),
+      characters_synthesized: translated[0].length,
+      endpoint: 'dub',
       created_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
     });
@@ -144,7 +146,21 @@ function arrayBufferToBase64(buf) {
 async function saveJob(env, jobId, data) {
   if (!env.JOBS_DB) return; // dev: no-op
   await env.JOBS_DB.prepare(
-    `INSERT INTO jobs (id, tenant_id, status, payload, created_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET status=excluded.status, payload=excluded.payload`
-  ).bind(jobId, data.tenant_id, data.status, JSON.stringify(data), data.created_at).run();
+    `INSERT INTO jobs (id, tenant_id, status, payload, created_at,
+                       translator_provider, characters_synthesized, duration_seconds, endpoint)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       status=excluded.status,
+       payload=excluded.payload,
+       translator_provider=excluded.translator_provider,
+       characters_synthesized=excluded.characters_synthesized,
+       duration_seconds=excluded.duration_seconds,
+       endpoint=excluded.endpoint`
+  ).bind(
+    jobId, data.tenant_id, data.status, JSON.stringify(data), data.created_at,
+    data.translator_provider || null,
+    data.characters_synthesized || 0,
+    data.duration_seconds || 0,
+    data.endpoint || 'dub'
+  ).run();
 }
