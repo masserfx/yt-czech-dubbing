@@ -18,8 +18,16 @@
   // Intercept timedtext responses from YouTube's own player requests.
   // When the player loads captions, we capture the response data.
   var _capturedTimedtext = {};
+  var _capturedVideoId = null;
   var _origXHROpen = XMLHttpRequest.prototype.open;
   var _origXHRSend = XMLHttpRequest.prototype.send;
+
+  function _getCurrentVideoId() {
+    try {
+      var m = window.location.href.match(/[?&]v=([^&#]+)/);
+      return m ? m[1] : null;
+    } catch (e) { return null; }
+  }
 
   XMLHttpRequest.prototype.open = function(method, url) {
     this._czechdub_url = (typeof url === 'string') ? url : '';
@@ -36,6 +44,7 @@
           _capturedTimedtext[url] = self.responseText;
           _capturedTimedtext['_latest'] = self.responseText;
           _capturedTimedtext['_latestUrl'] = url;
+          _capturedVideoId = _getCurrentVideoId();
           console.log('[CzechDub:PageScript] CAPTURED timedtext response:', self.responseText.length, 'bytes from', url.substring(0, 100));
         }
       });
@@ -54,6 +63,7 @@
             _capturedTimedtext[url] = text;
             _capturedTimedtext['_latest'] = text;
             _capturedTimedtext['_latestUrl'] = url;
+            _capturedVideoId = _getCurrentVideoId();
             console.log('[CzechDub:PageScript] CAPTURED fetch timedtext:', text.length, 'bytes');
           }
         });
@@ -63,10 +73,19 @@
     return _originalFetch.apply(window, arguments);
   };
 
-  // Reset captured timedtext on SPA navigation to prevent stale data from previous video
+  // Reset captured timedtext on SPA navigation — but only when videoId actually
+  // changes. YouTube fires yt-navigate-finish for same-page events too (hash
+  // updates, panel toggles) and dropping our cache there forces a manual
+  // timedtext fetch that often returns empty (ad blocker / cookie / IP limit).
   document.addEventListener('yt-navigate-finish', function() {
+    var currentVideoId = _getCurrentVideoId();
+    if (_capturedVideoId && currentVideoId && currentVideoId === _capturedVideoId) {
+      // Same video — keep cached data
+      return;
+    }
     _capturedTimedtext = {};
-    console.log('[CzechDub:PageScript] Cleared captured timedtext on navigation');
+    _capturedVideoId = null;
+    console.log('[CzechDub:PageScript] Cleared captured timedtext on navigation (videoId changed)');
   });
 
   window.addEventListener('message', function (event) {

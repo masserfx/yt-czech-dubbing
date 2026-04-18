@@ -34,6 +34,53 @@
   }
 
   /**
+   * Extract channel ID + channel name from current YouTube video page.
+   * Glossary keys off channelId so a creator's vocabulary persists across videos.
+   */
+  function getChannelInfo() {
+    const meta = document.querySelector('meta[itemprop="channelId"]');
+    let channelId = meta?.content || null;
+    let channelName = null;
+
+    // Primary: owner renderer (modern YT layout)
+    const ownerLink = document.querySelector('ytd-video-owner-renderer a[href*="/channel/"], ytd-video-owner-renderer a[href^="/@"]');
+    if (ownerLink) {
+      if (!channelId) {
+        const m = ownerLink.href.match(/\/channel\/([^/?#]+)/);
+        if (m) channelId = m[1];
+        else {
+          // @handle — use handle as fallback ID, stable per creator
+          const h = ownerLink.href.match(/\/@([^/?#]+)/);
+          if (h) channelId = `@${h[1]}`;
+        }
+      }
+      channelName = ownerLink.textContent?.trim() || null;
+    }
+
+    // Fallback: author meta
+    if (!channelName) {
+      const author = document.querySelector('link[itemprop="name"]')?.getAttribute('content')
+        || document.querySelector('meta[name="author"]')?.content;
+      if (author) channelName = author;
+    }
+
+    return { channelId, channelName };
+  }
+
+  /**
+   * Get a Glossary instance — prefer active controller's translator, otherwise
+   * lazily instantiate a standalone one so sidepanel can manage entries
+   * without having dubbing running.
+   */
+  let _standaloneGlossary = null;
+  function getGlossary() {
+    if (controller?.translator?.glossary) return controller.translator.glossary;
+    if (typeof Glossary === 'undefined') return null;
+    if (!_standaloneGlossary) _standaloneGlossary = new Glossary();
+    return _standaloneGlossary;
+  }
+
+  /**
    * Inject the "Czech Dubbing" activation button below the video player.
    */
   let _injectInterval = null;
@@ -474,6 +521,51 @@
         }
         sendResponse({ success: false });
         break;
+
+      case 'get-channel-info': {
+        const info = getChannelInfo();
+        sendResponse(info);
+        break;
+      }
+
+      case 'glossary-list': {
+        const info = getChannelInfo();
+        const g = getGlossary();
+        if (g && info.channelId) {
+          g.loadForChannel(info.channelId, info.channelName).then(() => {
+            sendResponse({ channelId: info.channelId, channelName: info.channelName, entries: g.getEntries() });
+          });
+          return true;
+        }
+        sendResponse({ channelId: info.channelId, channelName: info.channelName, entries: [] });
+        break;
+      }
+
+      case 'glossary-add': {
+        const info = getChannelInfo();
+        const g = getGlossary();
+        if (g && info.channelId && msg.source) {
+          g.loadForChannel(info.channelId, info.channelName)
+            .then(() => g.addEntry(msg.source, msg.target, msg.keep))
+            .then(() => sendResponse({ success: true, entries: g.getEntries() }));
+          return true;
+        }
+        sendResponse({ success: false, error: 'No channel' });
+        break;
+      }
+
+      case 'glossary-remove': {
+        const info = getChannelInfo();
+        const g = getGlossary();
+        if (g && info.channelId && msg.source) {
+          g.loadForChannel(info.channelId, info.channelName)
+            .then(() => g.removeEntry(msg.source))
+            .then(() => sendResponse({ success: true, entries: g.getEntries() }));
+          return true;
+        }
+        sendResponse({ success: false });
+        break;
+      }
     }
   }); } catch (e) {
     if (e.message?.includes('Extension context invalidated')) {

@@ -146,14 +146,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'translate-claude') {
-    translateClaude(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'cs', msg.claudePrompt)
+    translateClaude(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'cs', msg.claudePrompt, msg.glossaryInstruction)
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
   if (msg.type === 'translate-gemini') {
-    translateGemini(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'cs', msg.geminiPrompt)
+    translateGemini(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'cs', msg.geminiPrompt, msg.glossaryInstruction)
       .then(result => sendResponse({ success: true, translated: result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -902,11 +902,12 @@ async function translateGoogle(text, sourceLang, targetLang = 'cs') {
  * Claude Haiku 4.5 translation via Anthropic Messages API.
  * Sends batched sentences separated by ||| and gets Czech translations back.
  */
-async function translateClaude(text, sourceLang, apiKey, targetLang = 'cs', claudePrompt = null) {
+async function translateClaude(text, sourceLang, apiKey, targetLang = 'cs', claudePrompt = null, glossaryInstruction = '') {
   if (!apiKey) throw new Error('No Anthropic API key');
 
-  const systemPrompt = claudePrompt ||
+  const baseSystemPrompt = claudePrompt ||
     'Jsi překladač titulků z YouTube videí. Vrať POUZE přeložený text, nic jiného. Žádné komentáře, vysvětlení ani meta-text.';
+  const systemPrompt = baseSystemPrompt + (glossaryInstruction || '');
 
   const LANG_NAMES = { cs: 'češtiny', sk: 'slovenčiny', pl: 'polszczyzny', hu: 'magyarra' };
   const langName = LANG_NAMES[targetLang] || targetLang;
@@ -1407,14 +1408,15 @@ async function voicedubVoices(endpoint, apiKey, lang) {
 
 // --- Gemini Translation ---
 
-async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', geminiPrompt = null) {
+async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', geminiPrompt = null, glossaryInstruction = '') {
   if (!apiKey) throw new Error('No Gemini API key');
 
   const MODEL = 'gemini-2.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
-  const systemInstruction = geminiPrompt ||
+  const baseInstruction = geminiPrompt ||
     'You are a translator for YouTube video dubbing. Translate to natural spoken language. Return ONLY the translation.';
+  const systemInstruction = baseInstruction + (glossaryInstruction || '');
 
   const LANG_NAMES = { cs: 'Czech', sk: 'Slovak', pl: 'Polish', hu: 'Hungarian' };
   const langName = LANG_NAMES[targetLang] || targetLang;

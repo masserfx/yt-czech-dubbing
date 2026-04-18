@@ -270,6 +270,8 @@ async function detectPage() {
       const resp = await chrome.tabs.sendMessage(activeTabId, { type: 'get-status' });
       if (resp) updateDubStatus(resp.status, resp.message);
     } catch (e) {}
+    // Load glossary for current channel
+    loadGlossary();
   } else if (isWeb) {
     document.getElementById('btnDubText').textContent = t('dubArticle');
     // Try to get article context
@@ -344,6 +346,7 @@ function bindEvents() {
   bindVoiceInput();
   bindTtsToggle();
   bindChatActions();
+  bindGlossaryEvents();
 
   // API key links — open in new tab
   document.querySelectorAll('.api-link[data-url]').forEach(link => {
@@ -843,9 +846,22 @@ function bindVoiceInput() {
   document.getElementById('btnVoice').addEventListener('mouseup', () => stopRecording());
   document.getElementById('btnVoice').addEventListener('mouseleave', () => { if (isRecording) stopRecording(); });
 
-  // Hold spacebar — only when chat input is NOT focused
+  // Hold spacebar — skip when any text input/textarea is focused, so typing
+  // a space anywhere in the panel (chat, glossary, settings) works normally.
+  const isTextInputFocused = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA') return true;
+    if (tag === 'INPUT') {
+      const type = (el.type || 'text').toLowerCase();
+      return ['text', 'password', 'search', 'email', 'url', 'tel', 'number'].includes(type);
+    }
+    return el.isContentEditable === true;
+  };
+
   document.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' && !spaceHeld && document.activeElement !== document.getElementById('chatInput')) {
+    if (e.code === 'Space' && !spaceHeld && !isTextInputFocused()) {
       e.preventDefault();
       spaceHeld = true;
       startRecording();
@@ -1659,4 +1675,187 @@ function showToast(text) {
   toast.textContent = text;
   toast.style.opacity = '1';
   setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+}
+
+// ── Glossary (per-channel) ─────────────────────────────
+
+let glossaryChannelId = null;
+
+async function loadGlossary(attempt = 0) {
+  const section = document.getElementById('glossarySection');
+  const channelEl = document.getElementById('glossaryChannel');
+  const addBtn = document.getElementById('glossaryAddBtn');
+  if (!section || !activeTabId) return;
+
+  // Only meaningful on YouTube pages
+  if (!pageContext?.isYouTube) {
+    section.style.display = 'none';
+    return;
+  }
+
+  // Show the section while we probe — user sees progress instead of nothing
+  section.style.display = '';
+
+  let info = null;
+  try {
+    info = await chrome.tabs.sendMessage(activeTabId, { type: 'get-channel-info' });
+  } catch (e) {
+    if (attempt < 3) {
+      channelEl.textContent = 'Načítám... (pokus ' + (attempt + 1) + ')';
+      setTimeout(() => loadGlossary(attempt + 1), 800);
+      return;
+    }
+    channelEl.textContent = 'Reloadni YouTube kartu (F5)';
+    if (addBtn) addBtn.disabled = true;
+    renderGlossary([]);
+    return;
+  }
+
+  if (!info?.channelId) {
+    if (attempt < 3) {
+      channelEl.textContent = 'Detekuji kanál...';
+      setTimeout(() => loadGlossary(attempt + 1), 800);
+      return;
+    }
+    channelEl.textContent = 'Kanál nedetekován';
+    if (addBtn) addBtn.disabled = true;
+    renderGlossary([]);
+    return;
+  }
+
+  glossaryChannelId = info.channelId;
+  channelEl.textContent = info.channelName || info.channelId;
+  if (addBtn) addBtn.disabled = false;
+
+  try {
+    const list = await chrome.tabs.sendMessage(activeTabId, { type: 'glossary-list' });
+    renderGlossary(list?.entries || []);
+  } catch (e) {
+    console.warn('[SidePanel] glossary-list failed:', e);
+    renderGlossary([]);
+  }
+}
+
+function renderGlossary(entries) {
+  const listEl = document.getElementById('glossaryList');
+  listEl.textContent = '';
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'glossary-empty';
+    empty.textContent = 'Žádné položky';
+    listEl.appendChild(empty);
+    return;
+  }
+  for (const entry of entries) {
+    const row = document.createElement('div');
+    row.className = 'glossary-entry';
+
+    const src = document.createElement('span');
+    src.className = 'glossary-entry-src';
+    src.textContent = entry.source;
+    src.title = entry.source;
+
+    const arrow = document.createElement('span');
+    arrow.className = 'glossary-entry-arrow';
+    arrow.textContent = '→';
+
+    const tgt = document.createElement('span');
+    tgt.className = 'glossary-entry-tgt' + (entry.keep ? ' keep' : '');
+    tgt.textContent = entry.keep ? '(ponechat)' : (entry.target || '—');
+    tgt.title = tgt.textContent;
+
+    const del = document.createElement('button');
+    del.className = 'glossary-entry-del';
+    del.textContent = '×';
+    del.title = 'Odstranit';
+    del.addEventListener('click', () => removeGlossaryEntry(entry.source));
+
+    row.appendChild(src);
+    row.appendChild(arrow);
+    row.appendChild(tgt);
+    row.appendChild(del);
+    listEl.appendChild(row);
+  }
+}
+
+async function addGlossaryEntry() {
+  const srcInput = document.getElementById('glossarySource');
+  const tgtInput = document.getElementById('glossaryTarget');
+  const keepInput = document.getElementById('glossaryKeep');
+
+  const source = srcInput.value.trim();
+  const target = tgtInput.value.trim();
+  const keep = keepInput.checked;
+
+  if (!source) {
+    srcInput.focus();
+    return;
+  }
+  if (!keep && !target) {
+    tgtInput.focus();
+    return;
+  }
+
+  try {
+    const resp = await chrome.tabs.sendMessage(activeTabId, {
+      type: 'glossary-add',
+      source,
+      target: keep ? '' : target,
+      keep
+    });
+    if (resp?.success) {
+      srcInput.value = '';
+      tgtInput.value = '';
+      keepInput.checked = false;
+      renderGlossary(resp.entries || []);
+      showToast(`Přidáno: ${source}`);
+    } else {
+      showToast('Chyba při přidání', true);
+    }
+  } catch (e) {
+    console.warn('[SidePanel] addGlossaryEntry failed:', e);
+    showToast('Chyba při přidání', true);
+  }
+}
+
+async function removeGlossaryEntry(source) {
+  try {
+    const resp = await chrome.tabs.sendMessage(activeTabId, {
+      type: 'glossary-remove',
+      source
+    });
+    if (resp?.success) {
+      renderGlossary(resp.entries || []);
+    }
+  } catch (e) {
+    console.warn('[SidePanel] removeGlossaryEntry failed:', e);
+  }
+}
+
+function bindGlossaryEvents() {
+  const header = document.getElementById('glossaryHeader');
+  const section = document.getElementById('glossarySection');
+  if (header && section) {
+    header.addEventListener('click', () => section.classList.toggle('collapsed'));
+  }
+
+  const addBtn = document.getElementById('glossaryAddBtn');
+  if (addBtn) addBtn.addEventListener('click', addGlossaryEntry);
+
+  const keepChk = document.getElementById('glossaryKeep');
+  const tgtInput = document.getElementById('glossaryTarget');
+  if (keepChk && tgtInput) {
+    keepChk.addEventListener('change', () => {
+      tgtInput.disabled = keepChk.checked;
+      if (keepChk.checked) tgtInput.value = '';
+    });
+  }
+
+  // Enter in inputs → submit
+  ['glossarySource', 'glossaryTarget'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addGlossaryEntry(); }
+    });
+  });
 }

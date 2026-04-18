@@ -18,6 +18,7 @@ class Translator {
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
     this._serviceClient = null; // injected by DubbingController for B2B mode
+    this.glossary = (typeof Glossary !== 'undefined') ? new Glossary() : null;
 
     // Chrome AI Translator (on-device, free)
     this._chromeAIAvailable = null; // null = unchecked, true/false
@@ -59,18 +60,32 @@ class Translator {
     if (!text || text.trim().length < 2) return '';
     if (this._contextInvalidated) return text;
 
-    const cacheKey = `${sourceLang}:${this._targetLang}:${text}`;
+    const cacheKey = `${sourceLang}:${this._targetLang}:${text}:${this.glossary?.isActive() ? this.glossary.getChannelId() : ''}`;
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
     }
 
-    let translated = await this._translateRaw(text, sourceLang);
+    // Non-LLM engines get placeholder protection for "keep original" terms.
+    // LLM engines (Gemini/Claude) get the glossary as prompt instruction instead.
+    const isLLM = ['gemini', 'claude', 'openai'].includes(this._engine);
+    let textForEngine = text;
+    let placeholders = new Map();
+    if (this.glossary?.isActive() && !isLLM) {
+      const pre = this.glossary.applyPre(text);
+      textForEngine = pre.text;
+      placeholders = pre.placeholders;
+    }
+
+    let translated = await this._translateRaw(textForEngine, sourceLang);
 
     if (translated) {
       // Reject translation error messages that leak through as "translations"
       if (/prosím.*vložte.*text|please.*enter.*text|enter.*text.*translate/i.test(translated)) {
         console.warn('[CzechDub] Rejected error response from translation engine:', translated.substring(0, 80));
         return text; // Return original
+      }
+      if (this.glossary?.isActive()) {
+        translated = this.glossary.applyPost(translated, placeholders);
       }
       translated = this._phoneticize(translated, sourceLang);
       translated = this._cleanTranslatedOutput(translated);
@@ -448,6 +463,7 @@ class Translator {
         sourceLang,
         targetLang: this._targetLang,
         claudePrompt: this._langConfig.claudePrompt,
+        glossaryInstruction: this.glossary?.buildPromptInstruction() || '',
         apiKey: this._anthropicApiKey
       });
       if (response?.success && response.translated) {
@@ -481,6 +497,7 @@ class Translator {
         sourceLang,
         targetLang: this._targetLang,
         geminiPrompt: this._langConfig.geminiPrompt,
+        glossaryInstruction: this.glossary?.buildPromptInstruction() || '',
         apiKey: this._geminiApiKey
       });
       if (response?.success && response.translated) {

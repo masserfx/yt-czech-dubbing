@@ -250,14 +250,15 @@ class TTSEngine {
       return this.speak(text, options);
     }
 
+    // Respect user's explicit voice choice — keep their voice, only borrow prosody
+    // (pitch/rate) from role. Avoids forcing a male voice on a female-voice user.
     const roleOptions = {
       ...options,
-      _edgeVoiceOverride: roleConfig.edge,
       pitch: (options.pitch ?? this.pitch) * roleConfig.pitch,
       rate: (options.rate ?? this.rate) * roleConfig.rate
     };
 
-    console.log(`[Dub TTS] speakAs(${role}) voice=${roleConfig.edge}, pitch=${roleOptions.pitch}, rate=${roleOptions.rate}`);
+    console.log(`[Dub TTS] speakAs(${role}) voice=${this._edgeVoice} (user pick), pitch=${roleOptions.pitch}, rate=${roleOptions.rate}`);
     return this._speakEdge(text, roleOptions);
   }
 

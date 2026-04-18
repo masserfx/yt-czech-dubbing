@@ -88,6 +88,15 @@ class DubbingController {
       await this.serviceClient.loadConfig();
       await this.voicedubClient.loadConfig();
 
+      // Load per-channel glossary (Pro feature — idempotent if no channel)
+      if (this.translator.glossary) {
+        const info = (typeof getChannelInfo === 'function') ? getChannelInfo() : { channelId: null };
+        await this.translator.glossary.loadForChannel(info.channelId, info.channelName);
+        if (this.translator.glossary.isActive()) {
+          console.log(`[CzechDub] Glossary loaded for ${info.channelName || info.channelId}: ${this.translator.glossary.getEntries().length} entries`);
+        }
+      }
+
       // Wire service client for B2B mode
       this.translator._serviceClient = this.serviceClient;
       this.tts._serviceClient = this.serviceClient;
@@ -312,6 +321,17 @@ class DubbingController {
     if (!fullText || fullText.length < 3) return;
     if (!this.isActive) return;
 
+    // Capture age at caption-time, not after API — measures real lag.
+    const createdAt = Date.now();
+
+    // New caption arrived: cancel currently-playing audio so dub doesn't lag behind video.
+    if (this._currentAudioResolve) {
+      try { this._currentAudio?.pause(); } catch (_) {}
+      const r = this._currentAudioResolve;
+      this._currentAudioResolve = null;
+      r();
+    }
+
     // Chain translation to ensure ordering
     this._translationQueue = this._translationQueue.then(async () => {
       if (!this.isActive) return;
@@ -358,7 +378,7 @@ class DubbingController {
         this._speechQueue.shift();
       }
 
-      this._speechQueue.push({ text: czechText, speaker, audioBase64, createdAt: Date.now() });
+      this._speechQueue.push({ text: czechText, speaker, audioBase64, createdAt });
       this._processQueue();
     });
   }
@@ -374,8 +394,8 @@ class DubbingController {
     this._isSpeaking = true;
     const item = this._speechQueue.shift();
 
-    // Skip stale items (>8s old) to prevent playing content that's too far behind video
-    if (typeof item === 'object' && item.createdAt && Date.now() - item.createdAt > 8000) {
+    // Skip stale items (>4s old) to prevent playing content that's too far behind video
+    if (typeof item === 'object' && item.createdAt && Date.now() - item.createdAt > 4000) {
       console.log(`[CzechDub] Skipping stale audio (${Math.round((Date.now() - item.createdAt) / 1000)}s old): "${(item.text || '').substring(0, 50)}"`);
       this._isSpeaking = false;
       this._processQueue();
@@ -385,6 +405,7 @@ class DubbingController {
     const text = typeof item === 'string' ? item : item.text;
     const speaker = typeof item === 'string' ? null : item.speaker;
     const audioBase64 = typeof item === 'string' ? null : item.audioBase64;
+    const itemAge = (typeof item === 'object' && item.createdAt) ? Date.now() - item.createdAt : 0;
 
     try {
       // Reduce video volume while speaking
@@ -400,8 +421,10 @@ class DubbingController {
       this._showSubtitle(text);
 
       if (audioBase64) {
-        console.log(`[CzechDub] VoiceDub audio: "${text.substring(0, 60)}"`);
-        await this._playAudioBase64(audioBase64);
+        // Catch up: faster playback when dub is lagging behind video.
+        const playRate = itemAge > 1500 ? 1.6 : itemAge > 500 ? 1.45 : 1.3;
+        console.log(`[CzechDub] VoiceDub audio (rate=${playRate}, age=${itemAge}ms): "${text.substring(0, 60)}"`);
+        await this._playAudioBase64(audioBase64, playRate);
       } else {
         const speakerTag = speaker ? `[${speaker}]` : '';
         console.log(`[CzechDub] TTS${speakerTag}: "${text.substring(0, 60)}"${speaker ? '' : `, voice=${this.tts.czechVoice?.name}`}`);
@@ -442,12 +465,17 @@ class DubbingController {
       groupSegs.push(seg);
       buffer += (buffer ? ' ' : '') + seg.text.trim();
 
-      // End group on sentence boundary, long buffer, or last segment
+      // End group on sentence boundary, long buffer, or last segment.
+      // Guard against "orphan" clause ends: if buffer is too short, the final
+      // period is likely the *previous* sentence's tail that ASR put at the
+      // start of this caption — wait for more text so the translator sees
+      // a full clause instead of a fragment.
       const isSentenceEnd = /[.!?]["»"]?\s*$/.test(buffer);
+      const bufferTooShort = buffer.length < 40;
       const isLong = buffer.length > 200;
       const isLast = i === segments.length - 1;
 
-      if (isSentenceEnd || isLong || isLast) {
+      if ((isSentenceEnd && !bufferTooShort) || isLong || isLast) {
         const firstSeg = groupSegs[0];
         const lastSeg = groupSegs[groupSegs.length - 1];
         groups.push({
@@ -480,21 +508,26 @@ class DubbingController {
 
       const words = seg.text.split(/\s+/);
       const estimatedDuration = words.length / (baseWordsPerSec * baseRate);
-      const availableTime = seg.duration * 1.2; // allow 20% overflow
+      // Tolerate 50% overflow: prefer slight desync over truncated sentences.
+      const availableTime = seg.duration * 1.5;
 
       if (estimatedDuration > availableTime) {
-        // Calculate required rate to fit text into available time
         const requiredRate = (words.length / baseWordsPerSec) / availableTime;
-        // Cap at user-configured max rate to keep speech intelligible
         seg._ttsRate = Math.min(maxRate, requiredRate);
         speedAdjusted++;
 
-        // Only trim if even at max rate it won't fit
+        // Trim only when even max rate won't fit — and always on a punctuation
+        // boundary so listener gets a complete clause instead of a chopped phrase.
         const maxRateDuration = words.length / (baseWordsPerSec * maxRate);
         if (maxRateDuration > availableTime && words.length > 5) {
           const maxWords = Math.max(5, Math.floor(words.length * (availableTime / maxRateDuration)));
-          seg.text = words.slice(0, maxWords).join(' ');
-          trimmed++;
+          const candidate = words.slice(0, maxWords).join(' ');
+          const trimmedText = this._trimAtPunctuation(candidate, seg.text);
+          if (trimmedText && trimmedText !== seg.text) {
+            seg.text = trimmedText;
+            trimmed++;
+          }
+          // No usable boundary → keep full text; overflow is the lesser evil.
         }
       }
 
@@ -508,6 +541,26 @@ class DubbingController {
       console.log(`[CzechDub] Optimized timing: ${speedAdjusted} segments speed-adjusted, ${trimmed} trimmed`);
     }
     return segments;
+  }
+
+  /**
+   * Trim candidate to last clause boundary (. ! ?) or fall back to comma.
+   * Returns null if no usable boundary found at ≥50% of candidate length —
+   * caller then keeps the full original text rather than chop mid-phrase.
+   */
+  _trimAtPunctuation(candidate, fullText) {
+    const minKeep = Math.max(20, Math.floor(candidate.length * 0.5));
+    // Prefer full sentence boundary
+    const sentMatch = candidate.match(/^[\s\S]*[.!?]["»"']?(?=\s|$)/);
+    if (sentMatch && sentMatch[0].length >= minKeep) {
+      return sentMatch[0].trim();
+    }
+    // Fall back to comma / semicolon / colon
+    const clauseMatch = candidate.match(/^[\s\S]*[,;:](?=\s|$)/);
+    if (clauseMatch && clauseMatch[0].length >= minKeep) {
+      return clauseMatch[0].trim();
+    }
+    return fullText;
   }
 
   /**
@@ -835,34 +888,40 @@ class DubbingController {
    * Play audio from base64-encoded MP3 (VoiceDub response).
    * Content script runs in DOM context, so URL.createObjectURL + Audio work here.
    */
-  _playAudioBase64(b64) {
+  _playAudioBase64(b64, playbackRate = 1.3) {
     return new Promise((resolve) => {
       let url;
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (url) URL.revokeObjectURL(url);
+        if (this._currentAudioResolve === finish) this._currentAudioResolve = null;
+        if (this._currentAudio === audio) this._currentAudio = null;
+        resolve();
+      };
+      let audio;
       try {
         const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: 'audio/mpeg' });
         url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
+        audio = new Audio(url);
         audio.volume = this._settings.ttsVolume ?? 1.0;
-        audio.playbackRate = 1.25;
-        const cleanup = () => {
-          if (url) URL.revokeObjectURL(url);
-          resolve();
-        };
-        audio.onended = cleanup;
+        audio.playbackRate = playbackRate;
+        audio.onended = finish;
         audio.onerror = () => {
           console.warn('[CzechDub] VoiceDub audio playback error');
-          cleanup();
+          finish();
         };
         this._currentAudio = audio;
+        this._currentAudioResolve = finish;
         audio.play().catch((e) => {
           console.warn('[CzechDub] audio.play() rejected:', e.message);
-          cleanup();
+          finish();
         });
       } catch (e) {
         console.warn('[CzechDub] _playAudioBase64 failed:', e.message);
-        if (url) URL.revokeObjectURL(url);
-        resolve();
+        finish();
       }
     });
   }

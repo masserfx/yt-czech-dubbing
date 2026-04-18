@@ -60,6 +60,7 @@
         "src/speaker-detector.js",
         "src/service-mode.js",
         "src/voicedub-client.js",
+        "src/glossary.js",
         "src/translator.js",
         "src/tts-engine.js",
         "src/dubbing-cache.js",

@@ -573,6 +573,138 @@
     }
     .hint { font-size: 11px; color: #555; margin-top: 3px; }
 
+    /* Glossary */
+    .glossary-section {
+      padding: 12px 16px;
+      border-top: 1px solid #0f3460;
+      background: #16213e;
+      flex-shrink: 0;
+    }
+    .glossary-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .glossary-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .glossary-channel {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 220px;
+    }
+    .glossary-toggle {
+      color: #888;
+      font-size: 14px;
+      transition: transform 0.2s;
+    }
+    .glossary-section.collapsed .glossary-toggle { transform: rotate(-90deg); }
+    .glossary-body { margin-top: 10px; }
+    .glossary-section.collapsed .glossary-body { display: none; }
+    .glossary-list {
+      max-height: 180px;
+      overflow-y: auto;
+      margin-bottom: 8px;
+    }
+    .glossary-empty {
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      padding: 10px 0;
+    }
+    .glossary-entry {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 0;
+      border-bottom: 1px solid #0f346033;
+      font-size: 12px;
+    }
+    .glossary-entry:last-child { border-bottom: none; }
+    .glossary-entry-src {
+      flex: 1;
+      color: #e0e0e0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .glossary-entry-arrow { color: #3498db; font-size: 11px; }
+    .glossary-entry-tgt {
+      flex: 1;
+      color: #aaa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .glossary-entry-tgt.keep {
+      color: #e67e22;
+      font-style: italic;
+    }
+    .glossary-entry-del {
+      background: transparent;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+    .glossary-entry-del:hover { color: #e74c3c; background: #0f3460; }
+    .glossary-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .glossary-form input[type="text"] {
+      padding: 6px 8px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .glossary-form input[type="text"]:focus { border-color: #3498db; }
+    .glossary-form-row {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .glossary-form-row .checkbox-group { font-size: 12px; color: #aaa; }
+    .glossary-add-btn {
+      background: linear-gradient(135deg, #11457e, #1a6bc4);
+      border: none;
+      color: white;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .glossary-add-btn:hover { filter: brightness(1.15); }
+    .glossary-add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .glossary-hint {
+      font-size: 10px;
+      color: #666;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
     /* Citation badges */
     .citation-badge {
       display: inline-flex;
@@ -717,6 +849,36 @@
         <div class="dub-progress-bar" id="dubProgress"></div>
       </div>
       <div class="dub-status" id="dubStatus">P&#x159;ipraveno</div>
+    </div>
+
+    <!-- Glossary (per-channel) -->
+    <div class="glossary-section" id="glossarySection" style="display:none;">
+      <div class="glossary-header" id="glossaryHeader">
+        <div>
+          <div class="glossary-title">Glos&#xE1;&#x159; kan&#xE1;lu</div>
+          <div class="glossary-channel" id="glossaryChannel">Na&#x10D;&#xED;t&#xE1;m...</div>
+        </div>
+        <span class="glossary-toggle">&#x25BC;</span>
+      </div>
+      <div class="glossary-body">
+        <div class="glossary-list" id="glossaryList">
+          <div class="glossary-empty">&#x17E;&#xE1;dn&#xE9; poloz&#x17E;ky</div>
+        </div>
+        <div class="glossary-form">
+          <input type="text" id="glossarySource" placeholder="Origin&#xE1;l (nap&#x159;. Tim Cook)">
+          <input type="text" id="glossaryTarget" placeholder="P&#x159;eklad (pr&#xE1;zdn&#xE9; = nep&#x159;ekl&#xE1;dat)">
+          <div class="glossary-form-row">
+            <label class="checkbox-group">
+              <input type="checkbox" id="glossaryKeep">
+              <span>Ponechat origin&#xE1;l</span>
+            </label>
+            <button class="glossary-add-btn" id="glossaryAddBtn">P&#x159;idat</button>
+          </div>
+        </div>
+        <div class="glossary-hint">
+          Jm&#xE9;na, produkty, termity — aplikuje se na tento kan&#xE1;l p&#x159;i v&#x161;ech dabin&#x11B;ch.
+        </div>
+      </div>
     </div>
   </div>
 
