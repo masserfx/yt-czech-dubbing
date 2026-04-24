@@ -90,6 +90,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
+  if (msg.type === 'ios-tts') {
+    const lang = msg.lang || 'cs';
+    console.log('[ios-tts] request lang=' + lang + ' textLen=' + (msg.text?.length || 0));
+    // Primary path on iOS: Google Translate TTS via fetch (background bypasses CORS
+    // thanks to host_permissions — content-script fetch would be blocked by YouTube CSP).
+    // Edge TTS WSS is unreliable on iOS Safari (User-Agent rewrite via
+    // declarativeNetRequest not honored for WSS handshake), so we fall back to it
+    // only when Google fails.
+    synthesizeIOSGoogleTTS(msg.text, lang)
+      .then(base64 => {
+        console.log('[ios-tts] google ok base64Len=' + (base64?.length || 0));
+        sendResponse({ success: true, audioBase64: base64, provider: 'google' });
+      })
+      .catch(err => {
+        console.warn('[ios-tts] google failed, trying edge:', err?.message || err);
+        synthesizeIOSTTS(msg.text, lang)
+          .then(base64 => {
+            console.log('[ios-tts] edge ok base64Len=' + (base64?.length || 0));
+            sendResponse({ success: true, audioBase64: base64, provider: 'edge' });
+          })
+          .catch(err2 => {
+            console.error('[ios-tts] both failed. google=', err?.message, 'edge=', err2?.message);
+            sendResponse({
+              success: false,
+              error: 'google: ' + (err?.message || err) + ' | edge: ' + (err2?.message || err2)
+            });
+          });
+      });
+    return true;
+  }
+
   if (msg.type === 'status-update') {
     // Forward status updates to popup (if open)
     return false;
@@ -881,19 +912,25 @@ function findDeepArray(obj, key, maxDepth = 12) {
 async function translateGoogle(text, sourceLang, targetLang = 'cs') {
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+    console.log('[translateGoogle] fetch ' + sourceLang + '→' + targetLang + ' len=' + text.length);
     const resp = await fetch(url);
     if (!resp.ok) {
-      console.warn('[translateGoogle] HTTP error:', resp.status);
+      console.warn('[translateGoogle] HTTP error:', resp.status, resp.statusText);
+      const body = await resp.text().catch(() => '');
+      console.warn('[translateGoogle] body:', body.substring(0, 200));
       return null;
     }
     const data = await resp.json();
 
     if (data && data[0]) {
-      return data[0].filter(Boolean).map(item => item[0]).join('');
+      const result = data[0].filter(Boolean).map(item => item[0]).join('');
+      console.log('[translateGoogle] OK: "' + text.substring(0, 40) + '" → "' + result.substring(0, 40) + '"');
+      return result;
     }
+    console.warn('[translateGoogle] no data[0] in response:', JSON.stringify(data).substring(0, 200));
     return null;
   } catch (err) {
-    console.error('[translateGoogle] error:', err);
+    console.error('[translateGoogle] error:', err?.message, err?.name);
     return null;
   }
 }
@@ -1663,4 +1700,158 @@ async function ollamaListModels(tabId, baseUrl) {
     quant: m.details?.quantization_level || '',
     family: m.details?.family || ''
   }));
+}
+
+/**
+ * iOS-only TTS synth: Edge TTS WebSocket directly from background service worker.
+ * No offscreen document needed — Safari background has WebSocket API.
+ * Returns base64 MP3 (content plays via data:audio/mpeg;base64,...).
+ */
+const IOS_EDGE_TTS_VOICES = {
+  cs: 'cs-CZ-AntoninNeural',
+  sk: 'sk-SK-LukasNeural',
+  pl: 'pl-PL-MarekNeural',
+  hu: 'hu-HU-TamasNeural',
+  en: 'en-US-GuyNeural'
+};
+
+/**
+ * Google Translate TTS public endpoint. Simple GET, returns MP3.
+ * Called from background service worker — iOS Safari allows this
+ * because host_permissions cover translate.google.com and the
+ * fetch is same-origin from the service worker's perspective.
+ * Limit: ~200 chars per request; splits longer text into chunks
+ * and concatenates the MP3 binary data (raw MP3 frames can be
+ * concatenated — decoder handles stream reset at each frame header).
+ */
+async function synthesizeIOSGoogleTTS(text, lang) {
+  const MAX_CHUNK = 180;
+  const chunks = [];
+  // Split on sentence boundaries when possible, otherwise hard-chunk
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  let buf = '';
+  for (const s of sentences) {
+    if ((buf + ' ' + s).trim().length <= MAX_CHUNK) {
+      buf = buf ? buf + ' ' + s : s;
+    } else {
+      if (buf) chunks.push(buf);
+      if (s.length <= MAX_CHUNK) {
+        buf = s;
+      } else {
+        for (let i = 0; i < s.length; i += MAX_CHUNK) chunks.push(s.slice(i, i + MAX_CHUNK));
+        buf = '';
+      }
+    }
+  }
+  if (buf) chunks.push(buf);
+
+  const parts = [];
+  for (const chunk of chunks) {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8`
+      + `&q=${encodeURIComponent(chunk)}`
+      + `&tl=${encodeURIComponent(lang)}`
+      + `&client=gtx`;
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'audio/mpeg,*/*' },
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+    if (!resp.ok) throw new Error(`google tts http ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    parts.push(new Uint8Array(buf));
+  }
+
+  // Concatenate all MP3 chunks into one Uint8Array
+  const totalLen = parts.reduce((n, p) => n + p.length, 0);
+  const merged = new Uint8Array(totalLen);
+  let off = 0;
+  for (const p of parts) { merged.set(p, off); off += p.length; }
+
+  // base64 encode
+  let bin = '';
+  const chunkSz = 0x8000;
+  for (let i = 0; i < merged.length; i += chunkSz) {
+    bin += String.fromCharCode.apply(null, merged.subarray(i, i + chunkSz));
+  }
+  return btoa(bin);
+}
+
+async function synthesizeIOSTTS(text, lang) {
+  const voice = IOS_EDGE_TTS_VOICES[lang] || IOS_EDGE_TTS_VOICES.cs;
+  const gec = await generateSecMsGec();
+  const connectionId = crypto.randomUUID().replace(/-/g, '');
+  const token = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+  const gecVersion = '1-143.0.3650.75';
+  const wssUrl = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1'
+    + '?TrustedClientToken=' + token
+    + '&ConnectionId=' + connectionId
+    + '&Sec-MS-GEC=' + gec
+    + '&Sec-MS-GEC-Version=' + gecVersion;
+
+  const escapeXml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wssUrl);
+    const chunks = [];
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) { resolved = true; try { ws.close(); } catch (_) {} reject(new Error('Edge TTS timeout (15s)')); }
+    }, 15000);
+
+    const finish = async (err) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+      try { ws.close(); } catch (_) {}
+      if (err || chunks.length === 0) {
+        reject(err || new Error('No audio chunks'));
+        return;
+      }
+      const blob = new Blob(chunks, { type: 'audio/mpeg' });
+      const buf = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      resolve(btoa(bin));
+    };
+
+    ws.onopen = () => {
+      const ts = new Date().toISOString();
+      ws.send(
+        `X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
+        `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
+      );
+      const xmlLang = voice.substring(0, 5) || 'cs-CZ';
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${xmlLang}'><voice name='${voice}'><prosody rate='+0%' pitch='+0%'>${escapeXml(text)}</prosody></voice></speak>`;
+      ws.send(`X-RequestId:${connectionId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`);
+    };
+
+    ws.onmessage = async (event) => {
+      if (typeof event.data === 'string') {
+        if (event.data.includes('Path:turn.end')) finish(null);
+      } else if (event.data instanceof Blob) {
+        const buf = await event.data.arrayBuffer();
+        const view = new DataView(buf);
+        const headerLen = view.getUint16(0);
+        if (buf.byteLength > 2 + headerLen) chunks.push(buf.slice(2 + headerLen));
+      } else if (event.data instanceof ArrayBuffer) {
+        const view = new DataView(event.data);
+        const headerLen = view.getUint16(0);
+        if (event.data.byteLength > 2 + headerLen) chunks.push(event.data.slice(2 + headerLen));
+      }
+    };
+
+    ws.onerror = () => finish(new Error('Edge TTS WebSocket error'));
+    ws.onclose = (ev) => {
+      if (!resolved) {
+        if (chunks.length > 0) finish(null);
+        else finish(new Error('Edge TTS closed: code=' + ev.code));
+      }
+    };
+  });
 }

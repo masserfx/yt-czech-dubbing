@@ -32,6 +32,17 @@ class CaptionExtractor {
    * Check if captions are available for this video.
    */
   async hasCaptions() {
+    // iOS: page-script is not injected, so fall back to native <video>.textTracks.
+    // The user must have CC enabled in YouTube player for tracks to appear.
+    if (typeof window !== 'undefined' && window.__CZECHDUB_FORCE_DOM_CAPTIONS__) {
+      const video = document.querySelector('video');
+      const tt = video?.textTracks;
+      const hasNativeTracks = tt && tt.length > 0;
+      console.log(`[CzechDub:iOS] hasCaptions via textTracks: ${hasNativeTracks ? tt.length : 0} tracks`);
+      // Even if no textTracks yet, proceed if a <video> element exists — user may enable CC mid-playback.
+      // Return true to let startObserving attach listeners.
+      return !!video;
+    }
     const tracks = await this._requestTracksFromPageScript();
     return tracks && tracks.length > 0;
   }
@@ -40,6 +51,12 @@ class CaptionExtractor {
    * Enable YouTube captions with Czech translation via player API.
    */
   async enableCaptions(targetLang = 'cs') {
+    // iOS Safari: no MAIN-world page-script, user must enable CC manually.
+    // Also, origin may be m.youtube.com where www.youtube.com postMessage target is rejected.
+    if (typeof window !== 'undefined' && window.__CZECHDUB_FORCE_DOM_CAPTIONS__) {
+      console.log(`[CzechDub:iOS] skip enableCaptions — user must enable CC manually in player`);
+      return true;
+    }
     console.log(`[CzechDub] Enabling ${targetLang} captions via player API...`);
 
     return new Promise((resolve) => {
@@ -80,6 +97,12 @@ class CaptionExtractor {
     this.onCaption = callback;
     this._visibleLines = new Map();
     this._emittedTexts.clear();
+
+    // iOS: listen to native <video>.textTracks cuechange events (no MAIN-world access).
+    if (typeof window !== 'undefined' && window.__CZECHDUB_FORCE_DOM_CAPTIONS__) {
+      this._startNativeTextTrackObserver(callback);
+      return;
+    }
 
     const findCaptionContainer = () => {
       const container = document.querySelector('.ytp-caption-window-container')
@@ -246,9 +269,109 @@ class CaptionExtractor {
       clearInterval(this._pollInterval);
       this._pollInterval = null;
     }
+    if (this._nativeTrackListeners) {
+      for (const { track, handler } of this._nativeTrackListeners) {
+        try { track.removeEventListener('cuechange', handler); } catch (e) {}
+      }
+      this._nativeTrackListeners = null;
+    }
     this.onCaption = null;
     this._visibleLines = new Map();
     this._emittedTexts.clear();
+  }
+
+  /**
+   * iOS fallback: use native HTMLVideoElement.textTracks.
+   * Attaches cuechange listeners to every non-disabled track.
+   * Retries attaching while no track is ready yet (YouTube loads them lazily).
+   */
+  _startNativeTextTrackObserver(callback) {
+    this._nativeTrackListeners = [];
+    const attach = () => {
+      const video = document.querySelector('video');
+      if (!video || !video.textTracks || video.textTracks.length === 0) return false;
+
+      let attached = 0;
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i];
+        if (track.kind !== 'subtitles' && track.kind !== 'captions') continue;
+        // iOS Safari needs mode = 'hidden' to fire cuechange without rendering the cue.
+        if (track.mode === 'disabled') track.mode = 'hidden';
+        const handler = () => {
+          const cues = track.activeCues;
+          if (!cues || cues.length === 0) return;
+          const text = Array.from(cues).map(c => c.text || '').join(' ').trim();
+          if (!text) return;
+          if (this._emittedTexts.has(text)) return;
+          this._emittedTexts.add(text);
+          // Bound the dedupe set
+          if (this._emittedTexts.size > 200) {
+            const first = this._emittedTexts.values().next().value;
+            this._emittedTexts.delete(first);
+          }
+          if (this.onCaption) this.onCaption(text);
+        };
+        track.addEventListener('cuechange', handler);
+        this._nativeTrackListeners.push({ track, handler });
+        attached++;
+      }
+      if (attached > 0) {
+        console.log(`[CzechDub:iOS] attached cuechange to ${attached} textTracks`);
+        return true;
+      }
+      return false;
+    };
+
+    if (attach()) return;
+
+    // Retry: YouTube may add tracks after CC toggle
+    console.log('[CzechDub:iOS] no textTracks yet, polling...');
+    let attempts = 0;
+    this._pollInterval = setInterval(() => {
+      if (attach()) {
+        clearInterval(this._pollInterval);
+        this._pollInterval = null;
+        return;
+      }
+      if (++attempts > 20) {
+        clearInterval(this._pollInterval);
+        this._pollInterval = null;
+        console.warn('[CzechDub:iOS] no textTracks after 10s — falling back to DOM observer');
+        this._startDomCaptionFallback(callback);
+      }
+    }, 500);
+  }
+
+  /**
+   * iOS DOM fallback: mobile YouTube (m.youtube.com) often doesn't expose <track>
+   * elements. Instead captions are rendered in DOM. We probe common selectors and,
+   * if none match, install a broad MutationObserver on the player + periodic scan
+   * of any element whose class mentions "caption" or "subtitle".
+   */
+  _startDomCaptionFallback(callback) {
+    this.onCaption = callback;
+    const probeSelectors = [
+      '.caption-visual-line',
+      '.ytp-caption-segment',
+      '.captions-text',
+      '.caption-window'
+    ];
+    const foundMatches = probeSelectors.map(sel => ({
+      sel, n: document.querySelectorAll(sel).length
+    })).filter(x => x.n > 0);
+    console.log('[CzechDub:iOS] DOM probe:', JSON.stringify(foundMatches));
+
+    const container = document.querySelector('.ytp-caption-window-container')
+      || document.querySelector('.caption-window')
+      || document.querySelector('#movie_player')
+      || document.querySelector('.html5-video-player')
+      || document.body;
+
+    // Reuse desktop emit-on-disappear logic: tracks .caption-visual-line elements,
+    // emits final text only when a line DISAPPEARS from DOM. Prevents duplicates
+    // caused by rolling captions growing word-by-word.
+    this._setupObserver(container);
+    console.log('[CzechDub:iOS] DOM fallback using desktop emit-on-disappear logic');
   }
 
   /**

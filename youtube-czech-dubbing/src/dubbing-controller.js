@@ -82,6 +82,14 @@ class DubbingController {
         return false;
       }
 
+      // iOS: request audio unlock overlay if speechSynthesis hasn't been primed yet.
+      if (typeof window !== 'undefined' && window.__CZECHDUB_IOS__
+          && !window.__CZECHDUB_AUDIO_UNLOCKED__
+          && typeof window.__CZECHDUB_SHOW_UNLOCK__ === 'function') {
+        console.log('[CzechDub:iOS] audio not unlocked yet — showing unlock overlay');
+        window.__CZECHDUB_SHOW_UNLOCK__();
+      }
+
       // Load settings
       await this._loadSettings();
       await this.translator.loadSettings();
@@ -172,6 +180,19 @@ class DubbingController {
       this.isActive = true;
       this.originalVolume = this.videoElement.volume;
       this._cachedPlayback = false;
+
+      // iOS: keep the background service worker awake. iOS Safari suspends
+      // SW aggressively (~30s idle), after which sendMessage() hangs forever
+      // and the TTS queue deadlocks. A lightweight ping every 15s prevents
+      // suspension. Runs only while dubbing is active.
+      if (typeof window !== 'undefined' && window.__CZECHDUB_IOS__ && !this._keepAliveInterval) {
+        this._keepAliveInterval = setInterval(() => {
+          try {
+            chrome.runtime.sendMessage({ type: 'ping' }).catch(() => {});
+          } catch (_) {}
+        }, 15000);
+        console.log('[CzechDub:iOS] background keep-alive started (15s ping)');
+      }
 
       if (transcriptData && transcriptData.segments.length > 0) {
         let translated;
@@ -270,18 +291,72 @@ class DubbingController {
    * Buffers lines and translates complete sentences for better quality.
    */
   _onCaptionAppeared(text) {
-    if (!this.isActive) return;
-    if (this.videoElement?.paused) return;
+    if (!this.isActive) {
+      console.log(`[CzechDub] skip caption (inactive): "${(text || '').substring(0, 40)}"`);
+      return;
+    }
+    if (this.videoElement?.paused) {
+      console.log(`[CzechDub] skip caption (video paused): "${(text || '').substring(0, 40)}"`);
+      return;
+    }
     if (!text || text.trim().length < 3) return;
 
     // Skip YouTube UI text
-    if (text === 'Angličtina' || text === 'Čeština' || text.length < 5) return;
+    if (text === 'Angličtina' || text === 'Čeština' || text.length < 5) {
+      console.log(`[CzechDub] skip caption (ui/short): "${text}"`);
+      return;
+    }
+
+    // --- DEDUP: YouTube DOM caption mode emits rolling lines that often
+    // repeat because each re-render of the player pushes the same line
+    // through the observer twice. Skip if we've seen the exact text in
+    // the last 4 seconds, OR if the new text is fully contained in what
+    // we already have buffered, OR if the last-buffered word chain
+    // overlaps the start of the new text.
+    const now = Date.now();
+    this._recentCaptions = (this._recentCaptions || [])
+      .filter(e => now - e.t < 4000);
+    const cleanText = text.trim();
+    const isExactRecent = this._recentCaptions.some(e => e.text === cleanText);
+    if (isExactRecent) {
+      console.log(`[CzechDub] skip caption (duplicate <4s): "${cleanText.substring(0, 40)}"`);
+      return;
+    }
+    this._recentCaptions.push({ text: cleanText, t: now });
+
+    // Detect overlap with current buffer tail (YouTube rolling caption artifact)
+    // e.g. buffer="...invent new algorithmic" + newText="algorithmic ideas are going"
+    //      → dedup to "...invent new algorithmic ideas are going"
+    let toAppend = cleanText;
+    if (this._sentenceBuffer) {
+      const bufferEnd = this._sentenceBuffer.toLowerCase();
+      const newStart = cleanText.toLowerCase();
+      // Try overlap lengths from 40 chars down to 4 chars
+      const maxOverlap = Math.min(bufferEnd.length, newStart.length, 60);
+      for (let k = maxOverlap; k >= 4; k--) {
+        if (bufferEnd.slice(-k) === newStart.slice(0, k)) {
+          // Accept only if overlap is word-aligned (prev char / next char is space or boundary)
+          const prevChar = bufferEnd.charAt(bufferEnd.length - k - 1);
+          const nextChar = newStart.charAt(k);
+          const prevBoundary = k === bufferEnd.length || /[\s\W]/.test(prevChar);
+          const nextBoundary = k === newStart.length || /[\s\W]/.test(nextChar);
+          if (prevBoundary && nextBoundary) {
+            toAppend = cleanText.slice(k).replace(/^\s+/, '');
+            console.log(`[CzechDub] dedup overlap ${k}ch: kept "${toAppend.substring(0, 40)}"`);
+            break;
+          }
+        }
+      }
+      if (!toAppend) return;
+    }
+
+    console.log(`[CzechDub] buffer += "${toAppend.substring(0, 60)}" (buf=${(this._sentenceBuffer || '').length})`);
 
     // Add to sentence buffer with space
     if (this._sentenceBuffer) {
-      this._sentenceBuffer += ' ' + text;
+      this._sentenceBuffer += ' ' + toAppend;
     } else {
-      this._sentenceBuffer = text;
+      this._sentenceBuffer = toAppend;
     }
 
     // Clear any pending flush timer
@@ -320,12 +395,20 @@ class DubbingController {
 
     if (!fullText || fullText.length < 3) return;
     if (!this.isActive) return;
+    console.log(`[CzechDub] flush: "${fullText.substring(0, 80)}"`);
 
     // Capture age at caption-time, not after API — measures real lag.
     const createdAt = Date.now();
 
-    // New caption arrived: cancel currently-playing audio so dub doesn't lag behind video.
-    if (this._currentAudioResolve) {
+    // On desktop Chrome: cancel currently-playing audio when a new caption
+    // arrives, so dub doesn't lag behind video.
+    // On iOS: DO NOT cancel — pipeline is 300-500ms slower per segment
+    // (Google TTS HTTP + blob decode + iOS play overhead), so captions arrive
+    // faster than TTS can catch up; cancelling on every new caption silences
+    // most of the dubbing. Instead we let each TTS finish and rely on the
+    // stale-item skip in _processQueue to drop things that fall way behind.
+    const isIOS = typeof window !== 'undefined' && window.__CZECHDUB_IOS__;
+    if (!isIOS && this._currentAudioResolve) {
       try { this._currentAudio?.pause(); } catch (_) {}
       const r = this._currentAudioResolve;
       this._currentAudioResolve = null;
@@ -373,9 +456,25 @@ class DubbingController {
         }
       }
 
-      // Aggressive drop — keep only newest item to avoid desync in DOM caption mode
-      while (this._speechQueue.length > 0) {
-        this._speechQueue.shift();
+      // Queue management:
+      //  - Desktop: aggressive drop of older items (keep newest only) because
+      //    we cancel playback on every new caption anyway (see above).
+      //  - iOS: keep the chronological queue. Pipeline is slower, captions
+      //    chunk-flush several translations before any TTS finishes; dropping
+      //    older items here means losing most sentences. _processQueue's
+      //    stale check (> 8s old on iOS) is the safety net.
+      if (!isIOS) {
+        while (this._speechQueue.length > 0) {
+          this._speechQueue.shift();
+        }
+      } else {
+        // Hard cap: Czech TTS is ~15% longer than EN source; even at rate=1.7 the
+        // queue grows faster than it drains. Keep only the 2 most recent pending
+        // items so dub stays close to video instead of falling further behind.
+        while (this._speechQueue.length > 2) {
+          const dropped = this._speechQueue.shift();
+          console.log(`[CzechDub] queue cap: dropped oldest "${(dropped?.text || '').substring(0, 40)}"`);
+        }
       }
 
       this._speechQueue.push({ text: czechText, speaker, audioBase64, createdAt });
@@ -394,8 +493,12 @@ class DubbingController {
     this._isSpeaking = true;
     const item = this._speechQueue.shift();
 
-    // Skip stale items (>4s old) to prevent playing content that's too far behind video
-    if (typeof item === 'object' && item.createdAt && Date.now() - item.createdAt > 4000) {
+    // Skip stale items to prevent playing content that's too far behind video.
+    // iOS pipeline is slower (Google TTS HTTP + blob + play); give it more room
+    // so we don't drop things that are still useful.
+    const isIOSProc = typeof window !== 'undefined' && window.__CZECHDUB_IOS__;
+    const staleThreshold = isIOSProc ? 6000 : 4000;
+    if (typeof item === 'object' && item.createdAt && Date.now() - item.createdAt > staleThreshold) {
       console.log(`[CzechDub] Skipping stale audio (${Math.round((Date.now() - item.createdAt) / 1000)}s old): "${(item.text || '').substring(0, 50)}"`);
       this._isSpeaking = false;
       this._processQueue();
@@ -408,14 +511,8 @@ class DubbingController {
     const itemAge = (typeof item === 'object' && item.createdAt) ? Date.now() - item.createdAt : 0;
 
     try {
-      // Reduce video volume while speaking
-      if (this.videoElement) {
-        if (this._settings.muteOriginal) {
-          this.videoElement.volume = 0;
-        } else {
-          this.videoElement.volume = this._settings.reducedOriginalVolume;
-        }
-      }
+      // Reduce video volume while speaking (iOS-aware)
+      this._duckVideo(true);
 
       // Show subtitle overlay
       this._showSubtitle(text);
@@ -426,18 +523,24 @@ class DubbingController {
         console.log(`[CzechDub] VoiceDub audio (rate=${playRate}, age=${itemAge}ms): "${text.substring(0, 60)}"`);
         await this._playAudioBase64(audioBase64, playRate);
       } else {
+        // Dynamic playback rate: catch up when dub is behind video.
+        // Baseline 1.10 because Czech is ~15% longer than English — even "on-time"
+        // audio needs a mild boost to fit into the original time window.
+        // Age > 500ms adds more, queue depth adds more. Capped at 1.7 (intelligibility).
+        const queueLen = this._speechQueue.length;
+        const ageBoost = Math.max(0, (itemAge - 500) / 2500);
+        const queueBoost = queueLen * 0.12;
+        const speakRate = Math.min(1.7, 1.1 + ageBoost + queueBoost);
         const speakerTag = speaker ? `[${speaker}]` : '';
-        console.log(`[CzechDub] TTS${speakerTag}: "${text.substring(0, 60)}"${speaker ? '' : `, voice=${this.tts.czechVoice?.name}`}`);
-        await this.tts.speakAs(text, speaker);
+        console.log(`[CzechDub] TTS${speakerTag} (rate=${speakRate.toFixed(2)}, age=${itemAge}ms, q=${queueLen}): "${text.substring(0, 60)}"${speaker ? '' : `, voice=${this.tts.czechVoice?.name}`}`);
+        await this.tts.speakAs(text, speaker, { rate: speakRate });
       }
 
     } catch (e) {
       console.warn('[CzechDub] TTS error:', e);
     } finally {
       // Always restore volume — even if stopped (isActive=false)
-      if (this.videoElement) {
-        this.videoElement.volume = this.originalVolume ?? 1.0;
-      }
+      this._duckVideo(false);
       this._isSpeaking = false;
 
       // Process next in queue
@@ -615,14 +718,8 @@ class DubbingController {
     const czechText = segment.text;
 
     try {
-      // Reduce video volume
-      if (this.videoElement) {
-        if (this._settings.muteOriginal) {
-          this.videoElement.volume = 0;
-        } else {
-          this.videoElement.volume = this._settings.reducedOriginalVolume;
-        }
-      }
+      // Reduce video volume (iOS-aware)
+      this._duckVideo(true);
 
       this._showSubtitle(czechText);
 
@@ -663,9 +760,7 @@ class DubbingController {
       console.warn('[CzechDub] TTS error:', e);
     } finally {
       // Always restore volume — even if stopped (isActive=false)
-      if (this.videoElement) {
-        this.videoElement.volume = this.originalVolume ?? 1.0;
-      }
+      this._duckVideo(false);
       this._isSpeaking = false;
     }
   }
@@ -705,6 +800,13 @@ class DubbingController {
       this._sentenceFlushTimer = null;
     }
 
+    // Stop iOS keep-alive ping interval
+    if (this._keepAliveInterval) {
+      clearInterval(this._keepAliveInterval);
+      this._keepAliveInterval = null;
+      console.log('[CzechDub:iOS] background keep-alive stopped');
+    }
+
     // Restore original volume
     if (this.videoElement) {
       this.videoElement.volume = this.originalVolume ?? 1.0;
@@ -719,6 +821,41 @@ class DubbingController {
 
     this._setStatus('idle', 'Dabing zastaven');
     this._stopping = false;
+  }
+
+  /**
+   * Duck (lower) or restore the original video audio while TTS is speaking.
+   *
+   * iOS Safari is a minefield here:
+   *   - videoElement.volume setter is ignored (OS-level volume rules).
+   *   - videoElement.muted=true works BUT causes YouTube's SPA to think the
+   *     player lost audio, which triggers a black-screen reload. Do NOT touch.
+   *   - WebAudio MediaElementSource requires CORS-clean media (YouTube blobs
+   *     are not). Also fails.
+   *
+   * On iOS we therefore skip ducking entirely — user controls original volume
+   * via hardware buttons or the YouTube player's own volume slider.
+   * Desktop Chrome path still ducks as before.
+   */
+  _duckVideo(enable) {
+    if (!this.videoElement) return;
+    const isIOS = typeof window !== 'undefined' && window.__CZECHDUB_IOS__;
+    if (isIOS) {
+      // No-op on iOS to avoid black-screen on YouTube mobile (m.youtube.com).
+      return;
+    }
+    try {
+      if (enable) {
+        const target = this._settings.muteOriginal
+          ? 0
+          : (this._settings.reducedOriginalVolume ?? 0.15);
+        this.videoElement.volume = target;
+      } else {
+        this.videoElement.volume = this.originalVolume ?? 1.0;
+      }
+    } catch (e) {
+      console.warn('[CzechDub] duck error:', e?.message || e);
+    }
   }
 
   /**

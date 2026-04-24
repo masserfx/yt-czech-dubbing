@@ -591,12 +591,35 @@ class Translator {
    * Google Translate via background worker.
    */
   async _translateGoogle(text, sourceLang) {
+    const tgt = this._langConfig.translationCodes.google;
+
+    // iOS Safari: background service worker message passing returns undefined.
+    // Fetch directly from content-script (manifest has host_permission).
+    if (typeof window !== 'undefined' && window.__CZECHDUB_IOS__) {
+      try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${tgt}&dt=t&q=${encodeURIComponent(text)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          console.warn('[CzechDub iOS] translate HTTP', resp.status);
+          return null;
+        }
+        const data = await resp.json();
+        if (data && data[0]) {
+          return data[0].filter(Boolean).map(item => item[0]).join('');
+        }
+        return null;
+      } catch (e) {
+        console.warn('[CzechDub iOS] translate fetch error:', e?.message || e);
+        return null;
+      }
+    }
+
     try {
       const response = await this._sendMessage({
         type: 'translate-google',
         text,
         sourceLang,
-        targetLang: this._langConfig.translationCodes.google
+        targetLang: tgt
       });
       if (response?.success && response.translated) {
         return response.translated;

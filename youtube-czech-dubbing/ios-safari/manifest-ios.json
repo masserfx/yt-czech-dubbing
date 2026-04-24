@@ -1,0 +1,71 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Dubbing iOS",
+  "version": "2.1.0",
+  "description": "YouTube video dubbing - CS/SK/PL/HU (iOS Safari MVP)",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://m.youtube.com/*",
+    "https://youtube.com/*",
+    "https://translate.googleapis.com/*",
+    "https://translate.google.com/*",
+    "https://api.anthropic.com/*",
+    "https://api-free.deepl.com/*",
+    "https://api.deepl.com/*",
+    "https://*.tts.speech.microsoft.com/*",
+    "https://*.api.cognitive.microsoft.com/*",
+    "wss://speech.platform.bing.com/*",
+    "https://speech.platform.bing.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.voicedub.ai/*",
+    "https://*.workers.dev/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://youtube.com/*"
+      ],
+      "js": [
+        "src/ios-shim.js",
+        "src/caption-extractor.js",
+        "src/language-config.js",
+        "src/speaker-detector.js",
+        "src/service-mode.js",
+        "src/voicedub-client.js",
+        "src/glossary.js",
+        "src/translator.js",
+        "src/tts-engine.js",
+        "src/dubbing-cache.js",
+        "src/dubbing-controller.js",
+        "src/content.js"
+      ],
+      "css": [
+        "src/overlay.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup-ios.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -9,11 +9,22 @@
 
   /**
    * Initialize the dubbing controller.
+   * Safari iOS reinjects content-scripts on SPA navigation; reuse the existing
+   * controller instance stored on window to avoid duplicate observers + queues.
    */
   function init() {
     if (controller) return;
 
+    if (typeof window !== 'undefined' && window.__czechdubController) {
+      controller = window.__czechdubController;
+      console.log('[CzechDub] reusing existing DubbingController (duplicate inject)');
+      return;
+    }
+
     controller = new DubbingController();
+    if (typeof window !== 'undefined') {
+      window.__czechdubController = controller;
+    }
 
     // Show activation button on video pages
     if (isVideoPage()) {
@@ -397,6 +408,11 @@
    * Observe URL changes for YouTube SPA navigation.
    */
   function observeNavigation() {
+    // Guard against duplicate content-script injection on Safari iOS — otherwise
+    // every SPA nav event would fire handleNavigation 2x.
+    if (typeof window !== 'undefined' && window.__czechdubNavObserverInstalled) return;
+    if (typeof window !== 'undefined') window.__czechdubNavObserverInstalled = true;
+
     let lastUrl = location.href;
 
     const observer = new MutationObserver(() => {
@@ -440,7 +456,13 @@
 
   /**
    * Listen for messages from popup or background script.
+   * Guard against duplicate content-script injection on Safari iOS — without this
+   * the listener fires twice per message and calls controller.start() 2x.
    */
+  if (typeof window !== 'undefined' && window.__czechdubMsgListenerInstalled) {
+    // skip — already installed by first injection
+  } else {
+  if (typeof window !== 'undefined') window.__czechdubMsgListenerInstalled = true;
   try { chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       case 'get-status':
@@ -571,6 +593,7 @@
     if (e.message?.includes('Extension context invalidated')) {
       console.warn('[CzechDub] Extension context invalidated — reload page');
     }
+  }
   }
 
   // Initialize when DOM is ready
