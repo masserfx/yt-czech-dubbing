@@ -154,6 +154,8 @@ class STTEngine {
     let startedAt = null;
     let everFiredOnStart = false;
     let everFiredAudio = false;
+    let speechDetected = false;
+    let resultProduced = false;
 
     rec.onstart = () => {
       everFiredOnStart = true;
@@ -173,12 +175,16 @@ class STTEngine {
     };
     rec.onsoundstart = () => console.log('[STT] onsoundstart');
     rec.onsoundend = () => console.log('[STT] onsoundend');
-    rec.onspeechstart = () => console.log('[STT] onspeechstart');
+    rec.onspeechstart = () => {
+      speechDetected = true;
+      console.log('[STT] onspeechstart');
+    };
     rec.onspeechend = () => console.log('[STT] onspeechend');
     rec.onnomatch = () => console.log('[STT] onnomatch');
 
     rec.onresult = (event) => {
       this._lastResultAt = Date.now();
+      resultProduced = true;
       let interimChunk = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -214,7 +220,24 @@ class STTEngine {
       const lifetime = startedAt ? (Date.now() - startedAt) : 0;
       console.log('[STT] onend  lifetime=', lifetime, 'ms',
                   ' onstart=', everFiredOnStart,
-                  ' audio=', everFiredAudio);
+                  ' audio=', everFiredAudio,
+                  ' speechDetected=', speechDetected,
+                  ' resultProduced=', resultProduced);
+
+      // Spoke into the mic but cloud STT returned nothing — track and warn.
+      if (speechDetected && !resultProduced) {
+        this._consecutiveEmpty = (this._consecutiveEmpty || 0) + 1;
+        if (this._consecutiveEmpty >= 2) {
+          this.onError?.(
+            `Recognizer slyšel řeč, ale nerozpoznal žádná slova (${this.lang}). ` +
+            'Zkontrolujte jestli mluvíte v jazyce zvoleném v "Z jazyka" — pokud ne, přepněte ho.'
+          );
+          this._consecutiveEmpty = 0;
+        }
+      } else if (resultProduced) {
+        this._consecutiveEmpty = 0;
+      }
+
       this.isRunning = false;
       this.onStateChange?.('restarting');
       if (this._intentToRun) this._scheduleRestart();
