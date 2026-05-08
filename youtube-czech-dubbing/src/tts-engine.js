@@ -31,6 +31,10 @@ class TTSEngine {
     this._geminiKey = null;
     this._geminiVoice = 'Aoede';
     this._currentAudio = null;
+    // Output sink — null = system default; otherwise an audiooutput deviceId
+    // applied via HTMLAudioElement.setSinkId() so TTS can route to e.g.
+    // AirPods while the mic stays on the built-in mic.
+    this._outputSinkId = null;
 
     // Service mode
     this._serviceClient = null;
@@ -1176,6 +1180,11 @@ class TTSEngine {
     const mime = options?._audioMime || 'audio/mp3';
     const audio = new Audio(`data:${mime};base64,${audioBase64}`);
     audio.volume = options.volume ?? this.volume;
+    // Route to a specific output device when picked (e.g. AirPods speaker)
+    if (this._outputSinkId && typeof audio.setSinkId === 'function') {
+      try { await audio.setSinkId(this._outputSinkId); }
+      catch (e) { console.warn('[Dub TTS] setSinkId failed:', e?.message || e); }
+    }
     this._currentAudio = audio;
 
     await new Promise((resolve) => {
@@ -1236,6 +1245,18 @@ class TTSEngine {
   setVolume(vol) { this.volume = Math.max(0, Math.min(1, vol)); }
   setRate(rate) { this.rate = Math.max(0.5, Math.min(2, rate)); }
   setPitch(pitch) { this.pitch = Math.max(0.5, Math.min(2, pitch)); }
+
+  /**
+   * Pin TTS playback to a specific output device (e.g. AirPods) via
+   * HTMLAudioElement.setSinkId(). Pass null/empty to revert to system default.
+   *
+   * NOTE: speechSynthesis (browser engine) ALWAYS uses the system default —
+   * there's no Web Speech API for output routing. So the system-voice path
+   * ignores this setting; cloud engines (edge / azure / gemini) honour it.
+   */
+  setOutputDevice(deviceId) {
+    this._outputSinkId = deviceId || null;
+  }
 
   isTargetLanguageSupported() {
     const fallbackLangs = this._langConfig.voiceFallbackLangs;

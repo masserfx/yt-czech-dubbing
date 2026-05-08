@@ -493,8 +493,18 @@
 
   <div class="settings" id="settings">
     <div class="settings-group">
-      <div class="settings-label">Mikrofon</div>
+      <div class="settings-label">Mikrofon (vstup)</div>
       <select id="micDevice"><option value="">Výchozí (systém)</option></select>
+    </div>
+    <div class="settings-group">
+      <div class="settings-label">Sluchátka / reproduktor (výstup)</div>
+      <select id="outputDevice"><option value="">Výchozí (systém)</option></select>
+    </div>
+    <div class="settings-group full">
+      <div class="hint" style="font-family: var(--mono); font-size: 9.5px; color: var(--text-muted); letter-spacing: 0.04em; line-height: 1.55;">
+        Tip: vyberte AirPods jako výstup a vestavěný mikrofon jako vstup, ať protistrana není slyšet ve sluchátkách.
+        Funguje jen s cloudovými hlasy (Edge / Azure / Gemini) — systémový hlas vždy hraje na výchozí výstup.
+      </div>
     </div>
     <div class="settings-group">
       <div class="settings-label">Rozpoznávání řeči (STT)</div>

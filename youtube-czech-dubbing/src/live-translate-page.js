@@ -9,7 +9,7 @@
   const live = new LiveTranslate();
   let transcriptEl, emptyStateEl, micBtn, micState, vuFill, interimEl,
       sourceSel, targetSel, settingsToggle, settingsEl, micDeviceSel,
-      sttEngineSel,
+      outputDeviceSel, sttEngineSel,
       translatorSel, ttsSel, geminiVoiceSel, geminiVoiceGroup,
       apiKeyGroup, apiKeyLabel, apiKeyInput, toast, headerStatus;
 
@@ -31,6 +31,7 @@
     settingsToggle = document.getElementById('btnSettings');
     settingsEl = document.getElementById('settings');
     micDeviceSel = document.getElementById('micDevice');
+    outputDeviceSel = document.getElementById('outputDevice');
     sttEngineSel = document.getElementById('sttEngineSel');
     translatorSel = document.getElementById('translatorEngine');
     ttsSel = document.getElementById('ttsEngine');
@@ -74,6 +75,12 @@
       }
     });
     micDeviceSel.addEventListener('change', () => { live.setMicDevice(micDeviceSel.value || null); savePrefs(); });
+    if (outputDeviceSel) {
+      outputDeviceSel.addEventListener('change', () => {
+        live.tts.setOutputDevice(outputDeviceSel.value || null);
+        savePrefs();
+      });
+    }
     if (sttEngineSel) {
       sttEngineSel.addEventListener('change', () => {
         live.setSttEngine(sttEngineSel.value);
@@ -313,6 +320,8 @@
       live.setTargetLang(targetSel.value);
       live.setSttEngine(sttEngineSel?.value || 'webspeech');
       live.setGeminiKey(apiKeyInput.value);
+      // Apply persisted output sink even before user opens settings drawer
+      if (p.outputDeviceId) live.tts.setOutputDevice(p.outputDeviceId);
     } catch (_) {}
   }
 
@@ -327,30 +336,44 @@
           sttEngine: sttEngineSel?.value || 'webspeech',
           geminiVoice: geminiVoiceSel.value,
           apiKey: apiKeyInput.value,
-          micDeviceId: micDeviceSel?.value || ''
+          micDeviceId: micDeviceSel?.value || '',
+          outputDeviceId: outputDeviceSel?.value || ''
         }
       });
     } catch (_) {}
   }
 
   async function loadMicDevices() {
-    const devs = await STTEngine.listInputDevices();
-    micDeviceSel.replaceChildren();
-    const def = document.createElement('option');
-    def.value = '';
-    def.textContent = 'Výchozí (systém)';
-    micDeviceSel.appendChild(def);
-    for (const d of devs) {
-      const opt = document.createElement('option');
-      opt.value = d.id;
-      const isBt = /AirPods|Bluetooth|BT|Hands.?Free/i.test(d.label);
-      opt.textContent = (isBt ? '🎧 ' : '🎙 ') + d.label;
-      micDeviceSel.appendChild(opt);
-    }
+    // Populate both input + output device pickers in one go (one permission
+    // prompt covers both).
+    const inputs = await STTEngine.listInputDevices();
+    const outputs = await STTEngine.listOutputDevices();
+
+    const fillSelect = (sel, devices, builtinPrefix) => {
+      sel.replaceChildren();
+      const def = document.createElement('option');
+      def.value = '';
+      def.textContent = 'Výchozí (systém)';
+      sel.appendChild(def);
+      for (const d of devices) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        const isBt = /AirPods|Bluetooth|BT|Hands.?Free/i.test(d.label);
+        opt.textContent = (isBt ? '🎧 ' : builtinPrefix) + d.label;
+        sel.appendChild(opt);
+      }
+    };
+    fillSelect(micDeviceSel, inputs, '🎙 ');
+    if (outputDeviceSel) fillSelect(outputDeviceSel, outputs, '🔊 ');
+
     try {
       const r = await chrome.storage.local.get(PREFS_KEY);
-      const saved = r[PREFS_KEY]?.micDeviceId;
-      if (saved) micDeviceSel.value = saved;
+      const p = r[PREFS_KEY] || {};
+      if (p.micDeviceId) micDeviceSel.value = p.micDeviceId;
+      if (p.outputDeviceId && outputDeviceSel) {
+        outputDeviceSel.value = p.outputDeviceId;
+        live.tts.setOutputDevice(p.outputDeviceId || null);
+      }
     } catch (_) {}
   }
 
