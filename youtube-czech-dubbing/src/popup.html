@@ -2,194 +2,434 @@
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@1,300;1,500&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
   <style>
+    :root {
+      --bg: #050505;
+      --bg-1: #0a0a0a;
+      --surface: #141414;
+      --surface-2: #1a1a1a;
+      --border: rgba(255,255,255,0.07);
+      --border-strong: rgba(255,255,255,0.14);
+      --text: #fafafa;
+      --text-2: #a1a1a1;
+      --text-3: #6b6b6b;
+      --text-muted: #525252;
+      --accent: #10b981;
+      --accent-bright: #34d399;
+      --accent-dim: #059669;
+      --accent-glow: rgba(16,185,129,0.30);
+      --accent-soft: rgba(16,185,129,0.08);
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --info: #60a5fa;
+      --grid: rgba(255,255,255,0.022);
+      --serif: 'Newsreader', Georgia, serif;
+      --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      width: 340px;
-      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
+      width: 360px;
+      font-family: var(--sans);
+      font-weight: 300;
+      background: var(--bg);
+      color: var(--text);
       overflow-y: auto;
       max-height: 600px;
+      position: relative;
+      letter-spacing: 0.005em;
     }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none;
+      z-index: 0;
+      mask-image: radial-gradient(ellipse at top, #000 30%, transparent 90%);
+      -webkit-mask-image: radial-gradient(ellipse at top, #000 30%, transparent 90%);
+    }
+    body > * { position: relative; z-index: 1; }
 
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+
+    /* Header */
     .header {
-      background: linear-gradient(135deg, #11457e 0%, #d7141a 100%);
-      padding: 16px;
-      text-align: center;
+      padding: 22px 20px 18px;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
-
     .header h1 {
-      font-size: 18px;
-      font-weight: 600;
-      color: white;
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 300;
+      font-size: 26px;
+      letter-spacing: -0.015em;
+      color: var(--text);
       display: flex;
-      align-items: center;
-      justify-content: center;
+      align-items: baseline;
       gap: 8px;
+      line-height: 1;
     }
-
+    .header h1 #headerFlag { font-size: 16px; }
     .header .subtitle {
-      font-size: 11px;
-      color: rgba(255,255,255,0.8);
-      margin-top: 4px;
-    }
-
-    .status-bar {
-      padding: 10px 16px;
-      background: #16213e;
-      border-bottom: 1px solid #0f3460;
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-top: 6px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
-
-    .status-dot {
-      width: 10px;
-      height: 10px;
+    .header .subtitle::before {
+      content: '';
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
-      background: #666;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+      animation: pulse-dot 2.5s infinite;
+    }
+    @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+    /* Status bar — pill */
+    .status-bar {
+      margin: 0 20px 14px;
+      padding: 8px 14px;
+      background: rgba(20,20,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-3);
       flex-shrink: 0;
     }
-
-    .status-dot.idle { background: #666; }
-    .status-dot.loading, .status-dot.translating { background: #f39c12; animation: pulse 1s infinite; }
-    .status-dot.ready { background: #3498db; }
-    .status-dot.playing { background: #2ecc71; animation: pulse 2s infinite; }
-    .status-dot.error { background: #e74c3c; }
+    .status-dot.idle { background: var(--text-3); }
+    .status-dot.loading, .status-dot.translating { background: var(--warn); animation: pulse 1s infinite; box-shadow: 0 0 8px rgba(245,158,11,0.5); }
+    .status-dot.ready { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+    .status-dot.playing { background: var(--accent-bright); animation: pulse 1.6s infinite; box-shadow: 0 0 10px var(--accent-glow); }
+    .status-dot.error { background: var(--danger); box-shadow: 0 0 8px rgba(239,68,68,0.5); }
 
     @keyframes pulse {
       0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+      50% { opacity: 0.35; }
     }
 
     .status-text {
-      font-size: 12px;
-      color: #aaa;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-2);
     }
 
+    /* Controls */
     .controls {
-      padding: 16px;
+      padding: 0 20px 16px;
     }
 
     .btn-main {
       width: 100%;
-      padding: 12px;
-      border: none;
-      border-radius: 8px;
-      font-size: 15px;
-      font-weight: 600;
+      padding: 13px 18px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.18s ease;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
+      background: transparent;
+      color: var(--text);
     }
 
     .btn-start {
-      background: linear-gradient(135deg, #11457e, #1a6bc4);
-      color: white;
+      background: linear-gradient(180deg, rgba(16,185,129,0.16), rgba(16,185,129,0.04));
+      border-color: rgba(16,185,129,0.45);
+      color: var(--accent-bright);
+      box-shadow: 0 0 24px rgba(16,185,129,0.10), inset 0 0 12px rgba(16,185,129,0.04);
     }
-
-    .btn-start:hover { filter: brightness(1.15); }
+    .btn-start:hover {
+      background: linear-gradient(180deg, rgba(16,185,129,0.28), rgba(16,185,129,0.08));
+      box-shadow: 0 0 28px rgba(16,185,129,0.20), inset 0 0 16px rgba(16,185,129,0.08);
+      color: #fff;
+    }
 
     .btn-stop {
-      background: linear-gradient(135deg, #c0392b, #e74c3c);
-      color: white;
+      background: linear-gradient(180deg, rgba(239,68,68,0.18), rgba(239,68,68,0.04));
+      border-color: rgba(239,68,68,0.5);
+      color: #fca5a5;
+      box-shadow: 0 0 24px rgba(239,68,68,0.10);
+    }
+    .btn-stop:hover {
+      background: linear-gradient(180deg, rgba(239,68,68,0.30), rgba(239,68,68,0.08));
+      color: #fff;
     }
 
-    .btn-stop:hover { filter: brightness(1.15); }
-
     .btn-main:disabled {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
     }
 
+    /* Settings */
     .settings {
-      padding: 0 16px 16px;
+      padding: 0 20px 16px;
     }
 
     .setting-group {
-      margin-top: 12px;
+      margin-top: 14px;
     }
 
     .setting-label {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-      color: #aaa;
-      margin-bottom: 4px;
+      align-items: baseline;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 6px;
     }
 
     .setting-value {
-      color: #e0e0e0;
+      color: var(--accent-bright);
       font-weight: 500;
+      letter-spacing: 0.06em;
     }
 
     input[type="range"] {
       width: 100%;
-      height: 4px;
+      height: 3px;
       -webkit-appearance: none;
-      background: #0f3460;
+      appearance: none;
+      background: rgba(255,255,255,0.06);
       border-radius: 2px;
       outline: none;
     }
 
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
-      background: #3498db;
+      background: var(--accent);
       cursor: pointer;
+      box-shadow: 0 0 10px var(--accent-glow);
     }
 
-    select {
+    select, input[type="text"], input[type="password"] {
       width: 100%;
-      padding: 6px 8px;
-      background: #16213e;
-      color: #e0e0e0;
-      border: 1px solid #0f3460;
-      border-radius: 6px;
-      font-size: 12px;
+      padding: 9px 12px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: var(--sans);
+      font-size: 12.5px;
+      font-weight: 300;
       outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
+    select:focus, input:focus {
+      border-color: rgba(16,185,129,0.5);
+      box-shadow: 0 0 0 3px rgba(16,185,129,0.08);
+    }
+    select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%), linear-gradient(135deg, var(--text-3) 50%, transparent 50%); background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 28px; }
 
     .checkbox-group {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 8px;
-      font-size: 13px;
+      margin-top: 10px;
+      font-size: 12.5px;
+      color: var(--text-2);
+      cursor: pointer;
     }
 
     .checkbox-group input {
-      accent-color: #3498db;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Section divider */
+    .setting-group[style*="border-top"] {
+      margin-top: 18px !important;
+      padding-top: 14px !important;
+      border-top: 1px solid var(--border) !important;
     }
 
     .footer {
-      padding: 8px 16px;
+      padding: 10px 20px 14px;
       text-align: center;
-      border-top: 1px solid #0f3460;
-      font-size: 10px;
-      color: #555;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-muted);
     }
 
     .no-video {
-      padding: 20px 16px;
+      padding: 24px 20px;
       text-align: center;
-      color: #888;
-      font-size: 13px;
+      color: var(--text-3);
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 15px;
     }
+
+    /* Details / disclosure */
+    details summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      padding: 4px 0;
+      transition: color 0.15s ease;
+    }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::before {
+      content: '+ ';
+      color: var(--accent);
+      margin-right: 6px;
+    }
+    details[open] summary::before { content: '− '; }
+    details summary:hover { color: var(--text); }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      color: var(--text-2);
+    }
+    table thead tr {
+      color: var(--text-3) !important;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border) !important;
+    }
+    table tbody tr {
+      border-bottom: 1px solid var(--border) !important;
+    }
+    table tbody tr:last-child { border-bottom: none !important; }
+
+    .hint, [style*="color:var(--text-muted)"] {
+      font-family: var(--mono);
+      font-size: 9.5px !important;
+      letter-spacing: 0.06em;
+      color: var(--text-muted) !important;
+      line-height: 1.5;
+    }
+
+    /* Zoom controls — pill segment with A− [100%] A+ */
+    .zoom-group {
+      display: inline-flex;
+      align-items: stretch;
+      background: rgba(20,20,20,0.6);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      height: 30px;
+      flex-shrink: 0;
+    }
+    .zoom-btn,
+    .zoom-label {
+      background: transparent;
+      border: none;
+      color: var(--text-2);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      padding: 0 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.12s ease;
+    }
+    .zoom-btn { min-width: 26px; }
+    .zoom-label {
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      color: var(--text-3);
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      min-width: 36px;
+    }
+    .zoom-btn:hover:not(:disabled),
+    .zoom-label:hover { color: var(--accent); background: var(--accent-soft); }
+    .zoom-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .zoom-toast {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translate(-50%, -120%);
+      background: rgba(20,20,20,0.92);
+      border: 1px solid rgba(16,185,129,0.35);
+      color: var(--accent-bright);
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 999px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 16px rgba(16,185,129,0.18);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 9999;
+    }
+    .zoom-toast.visible { opacity: 1; transform: translate(-50%, 0); }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1><span id="headerFlag">🇨🇿</span> YouTube Dubbing</h1>
-    <div class="subtitle">Automatic video dubbing — CS, SK, PL, HU</div>
+    <div>
+      <h1><span id="headerFlag">🇨🇿</span> Aura <em>dubbing</em></h1>
+      <div class="subtitle">System operational</div>
+    </div>
+    <div class="zoom-group" role="group" aria-label="Velikost písma">
+      <button class="zoom-btn" data-zoom-action="dec" title="Zmenšit (Cmd/Ctrl −)" aria-label="Zmenšit">A−</button>
+      <button class="zoom-label" data-zoom-action="reset" data-zoom-label title="Reset (Cmd/Ctrl 0)">100%</button>
+      <button class="zoom-btn" data-zoom-action="inc" title="Zvětšit (Cmd/Ctrl +)" aria-label="Zvětšit">A+</button>
+    </div>
   </div>
 
   <div class="status-bar">
@@ -219,7 +459,7 @@
         <span class="setting-value" id="rateValue">1.3x</span>
       </div>
       <input type="range" id="ttsRate" min="50" max="200" value="125">
-      <div style="font-size:10px;color:#555;margin-top:2px;">Automaticky zrychlí až na max, pokud nestíhá</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Automaticky zrychlí až na max, pokud nestíhá</div>
     </div>
 
     <div class="setting-group">
@@ -228,7 +468,7 @@
         <span class="setting-value" id="maxRateValue">1.8x</span>
       </div>
       <input type="range" id="ttsMaxRate" min="120" max="250" value="180">
-      <div style="font-size:10px;color:#555;margin-top:2px;">Limit auto-zrychlení pro delší věty</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Limit auto-zrychlení pro delší věty</div>
     </div>
 
     <div class="setting-group">
@@ -259,7 +499,7 @@
       <label for="muteOriginal">Úplně ztlumit originální zvuk</label>
     </div>
 
-    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
       <div class="setting-label"><span>Jazyk dabingu / Dubbing language</span></div>
       <select id="targetLanguage">
         <option value="cs">🇨🇿 Čeština</option>
@@ -280,24 +520,24 @@
     </div>
 
     <div class="setting-group" id="chromeAiNote" style="display: none;">
-      <div style="font-size:10px;color:#2ecc71;padding:4px 0;">Chrome AI Translator — překlad na zařízení bez internetu. Vyžaduje Chrome 131+. Při prvním použití se stáhne jazykový model (~50 MB).</div>
+      <div style="font-size:10px;color:var(--accent-bright);padding:4px 0;">Chrome AI Translator — překlad na zařízení bez internetu. Vyžaduje Chrome 131+. Při prvním použití se stáhne jazykový model (~50 MB).</div>
     </div>
 
     <div class="setting-group" id="deeplKeyGroup" style="display: none;">
       <div class="setting-label"><span>DeepL API klíč</span></div>
       <input type="password" id="deeplApiKey" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx"
-        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
-      <div style="font-size:10px;color:#666;margin-top:4px;">Free: 500k zn./měs. Klíč z deepl.com/your-account</div>
+       >
+      <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Free: 500k zn./měs. Klíč z deepl.com/your-account</div>
     </div>
 
     <div class="setting-group" id="apiKeyGroup" style="display: none;">
       <div class="setting-label"><span>Anthropic API klíč</span></div>
       <input type="password" id="anthropicApiKey" placeholder="sk-ant-..."
-        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
-      <div style="font-size:10px;color:#666;margin-top:4px;">~$0.003 za 30min video. Klíč z console.anthropic.com</div>
+       >
+      <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">~$0.003 za 30min video. Klíč z console.anthropic.com</div>
     </div>
 
-    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
       <div class="setting-label"><span>Hlasový engine (TTS)</span></div>
       <select id="ttsEngine">
         <option value="browser">Zuzana — ženský (systémový, zdarma)</option>
@@ -310,10 +550,10 @@
     <div class="setting-group" id="azureTtsGroup" style="display: none;">
       <div class="setting-label"><span>Azure Speech klíč</span></div>
       <input type="password" id="azureTtsKey" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+       >
       <div class="setting-label" style="margin-top:6px;"><span>Region</span></div>
       <input type="text" id="azureTtsRegion" placeholder="westeurope" value="westeurope"
-        style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+       >
       <div class="setting-label" style="margin-top:6px;"><span>Hlas</span></div>
       <select id="azureTtsVoice">
         <optgroup label="🇨🇿 Čeština">
@@ -333,16 +573,16 @@
           <option value="hu-HU-TamasNeural">Tamás (hu-HU, férfi)</option>
         </optgroup>
       </select>
-      <div style="font-size:10px;color:#666;margin-top:4px;">Free: 500k zn./měs. Klíč z portal.azure.com</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Free: 500k zn./měs. Klíč z portal.azure.com</div>
     </div>
 
     <!-- Srovnávací tabulka -->
-    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
       <details>
         <summary style="font-size:12px; color:#aaa; cursor:pointer; user-select:none;">Srovnání dostupných engine</summary>
         <table style="width:100%; font-size:10px; border-collapse:collapse; color:#ccc; margin-top:8px;">
           <thead>
-            <tr style="color:#888; text-align:left; border-bottom:1px solid #0f3460;">
+            <tr style="color:var(--text-3); text-align:left; border-bottom:1px solid var(--border);">
               <th style="padding:4px;">Engine</th>
               <th style="padding:4px;">Kvalita CZ</th>
               <th style="padding:4px;">Cena</th>
@@ -351,30 +591,30 @@
           </thead>
           <tbody>
             <tr style="border-bottom:1px solid #0a1a3a;">
-              <td colspan="4" style="padding:4px 4px 2px; color:#3498db; font-weight:600;">Překlad</td>
+              <td colspan="4" style="padding:4px 4px 2px; color:var(--accent); font-weight:600;">Překlad</td>
             </tr>
-            <tr><td style="padding:3px 4px;">Chrome AI</td><td style="padding:3px 4px;">dobrá</td><td style="padding:3px 4px; color:#2ecc71;">zdarma (on-device)</td><td style="padding:3px 4px; color:#2ecc71;">ne</td></tr>
-            <tr><td style="padding:3px 4px;">Google Translate</td><td style="padding:3px 4px;">dobrá</td><td style="padding:3px 4px; color:#2ecc71;">zdarma</td><td style="padding:3px 4px; color:#2ecc71;">ne</td></tr>
-            <tr><td style="padding:3px 4px;">DeepL</td><td style="padding:3px 4px; color:#2ecc71;">nejlepší</td><td style="padding:3px 4px; color:#2ecc71;">500k zn./měs.</td><td style="padding:3px 4px;">ano (free)</td></tr>
+            <tr><td style="padding:3px 4px;">Chrome AI</td><td style="padding:3px 4px;">dobrá</td><td style="padding:3px 4px; color:var(--accent-bright);">zdarma (on-device)</td><td style="padding:3px 4px; color:var(--accent-bright);">ne</td></tr>
+            <tr><td style="padding:3px 4px;">Google Translate</td><td style="padding:3px 4px;">dobrá</td><td style="padding:3px 4px; color:var(--accent-bright);">zdarma</td><td style="padding:3px 4px; color:var(--accent-bright);">ne</td></tr>
+            <tr><td style="padding:3px 4px;">DeepL</td><td style="padding:3px 4px; color:var(--accent-bright);">nejlepší</td><td style="padding:3px 4px; color:var(--accent-bright);">500k zn./měs.</td><td style="padding:3px 4px;">ano (free)</td></tr>
             <tr><td style="padding:3px 4px;">Claude Haiku 4.5</td><td style="padding:3px 4px;">dobrá</td><td style="padding:3px 4px;">~$0.003/30min</td><td style="padding:3px 4px;">ano</td></tr>
             <tr style="border-bottom:1px solid #0a1a3a;">
-              <td colspan="4" style="padding:6px 4px 2px; color:#3498db; font-weight:600;">Hlasový výstup (TTS)</td>
+              <td colspan="4" style="padding:6px 4px 2px; color:var(--accent); font-weight:600;">Hlasový výstup (TTS)</td>
             </tr>
-            <tr><td style="padding:3px 4px;">Systémový (Zuzana)</td><td style="padding:3px 4px;">OK</td><td style="padding:3px 4px; color:#2ecc71;">zdarma</td><td style="padding:3px 4px; color:#2ecc71;">ne</td></tr>
-            <tr><td style="padding:3px 4px;">Azure TTS</td><td style="padding:3px 4px; color:#2ecc71;">výborná</td><td style="padding:3px 4px; color:#2ecc71;">500k zn./měs.</td><td style="padding:3px 4px;">ano (free)</td></tr>
+            <tr><td style="padding:3px 4px;">Systémový (Zuzana)</td><td style="padding:3px 4px;">OK</td><td style="padding:3px 4px; color:var(--accent-bright);">zdarma</td><td style="padding:3px 4px; color:var(--accent-bright);">ne</td></tr>
+            <tr><td style="padding:3px 4px;">Azure TTS</td><td style="padding:3px 4px; color:var(--accent-bright);">výborná</td><td style="padding:3px 4px; color:var(--accent-bright);">500k zn./měs.</td><td style="padding:3px 4px;">ano (free)</td></tr>
           </tbody>
         </table>
       </details>
     </div>
-  <div class="setting-group" id="usageSection" style="display:none; border-top: 1px solid #0f3460; padding-top: 12px; margin-top: 12px;">
+  <div class="setting-group" id="usageSection" style="display:none; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px;">
     <div>
       <div class="setting-label" style="margin-bottom: 8px;">
-        <span style="font-size:13px; color:#e0e0e0; font-weight:500;">Claude API — Spotřeba</span>
-        <span class="setting-value" style="font-size:10px; cursor:pointer; color:#e74c3c;" id="btnResetUsage" title="Smazat historii">Reset</span>
+        <span style="font-size:13px; color:var(--text); font-weight:500;">Claude API — Spotřeba</span>
+        <span class="setting-value" style="font-size:10px; cursor:pointer; color:var(--danger);" id="btnResetUsage" title="Smazat historii">Reset</span>
       </div>
       <table style="width:100%; font-size:11px; border-collapse:collapse; color:#ccc;">
         <thead>
-          <tr style="color:#888; text-align:left;">
+          <tr style="color:var(--text-3); text-align:left;">
             <th style="padding:3px 4px;">Období</th>
             <th style="padding:3px 4px; text-align:right;">Tokeny</th>
             <th style="padding:3px 4px; text-align:right;">Cena</th>
@@ -386,20 +626,20 @@
           <tr><td style="padding:2px 4px;">Týden</td><td style="padding:2px 4px; text-align:right;" id="usageWeek">—</td><td style="padding:2px 4px; text-align:right;" id="costWeek">—</td></tr>
           <tr><td style="padding:2px 4px;">Měsíc</td><td style="padding:2px 4px; text-align:right;" id="usageMonth">—</td><td style="padding:2px 4px; text-align:right;" id="costMonth">—</td></tr>
           <tr><td style="padding:2px 4px;">Rok</td><td style="padding:2px 4px; text-align:right;" id="usageYear">—</td><td style="padding:2px 4px; text-align:right;" id="costYear">—</td></tr>
-          <tr style="border-top:1px solid #0f3460; font-weight:600; color:#e0e0e0;">
+          <tr style="border-top:1px solid var(--border); font-weight:600; color:var(--text);">
             <td style="padding:4px 4px;">Celkem</td><td style="padding:4px 4px; text-align:right;" id="usageTotal">—</td><td style="padding:4px 4px; text-align:right;" id="costTotal">—</td>
           </tr>
         </tbody>
       </table>
-      <div style="font-size:10px; color:#555; margin-top:6px;">Haiku 4.5: $0.80/1M input, $4.00/1M output</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:6px;">Haiku 4.5: $0.80/1M input, $4.00/1M output</div>
     </div>
   </div>
   </div>
 
     <!-- VoiceDub B2B API (unified /v1/dub) -->
-    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
       <details>
-        <summary style="font-size:12px; color:#666; cursor:pointer; user-select:none;">VoiceDub B2B API (staging)</summary>
+        <summary style="font-size:12px; color:var(--text-muted); cursor:pointer; user-select:none;">VoiceDub B2B API (staging)</summary>
         <div style="margin-top:8px;">
           <div class="checkbox-group" style="margin-bottom:8px;">
             <input type="checkbox" id="voicedubMode">
@@ -408,21 +648,25 @@
           <div id="voicedubConfigGroup" style="display:none;">
             <div class="setting-label"><span>API klíč</span></div>
             <input type="password" id="voicedubApiKey" placeholder="vd_live_... nebo vd_test_..."
-              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+             >
             <div class="setting-label" style="margin-top:6px;"><span>Endpoint (výchozí: staging)</span></div>
             <input type="text" id="voicedubEndpoint" placeholder="https://voicedub-api.masserfx.workers.dev"
-              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
-            <div style="font-size:10px;color:#2ecc71;margin-top:4px;">AI Act čl. 50 watermark default ON. Enterprise tier může disable v payloadu.</div>
+             >
+            <div class="checkbox-group" style="margin-top:8px;">
+              <input type="checkbox" id="voicedubRealtimeMode">
+              <label for="voicedubRealtimeMode">OpenAI Realtime Translate (live audio, experimentální)</label>
+            </div>
+            <div style="font-size:10px;color:var(--accent-bright);margin-top:4px;">AI Act čl. 50 watermark default ON. Enterprise tier může disable v payloadu.</div>
           </div>
-          <div style="font-size:10px;color:#555;margin-top:6px;">Náhrada za lokální překlad + TTS. Staging zdarma 500k znaků/měs (Azure F0).</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">Náhrada za lokální překlad + TTS. Staging zdarma 500k znaků/měs (Azure F0).</div>
         </div>
       </details>
     </div>
 
     <!-- B2B Service Mode (legacy split /translate + /synthesize) -->
-    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #0f3460;">
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
       <details>
-        <summary style="font-size:12px; color:#666; cursor:pointer; user-select:none;">Service / B2B mode (legacy)</summary>
+        <summary style="font-size:12px; color:var(--text-muted); cursor:pointer; user-select:none;">Service / B2B mode (legacy)</summary>
         <div style="margin-top:8px;">
           <div class="setting-label"><span>Mode</span></div>
           <select id="serviceMode">
@@ -432,15 +676,15 @@
           <div id="serviceConfigGroup" style="display:none; margin-top:8px;">
             <div class="setting-label"><span>API Endpoint</span></div>
             <input type="text" id="serviceApiEndpoint" placeholder="https://api.yourcompany.com/v1"
-              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+             >
             <div class="setting-label" style="margin-top:6px;"><span>Auth Token</span></div>
             <input type="password" id="serviceAuthToken" placeholder="Bearer token"
-              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+             >
             <div class="setting-label" style="margin-top:6px;"><span>Organization ID (optional)</span></div>
             <input type="text" id="serviceOrganizationId" placeholder="org-..."
-              style="width:100%;padding:6px 8px;background:#16213e;color:#e0e0e0;border:1px solid #0f3460;border-radius:6px;font-size:12px;outline:none;">
+             >
           </div>
-          <div style="font-size:10px;color:#555;margin-top:6px;">Pro firemní nasazení — překlad a TTS přes centrální API</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">Pro firemní nasazení — překlad a TTS přes centrální API</div>
         </div>
       </details>
     </div>
@@ -450,6 +694,7 @@
     YouTube Dubbing v2.0 | CS SK PL HU | Open Source
   </div>
 
+  <script src="ui-zoom.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
