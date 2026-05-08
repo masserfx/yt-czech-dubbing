@@ -188,7 +188,7 @@ function updateSetting(setting, value) {
     case 'targetLanguage':
       settings.targetLanguage = value;
       // Update header flag
-      const flags = { cs: '🇨🇿', sk: '🇸🇰', pl: '🇵🇱', hu: '🇭🇺' };
+      const flags = { cs: '🇨🇿', sk: '🇸🇰', pl: '🇵🇱', hu: '🇭🇺', de: '🇩🇪', en: '🇬🇧', sv: '🇸🇪' };
       document.getElementById('headerFlag').textContent = flags[value] || '🌍';
       break;
     case 'serviceMode':
@@ -417,7 +417,7 @@ async function loadSettings() {
       }
       if (s.targetLanguage) {
         document.getElementById('targetLanguage').value = s.targetLanguage;
-        const flags = { cs: '🇨🇿', sk: '🇸🇰', pl: '🇵🇱', hu: '🇭🇺' };
+        const flags = { cs: '🇨🇿', sk: '🇸🇰', pl: '🇵🇱', hu: '🇭🇺', de: '🇩🇪', en: '🇬🇧', sv: '🇸🇪' };
         document.getElementById('headerFlag').textContent = flags[s.targetLanguage] || '🇨🇿';
       }
       if (s.serviceMode) {
