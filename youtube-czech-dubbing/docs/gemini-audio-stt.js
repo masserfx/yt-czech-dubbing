@@ -89,6 +89,10 @@ class GeminiAudioSTT {
     }
 
     this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS Safari requires explicit resume() inside the user-gesture path
+    if (this._audioCtx.state === 'suspended') {
+      try { await this._audioCtx.resume(); } catch (_) {}
+    }
     const source = this._audioCtx.createMediaStreamSource(this._stream);
     this._analyser = this._audioCtx.createAnalyser();
     this._analyser.fftSize = 1024;
@@ -187,11 +191,24 @@ class GeminiAudioSTT {
 
   _startNewRecorder() {
     if (!this._stream) return;
-    let mimeType = 'audio/webm;codecs=opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
+    // Pick a mime supported by the current browser. iOS Safari only supports
+    // audio/mp4 (AAC). Chrome/Firefox/Android prefer webm/opus. Gemini Flash
+    // accepts both.
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/mp4;codecs=mp4a.40.2',
+      'audio/aac'
+    ];
+    let mimeType = '';
+    for (const c of candidates) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) {
+        mimeType = c;
+        break;
+      }
     }
+    console.log('[GAS] recorder mime →', mimeType || '(default)');
 
     this._chunks = [];
     const opts = mimeType ? { mimeType } : {};
