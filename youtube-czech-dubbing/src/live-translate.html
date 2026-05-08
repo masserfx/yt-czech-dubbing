@@ -497,6 +497,13 @@
       <select id="micDevice"><option value="">Výchozí (systém)</option></select>
     </div>
     <div class="settings-group">
+      <div class="settings-label">Rozpoznávání řeči (STT)</div>
+      <select id="sttEngineSel">
+        <option value="webspeech">Web Speech API (zdarma, low-latency)</option>
+        <option value="gemini">Gemini Audio (zdarma, robust pro extension)</option>
+      </select>
+    </div>
+    <div class="settings-group">
       <div class="settings-label">Překladač</div>
       <select id="translatorEngine">
         <option value="chromeai">Chrome AI on-device (zdarma)</option>
@@ -540,6 +547,7 @@
   <script src="translator.js"></script>
   <script src="tts-engine.js"></script>
   <script src="stt-engine.js"></script>
+  <script src="gemini-audio-stt.js"></script>
   <script src="live-translate.js"></script>
   <script src="live-translate-page.js"></script>
 </body>

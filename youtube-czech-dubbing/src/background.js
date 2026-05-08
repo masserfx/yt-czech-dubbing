@@ -245,6 +245,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'gemini-audio-translate') {
+    geminiAudioTranslate(msg.apiKey, msg.audioBase64, msg.mimeType, msg.sourceLang, msg.targetLang)
+      .then(out => sendResponse({ success: true, ...out }))
+      .catch(err => {
+        console.error('[Gemini ASR] Failed:', err.message);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
   // Service mode proxy handlers (B2B)
   if (msg.type === 'service-translate') {
     serviceTranslate(msg.endpoint, msg.authToken, msg.organizationId, msg.text, msg.sourceLang, msg.targetLang, msg.engine)
@@ -1679,6 +1689,74 @@ function pcmBase64ToWavBase64(pcmBase64, sampleRate, channels, bitsPerSample) {
 
 function writeString(view, offset, str) {
   for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+// --- Gemini Audio Translate (live STT + translation in one call) ---
+// Sends webm/opus audio inline to gemini-3.1-flash-lite, asks for JSON with
+// the original transcript + Czech translation. Used by the Live Translator
+// when chrome-extension:// origin blocks Web Speech API cloud STT.
+
+async function geminiAudioTranslate(apiKey, audioBase64, mimeType, sourceLang, targetLang) {
+  if (!apiKey) throw new Error('No Gemini API key');
+  if (!audioBase64) throw new Error('Empty audio');
+
+  const MODEL = 'gemini-3.1-flash-lite';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+  const langHint = (!sourceLang || sourceLang === 'auto')
+    ? 'Detect the spoken language automatically.'
+    : `The audio is in ${sourceLang}.`;
+  const targetName = ({
+    cs: 'Czech', sk: 'Slovak', pl: 'Polish', hu: 'Hungarian',
+    de: 'German', en: 'English', fr: 'French', es: 'Spanish'
+  })[targetLang] || targetLang;
+
+  const promptText =
+    `You are a real-time interpreter. ${langHint}\n` +
+    `Transcribe the speech literally, then translate to ${targetName}.\n` +
+    `Return ONLY a single JSON object on one line, no prose, no markdown:\n` +
+    `{"original":"<verbatim transcript>","translated":"<${targetName} translation>","sourceLang":"<BCP-47 like en-US>"}\n` +
+    `If the audio contains no speech, return {"original":"","translated":"","sourceLang":""}.`;
+
+  const body = {
+    contents: [{
+      parts: [
+        { text: promptText },
+        { inlineData: { mimeType: mimeType || 'audio/webm', data: audioBase64 } }
+      ]
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: 'application/json'
+    }
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Gemini ASR HTTP ${res.status}: ${errText.slice(0, 240)}`);
+  }
+  const data = await res.json();
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  // The model is told to return JSON; with responseMimeType=application/json
+  // the SDK enforces it but for older variants we still parse defensively.
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // try to salvage a JSON object embedded in text
+    const match = raw.match(/\{[\s\S]*\}/);
+    parsed = match ? JSON.parse(match[0]) : { original: '', translated: '', sourceLang: '' };
+  }
+  return {
+    original: (parsed?.original || '').trim(),
+    translated: (parsed?.translated || '').trim(),
+    sourceLang: parsed?.sourceLang || sourceLang || ''
+  };
 }
 
 // --- Gemini AI Chat ---

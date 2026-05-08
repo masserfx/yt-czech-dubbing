@@ -22,7 +22,12 @@
 
 class LiveTranslate {
   constructor() {
+    // Default to Web Speech API (free, low-latency); can be swapped to
+    // Gemini-audio at runtime via setSttEngine('gemini') when Web Speech
+    // misbehaves in chrome-extension:// origin.
+    this.sttEngineName = 'webspeech';
     this.stt = new STTEngine();
+    this._geminiStt = null; // lazy-instantiated
     this.translator = new Translator();
     this.tts = new TTSEngine();
 
@@ -75,6 +80,7 @@ class LiveTranslate {
   setSourceLang(code) {
     this.sourceLang = code;
     this.stt.setLang(code);
+    if (this._geminiStt) this._geminiStt.setLang(code);
   }
 
   setTargetLang(code) {
@@ -82,20 +88,66 @@ class LiveTranslate {
     this.translator._targetLang = code;
     this.translator._langConfig = getLanguageConfig(code);
     this.tts.setTargetLanguage(code);
+    if (this._geminiStt) this._geminiStt.setTargetLang(code);
   }
 
   setMicDevice(deviceId) {
     this.stt.setDeviceId(deviceId);
+    if (this._geminiStt) this._geminiStt.setDeviceId(deviceId);
+  }
+
+  /**
+   * Switch STT engine. 'webspeech' uses Web Speech API (default, free,
+   * low-latency on https:// origins). 'gemini' uses MediaRecorder + Gemini
+   * audio input — bypasses chrome-extension:// origin refusal, also handles
+   * STT + translation in one call.
+   */
+  setSttEngine(name) {
+    if (name !== 'webspeech' && name !== 'gemini') return;
+    if (this.sttEngineName === name) return;
+    if (this.stt.isRunning) this.stt.stop();
+    if (this._geminiStt?.isRunning) this._geminiStt.stop();
+    this.sttEngineName = name;
+    if (name === 'gemini' && !this._geminiStt) {
+      this._geminiStt = new GeminiAudioSTT();
+      this._wireGeminiStt();
+    }
+    console.log('[Live] STT engine →', name);
+  }
+
+  setGeminiKey(key) {
+    if (this._geminiStt) this._geminiStt.setApiKey(key);
+  }
+
+  /** Pick the active STT instance based on current engine name. */
+  _activeStt() {
+    return this.sttEngineName === 'gemini' && this._geminiStt
+      ? this._geminiStt
+      : this.stt;
   }
 
   async start() {
     await this.init();
     this.transcript = [];
     this.onTranscriptChange?.(this.transcript);
-    // Skip the parallel getUserMedia VU-meter stream — on Chrome desktop it
-    // can prevent webkitSpeechRecognition's own audio capture from kicking in
-    // (silent failure: onstart never fires). Visual feedback now comes from
-    // STT speech events (see _wireSpeechLevels below).
+
+    if (this.sttEngineName === 'gemini') {
+      if (!this._geminiStt) {
+        this._geminiStt = new GeminiAudioSTT();
+        this._wireGeminiStt();
+      }
+      this._geminiStt.setLang(this.sourceLang);
+      this._geminiStt.setTargetLang(this.targetLang);
+      const key = this.tts._geminiKey || this.translator._geminiApiKey;
+      this._geminiStt.setApiKey(key);
+      const ok = await this._geminiStt.start();
+      if (ok) this.onState?.('listening');
+      return ok;
+    }
+
+    // Web Speech path — drive level meter from STT speech events instead of
+    // a parallel mic stream (otherwise webkitSpeechRecognition silently
+    // refuses to start its own audio capture).
     this._wireSpeechLevels();
     const ok = this.stt.start();
     if (ok) this.onState?.('listening');
@@ -143,6 +195,7 @@ class LiveTranslate {
 
   stop() {
     this.stt.stop();
+    if (this._geminiStt?.isRunning) this._geminiStt.stop();
     this.tts.stop();
     this._speakQueue = [];
     this._isSpeaking = false;
@@ -152,6 +205,43 @@ class LiveTranslate {
   }
 
   // ───────────── pipeline ─────────────
+
+  /**
+   * Wire GeminiAudioSTT callbacks. Gemini returns both transcript AND
+   * translation in one call, so we skip the translator step entirely and
+   * push the entry directly to the speak queue.
+   */
+  _wireGeminiStt() {
+    if (!this._geminiStt) return;
+    this._geminiStt.onLevel = (rms) => this.onLevel?.(rms);
+    this._geminiStt.onInterim = (text) => this.onInterim?.(text);
+    this._geminiStt.onError = (msg) => {
+      console.warn('[Live] Gemini STT error:', msg);
+      this.onState?.('error', msg);
+    };
+    this._geminiStt.onStateChange = (state) => {
+      if (this._isSpeaking) return;
+      this.onState?.(state === 'listening' ? 'listening' : 'idle');
+    };
+    this._geminiStt.onFinal = (original, sourceLang, translated) => {
+      console.log('[Live] Gemini final:', JSON.stringify(original.slice(0, 80)),
+                  '→', JSON.stringify((translated || '').slice(0, 80)));
+      const entry = {
+        id: Date.now() + ':' + Math.random().toString(36).slice(2, 8),
+        original,
+        sourceLang: sourceLang || this.sourceLang,
+        translated: translated || original,
+        status: translated ? 'ready' : 'speaking',
+        at: Date.now()
+      };
+      this.transcript.unshift(entry);
+      if (this.transcript.length > this.MAX_TRANSCRIPT) {
+        this.transcript.length = this.MAX_TRANSCRIPT;
+      }
+      this.onTranscriptChange?.(this.transcript);
+      if (entry.translated) this._enqueueSpeak(entry);
+    };
+  }
 
   _wireSTT() {
     this.stt.onInterim = (text) => {

@@ -9,6 +9,7 @@
   const live = new LiveTranslate();
   let transcriptEl, emptyStateEl, micBtn, micState, vuFill, interimEl,
       sourceSel, targetSel, settingsToggle, settingsEl, micDeviceSel,
+      sttEngineSel,
       translatorSel, ttsSel, geminiVoiceSel, geminiVoiceGroup,
       apiKeyGroup, apiKeyLabel, apiKeyInput, toast, headerStatus;
 
@@ -30,6 +31,7 @@
     settingsToggle = document.getElementById('btnSettings');
     settingsEl = document.getElementById('settings');
     micDeviceSel = document.getElementById('micDevice');
+    sttEngineSel = document.getElementById('sttEngineSel');
     translatorSel = document.getElementById('translatorEngine');
     ttsSel = document.getElementById('ttsEngine');
     geminiVoiceSel = document.getElementById('geminiTtsVoice');
@@ -72,10 +74,21 @@
       }
     });
     micDeviceSel.addEventListener('change', () => { live.setMicDevice(micDeviceSel.value || null); savePrefs(); });
+    if (sttEngineSel) {
+      sttEngineSel.addEventListener('change', () => {
+        live.setSttEngine(sttEngineSel.value);
+        savePrefs();
+      });
+    }
     translatorSel.addEventListener('change', () => { applyTranslatorEngine(); savePrefs(); });
     ttsSel.addEventListener('change', () => { applyTtsEngine(); savePrefs(); });
     geminiVoiceSel.addEventListener('change', () => { live.tts._geminiVoice = geminiVoiceSel.value; savePrefs(); });
-    apiKeyInput.addEventListener('change', () => { savePrefs(); applyTranslatorEngine(); applyTtsEngine(); });
+    apiKeyInput.addEventListener('change', () => {
+      savePrefs();
+      applyTranslatorEngine();
+      applyTtsEngine();
+      live.setGeminiKey(apiKeyInput.value);
+    });
 
     applyTranslatorEngine();
     applyTtsEngine();
@@ -295,8 +308,11 @@
       if (p.ttsEngine) ttsSel.value = p.ttsEngine;
       if (p.geminiVoice) geminiVoiceSel.value = p.geminiVoice;
       if (p.apiKey) apiKeyInput.value = p.apiKey;
+      if (p.sttEngine && sttEngineSel) sttEngineSel.value = p.sttEngine;
       live.setSourceLang(sourceSel.value);
       live.setTargetLang(targetSel.value);
+      live.setSttEngine(sttEngineSel?.value || 'webspeech');
+      live.setGeminiKey(apiKeyInput.value);
     } catch (_) {}
   }
 
@@ -308,6 +324,7 @@
           targetLang: targetSel.value,
           translatorEngine: translatorSel.value,
           ttsEngine: ttsSel.value,
+          sttEngine: sttEngineSel?.value || 'webspeech',
           geminiVoice: geminiVoiceSel.value,
           apiKey: apiKeyInput.value,
           micDeviceId: micDeviceSel?.value || ''
