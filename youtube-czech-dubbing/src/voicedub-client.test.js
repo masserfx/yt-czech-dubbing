@@ -90,3 +90,32 @@ test('VoiceDubClient: dub() při API error vrací null', async () => {
   console.warn = origWarn;
   assert.equal(out, null);
 });
+
+test('VoiceDubClient: createRealtimeClientSecret() posílá správnou message', async () => {
+  let captured;
+  installChromeMock({
+    settings: {
+      voicedubMode: true,
+      voicedubRealtimeMode: true,
+      voicedubApiKey: 'vd_live_' + 'D'.repeat(22),
+      voicedubEndpoint: 'https://api.example.com',
+    },
+    sendResponse: (msg) => {
+      captured = msg;
+      return {
+        success: true,
+        data: { value: 'rt_secret', expires_at: 1770000000, model: 'gpt-realtime-translate' },
+      };
+    },
+  });
+  await import('./voicedub-client.js');
+  const c = new globalThis.window.VoiceDubClient();
+  await c.loadConfig();
+  const out = await c.createRealtimeClientSecret('cs');
+
+  assert.equal(c.isRealtimePreferred(), true);
+  assert.equal(captured.type, 'voicedub-realtime-client-secret');
+  assert.equal(captured.endpoint, 'https://api.example.com');
+  assert.equal(captured.payload.target_language, 'cs');
+  assert.equal(out.value, 'rt_secret');
+});

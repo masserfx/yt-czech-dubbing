@@ -13,6 +13,7 @@ class VoiceDubClient {
     this._endpoint = 'https://voicedub-api.masserfx.workers.dev';
     this._apiKey = null;
     this._tier = 'business';
+    this._realtimeMode = false;
   }
 
   async loadConfig() {
@@ -23,6 +24,7 @@ class VoiceDubClient {
       if (popupSettings.voicedubEndpoint) this._endpoint = popupSettings.voicedubEndpoint;
       this._apiKey = popupSettings.voicedubApiKey || null;
       this._tier = popupSettings.voicedubTier || 'business';
+      this._realtimeMode = !!popupSettings.voicedubRealtimeMode;
     } catch (e) {
       // chrome.storage může být nedostupný v edge kontextech — tichý fallback.
     }
@@ -30,6 +32,10 @@ class VoiceDubClient {
 
   isEnabled() {
     return this._enabled && /^vd_(live|test)_[A-Za-z0-9]{20,}$/.test(this._apiKey || '');
+  }
+
+  isRealtimePreferred() {
+    return this.isEnabled() && this._realtimeMode;
   }
 
   /**
@@ -112,6 +118,28 @@ class VoiceDubClient {
       });
       return response?.success ? response.voices : null;
     } catch (e) {
+      return null;
+    }
+  }
+
+  async createRealtimeClientSecret(targetLanguage) {
+    if (!this.isEnabled()) return null;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'voicedub-realtime-client-secret',
+        endpoint: this._endpoint,
+        apiKey: this._apiKey,
+        payload: {
+          target_language: targetLanguage,
+        },
+      });
+      if (response?.success && response.data?.value) return response.data;
+      if (response?.error) console.warn('[VoiceDub] Realtime secret error:', response.error);
+      return null;
+    } catch (e) {
+      if (!/Extension context invalidated/.test(e.message || '')) {
+        console.warn('[VoiceDub] Realtime secret failed:', e);
+      }
       return null;
     }
   }
