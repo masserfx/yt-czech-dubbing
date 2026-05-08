@@ -197,6 +197,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Open Live Translate as a stays-on-top popup window from sidepanel CTA.
+  if (msg.type === 'open-live-translate') {
+    chrome.windows.create({
+      url: chrome.runtime.getURL('src/live-translate.html'),
+      type: 'popup',
+      width: 480,
+      height: 720,
+      focused: true
+    }).then(w => sendResponse({ success: true, windowId: w.id }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'translate-deepl') {
     translateDeepL(msg.text, msg.sourceLang, msg.apiKey, msg.targetLang || 'CS')
       .then(result => sendResponse({ success: true, translated: result }))

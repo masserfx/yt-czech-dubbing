@@ -347,6 +347,14 @@ function bindEvents() {
     extractPageContext();
   });
 
+  // Aura Live — open standalone simultaneous-translation window
+  const btnOpenLive = document.getElementById('btnOpenLive');
+  if (btnOpenLive) {
+    btnOpenLive.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'open-live-translate' }, () => {});
+    });
+  }
+
   bindSettingsEvents();
   bindVoiceInput();
   bindTtsToggle();

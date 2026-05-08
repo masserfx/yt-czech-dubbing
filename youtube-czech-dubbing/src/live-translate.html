@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Aura Live — Simultánní překladač</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@1,300;1,500;1,700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    :root {
+      --bg: #050505;
+      --bg-1: #0a0a0a;
+      --surface: #141414;
+      --surface-2: #1a1a1a;
+      --border: rgba(255,255,255,0.07);
+      --border-strong: rgba(255,255,255,0.14);
+      --text: #fafafa;
+      --text-2: #a1a1a1;
+      --text-3: #6b6b6b;
+      --text-muted: #525252;
+      --accent: #10b981;
+      --accent-bright: #34d399;
+      --accent-glow: rgba(16,185,129,0.30);
+      --accent-soft: rgba(16,185,129,0.08);
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --grid: rgba(255,255,255,0.022);
+      --serif: 'Newsreader', Georgia, serif;
+      --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--sans);
+      font-weight: 300;
+      background: var(--bg);
+      color: var(--text);
+      letter-spacing: 0.005em;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      position: relative;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none;
+      z-index: 0;
+      mask-image: radial-gradient(ellipse at top, #000 30%, transparent 90%);
+      -webkit-mask-image: radial-gradient(ellipse at top, #000 30%, transparent 90%);
+    }
+    body > * { position: relative; z-index: 1; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+
+    /* Header */
+    .header {
+      padding: 18px 22px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+    .header-title {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 300;
+      font-size: 28px;
+      letter-spacing: -0.015em;
+      line-height: 1;
+    }
+    .header-sub {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-top: 7px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .header-sub::before {
+      content: '';
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+      animation: pulse-dot 2.4s infinite;
+    }
+    @keyframes pulse-dot { 0%,100% {opacity:1;} 50% {opacity:0.4;} }
+
+    /* Mode bar — language pickers + main mic button */
+    .mode-bar {
+      padding: 12px 22px 22px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .lang-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .lang-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .lang-select {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 400;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+      background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+                        linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+      background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+      background-size: 5px 5px;
+      background-repeat: no-repeat;
+      padding-right: 32px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .lang-select:focus { border-color: rgba(16,185,129,0.5); box-shadow: 0 0 0 3px rgba(16,185,129,0.08); }
+    .lang-arrow {
+      align-self: center;
+      font-family: var(--mono);
+      color: var(--text-3);
+      font-size: 22px;
+      padding-top: 16px;
+    }
+
+    /* Big mic CTA */
+    .mic-row {
+      padding: 0 22px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .mic-btn {
+      flex-shrink: 0;
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, rgba(16,185,129,0.20), rgba(16,185,129,0.06));
+      border: 1.5px solid rgba(16,185,129,0.45);
+      color: var(--accent-bright);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.18s ease;
+      box-shadow: 0 0 32px rgba(16,185,129,0.10), inset 0 0 18px rgba(16,185,129,0.05);
+      position: relative;
+    }
+    .mic-btn:hover {
+      box-shadow: 0 0 40px rgba(16,185,129,0.22), inset 0 0 22px rgba(16,185,129,0.10);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+    .mic-btn svg { width: 36px; height: 36px; fill: currentColor; }
+    .mic-btn.listening {
+      background: linear-gradient(180deg, rgba(16,185,129,0.34), rgba(16,185,129,0.12));
+      animation: mic-pulse 1.6s infinite;
+    }
+    .mic-btn.listening::after {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(16,185,129,0.40);
+      animation: mic-ring 1.6s infinite;
+    }
+    .mic-btn.listening::before {
+      content: '';
+      position: absolute;
+      inset: -16px;
+      border-radius: 50%;
+      border: 1px solid rgba(16,185,129,0.20);
+      animation: mic-ring 1.6s infinite;
+      animation-delay: 0.5s;
+    }
+    @keyframes mic-pulse {
+      0%,100% { box-shadow: 0 0 36px rgba(16,185,129,0.22), inset 0 0 22px rgba(16,185,129,0.12); }
+      50%     { box-shadow: 0 0 56px rgba(16,185,129,0.40), inset 0 0 28px rgba(16,185,129,0.22); }
+    }
+    @keyframes mic-ring {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(1.6); opacity: 0; }
+    }
+    .mic-btn.error {
+      background: linear-gradient(180deg, rgba(239,68,68,0.20), rgba(239,68,68,0.06));
+      border-color: rgba(239,68,68,0.5);
+      color: #fca5a5;
+    }
+
+    .mic-meta {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .mic-state {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-2);
+    }
+    .mic-state.error { color: #fca5a5; }
+    .vu-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .vu-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+      box-shadow: 0 0 8px var(--accent-glow);
+      transition: width 80ms linear;
+      border-radius: 2px;
+    }
+    .interim-text {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 300;
+      font-size: 14px;
+      color: var(--text-3);
+      min-height: 18px;
+      max-height: 36px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    /* Transcript history */
+    .transcript {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 22px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    .empty-icon {
+      font-size: 36px;
+      color: var(--accent);
+      opacity: 0.55;
+      filter: drop-shadow(0 0 14px var(--accent-glow));
+    }
+    .empty-title {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 22px;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .empty-hint {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      max-width: 340px;
+      line-height: 1.6;
+    }
+
+    .entry {
+      background: rgba(15,15,15,0.5);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      transition: border-color 0.18s ease, background 0.18s ease;
+    }
+    .entry.translating { border-color: rgba(245,158,11,0.30); }
+    .entry.speaking { border-color: rgba(16,185,129,0.40); background: rgba(16,185,129,0.04); box-shadow: 0 0 20px rgba(16,185,129,0.06); }
+    .entry.error { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.04); }
+
+    .entry-meta {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .entry-meta-status { display: inline-flex; align-items: center; gap: 4px; }
+    .entry-meta-status::before { content: '•'; color: var(--text-muted); }
+    .entry.translating .entry-meta-status::before { color: var(--warn); }
+    .entry.speaking .entry-meta-status::before { color: var(--accent); animation: pulse-dot 1s infinite; }
+    .entry.error .entry-meta-status::before { color: var(--danger); }
+
+    .entry-original {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 300;
+      font-size: 14px;
+      color: var(--text-3);
+      line-height: 1.45;
+      margin-bottom: 8px;
+    }
+    .entry-translated {
+      font-family: var(--sans);
+      font-weight: 400;
+      font-size: 16px;
+      color: var(--text);
+      line-height: 1.5;
+      letter-spacing: 0.005em;
+    }
+    .entry-translated.placeholder {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* Settings drawer */
+    .settings-toggle {
+      background: rgba(20,20,20,0.7);
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .settings-toggle:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+    .settings-toggle svg { width: 16px; height: 16px; fill: currentColor; }
+
+    .settings {
+      padding: 16px 22px 4px;
+      border-top: 1px solid var(--border);
+      background: rgba(8,8,8,0.4);
+      display: none;
+    }
+    .settings.open { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+    .settings-group { display: flex; flex-direction: column; gap: 5px; }
+    .settings-group.full { grid-column: 1 / -1; }
+    .settings-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .settings select, .settings input[type="text"], .settings input[type="password"] {
+      padding: 9px 12px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: var(--sans);
+      font-size: 12.5px;
+      font-weight: 300;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+                        linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+      background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+      background-size: 5px 5px;
+      background-repeat: no-repeat;
+      padding-right: 28px;
+    }
+    .settings select:focus, .settings input:focus {
+      border-color: rgba(16,185,129,0.5);
+      box-shadow: 0 0 0 3px rgba(16,185,129,0.08);
+    }
+
+    /* Toast for errors */
+    .toast {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translate(-50%, -120%);
+      background: rgba(20,20,20,0.94);
+      border: 1px solid rgba(239,68,68,0.4);
+      color: #fca5a5;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      padding: 9px 16px;
+      border-radius: 999px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 9999;
+      max-width: 84vw;
+    }
+    .toast.visible { opacity: 1; transform: translate(-50%, 0); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="header-title">Aura <em>live</em></div>
+      <div class="header-sub" id="headerStatus">Připravený poslouchat</div>
+    </div>
+    <button class="settings-toggle" id="btnSettings" title="Nastavení" aria-label="Nastavení">
+      <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a6.93 6.93 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.484.484 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+    </button>
+  </div>
+
+  <div class="mode-bar">
+    <div class="lang-picker">
+      <div class="lang-label">Z jazyka</div>
+      <select class="lang-select" id="sourceLang"></select>
+    </div>
+    <div class="lang-arrow">→</div>
+    <div class="lang-picker">
+      <div class="lang-label">Do jazyka</div>
+      <select class="lang-select" id="targetLang">
+        <option value="cs">🇨🇿 Čeština</option>
+        <option value="sk">🇸🇰 Slovenčina</option>
+        <option value="pl">🇵🇱 Polski</option>
+        <option value="hu">🇭🇺 Magyar</option>
+        <option value="de">🇩🇪 Deutsch</option>
+        <option value="en">🇬🇧 English</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="mic-row">
+    <button class="mic-btn" id="btnMic" aria-label="Spustit poslouchání" title="Spustit / zastavit">
+      <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm6-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+    </button>
+    <div class="mic-meta">
+      <div class="mic-state" id="micState">Klikněte pro spuštění</div>
+      <div class="vu-bar"><div class="vu-fill" id="vuFill"></div></div>
+      <div class="interim-text" id="interimText"></div>
+    </div>
+  </div>
+
+  <div class="transcript" id="transcript">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm6-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+      </div>
+      <div class="empty-title">Připraveno k poslechu</div>
+      <div class="empty-hint">
+        Mluvte do mikrofonu (např. AirPods).<br>
+        Slyšet budete český překlad ve sluchátkách s minimálním zpožděním.
+      </div>
+    </div>
+  </div>
+
+  <div class="settings" id="settings">
+    <div class="settings-group">
+      <div class="settings-label">Mikrofon</div>
+      <select id="micDevice"><option value="">Výchozí (systém)</option></select>
+    </div>
+    <div class="settings-group">
+      <div class="settings-label">Překladač</div>
+      <select id="translatorEngine">
+        <option value="chromeai">Chrome AI on-device (zdarma)</option>
+        <option value="google">Google Translate (zdarma)</option>
+        <option value="gemini">Gemini 3.1 Flash-Lite (zdarma, klíč)</option>
+        <option value="deepl">DeepL (klíč)</option>
+        <option value="claude">Claude Haiku (klíč)</option>
+      </select>
+    </div>
+    <div class="settings-group">
+      <div class="settings-label">Hlas (TTS)</div>
+      <select id="ttsEngine">
+        <option value="browser">Systémový hlas (zdarma)</option>
+        <option value="edge-male">Edge TTS Antonín (zdarma)</option>
+        <option value="edge-female">Edge TTS Vlasta (zdarma)</option>
+        <option value="gemini">Gemini 3.1 Flash TTS (klíč)</option>
+        <option value="azure">Azure TTS (klíč)</option>
+      </select>
+    </div>
+    <div class="settings-group" id="geminiTtsVoiceGroup" style="display:none;">
+      <div class="settings-label">Gemini hlas</div>
+      <select id="geminiTtsVoice">
+        <option value="Aoede">Aoede — vzdušný</option>
+        <option value="Sulafat">Sulafat — teplý</option>
+        <option value="Kore">Kore — pevný</option>
+        <option value="Charon">Charon — informativní</option>
+        <option value="Iapetus">Iapetus — čistý</option>
+        <option value="Achird">Achird — přátelský</option>
+      </select>
+    </div>
+    <div class="settings-group full" id="apiKeyGroup" style="display:none;">
+      <div class="settings-label" id="apiKeyLabel">API klíč</div>
+      <input type="password" id="apiKeyInput" placeholder="vložte API klíč">
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Dependencies (must load before live-translate.js) -->
+  <script src="language-config.js"></script>
+  <script src="translator.js"></script>
+  <script src="tts-engine.js"></script>
+  <script src="stt-engine.js"></script>
+  <script src="live-translate.js"></script>
+  <script src="live-translate-page.js"></script>
+</body>
+</html>

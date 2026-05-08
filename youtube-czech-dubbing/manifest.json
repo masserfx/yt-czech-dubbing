@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Dubbing — CS SK PL HU",
-  "version": "2.2.4",
+  "version": "2.3.0",
   "description": "YouTube video dubbing - automatic translation and voice output in Czech, Slovak, Polish, Hungarian",
   "permissions": [
     "activeTab",
@@ -10,6 +10,12 @@
     "sidePanel",
     "offscreen",
     "declarativeNetRequest"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/live-translate.html"],
+      "matches": ["<all_urls>"]
+    }
   ],
   "host_permissions": [
     "https://www.youtube.com/*",

@@ -1380,6 +1380,106 @@
       letter-spacing: 0.06em;
     }
 
+    /* Live tab — promo card */
+    .live-promo {
+      padding: 12px 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .live-promo-eyebrow {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .live-promo-eyebrow em {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 13px;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--accent);
+    }
+    .live-promo-title {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 300;
+      font-size: 24px;
+      letter-spacing: -0.015em;
+      line-height: 1.15;
+      color: var(--text);
+    }
+    .live-promo-text {
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: var(--text-2);
+      font-weight: 300;
+    }
+    .live-promo-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .live-promo-list li {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.04em;
+      color: var(--text-2);
+      line-height: 1.55;
+      padding-left: 18px;
+      position: relative;
+    }
+    .live-promo-list li::before {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 8px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent-glow);
+    }
+    .live-promo-cta {
+      margin-top: 4px;
+      padding: 13px 18px;
+      background: linear-gradient(180deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06));
+      border: 1px solid rgba(16,185,129,0.45);
+      color: var(--accent-bright);
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      transition: all 0.18s ease;
+      box-shadow: 0 0 24px rgba(16,185,129,0.10), inset 0 0 12px rgba(16,185,129,0.05);
+    }
+    .live-promo-cta:hover {
+      background: linear-gradient(180deg, rgba(16,185,129,0.30), rgba(16,185,129,0.10));
+      color: #fff;
+      box-shadow: 0 0 32px rgba(16,185,129,0.24), inset 0 0 16px rgba(16,185,129,0.10);
+    }
+    .live-promo-cta svg.icon { width: 14px; height: 14px; }
+    .live-promo-hint {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      line-height: 1.6;
+      text-align: center;
+    }
+
     /* Section divider with mono label */
     .section-label {
       font-family: var(--mono);
@@ -1442,8 +1542,9 @@
   <!-- Tabs -->
   <div class="tabs">
     <div class="tab active" data-tab="dubbing"><svg class="icon"><use href="#ico-speaker"/></svg> Dabing</div>
-    <div class="tab" data-tab="news"><svg class="icon"><use href="#ico-notes"/></svg> News Feed</div>
-    <div class="tab" data-tab="chat"><svg class="icon"><use href="#ico-chat"/></svg> Chat AI</div>
+    <div class="tab" data-tab="live" id="tabLive"><svg class="icon"><use href="#ico-mic"/></svg> Live</div>
+    <div class="tab" data-tab="news"><svg class="icon"><use href="#ico-notes"/></svg> News</div>
+    <div class="tab" data-tab="chat"><svg class="icon"><use href="#ico-chat"/></svg> Chat</div>
     <div class="tab" data-tab="settings"><svg class="icon"><use href="#ico-settings"/></svg> Nastaven&#xED;</div>
   </div>
 
@@ -1500,6 +1601,32 @@
         <div class="glossary-hint">
           Jm&#xE9;na, produkty, termity — aplikuje se na tento kan&#xE1;l p&#x159;i v&#x161;ech dabin&#x11B;ch.
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Live (simultaneous translation) -->
+  <div class="tab-content" id="tab-live">
+    <div class="live-promo">
+      <div class="live-promo-eyebrow">Aura <em>live</em></div>
+      <div class="live-promo-title">Simult&#xE1;nn&#xED; p&#x159;eklad konverzac&#xED;</div>
+      <p class="live-promo-text">
+        Mluv&#xED;c&#xED;ho protistrany sly&#x161;&#xED;te v &#x10D;e&#x161;tin&#x11B; ve sluch&#xE1;tk&#xE1;ch (AirPods / Bluetooth)
+        v re&#xE1;ln&#xE9;m &#x10D;ase. Funguje i jako chytr&#xE9; nasloucht&#xE1;tko
+        (HoH&nbsp;&mdash; titulky&nbsp;+&nbsp;hlas).
+      </p>
+      <ul class="live-promo-list">
+        <li>22+ zdrojov&#xFD;ch jazyk&#x16F;, p&#x159;eklad p&#x159;es Gemini / DeepL / Chrome AI</li>
+        <li>Hlas Aoede / Vlasta / Anton&#xED;n &mdash; v&#xFD;b&#x11B;r v nastaven&#xED;</li>
+        <li>Funguje i offline (Chrome AI on-device + syst&#xE9;mov&#xFD; hlas)</li>
+        <li>Bezplatn&#xE9; v&#x161;e na free tier</li>
+      </ul>
+      <button class="live-promo-cta" id="btnOpenLive">
+        <svg class="icon"><use href="#ico-mic"/></svg>
+        Otev&#x159;&#xED;t Aura Live
+      </button>
+      <div class="live-promo-hint">
+        Otev&#x159;e se v samostatn&#xE9;m okn&#x11B;, kter&#xE9; m&#x16F;&#x17E;ete nechat plavat p&#x159;es jin&#xE9; aplikace.
       </div>
     </div>
   </div>
