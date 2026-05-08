@@ -284,10 +284,10 @@
     geminiVoiceGroup.style.display = v === 'gemini' ? 'flex' : 'none';
     if (v === 'edge-male') {
       live.tts._ttsEngine = 'edge';
-      live.tts._edgeVoice = 'cs-CZ-AntoninNeural';
+      live.setEdgeGender('male');
     } else if (v === 'edge-female') {
       live.tts._ttsEngine = 'edge';
-      live.tts._edgeVoice = 'cs-CZ-VlastaNeural';
+      live.setEdgeGender('female');
     } else if (v === 'gemini') {
       live.tts._ttsEngine = 'gemini';
       live.tts._geminiKey = (apiKeyInput.value || '').trim()

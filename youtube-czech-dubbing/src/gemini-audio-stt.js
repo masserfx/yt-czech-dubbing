@@ -28,11 +28,11 @@ class GeminiAudioSTT {
     this.isRunning = false;
     this.apiKey = null;
 
-    // VAD tuning
+    // VAD tuning — tighter for snappier real-time feel
     this.SILENCE_THRESHOLD = 0.025;    // RMS below = silent
-    this.SILENCE_HANGOVER_MS = 700;    // commit chunk after this much silence
-    this.MIN_SPEECH_MS = 350;          // ignore micro-bursts shorter than this
-    this.MAX_CHUNK_MS = 12000;         // hard chunk cut at 12s
+    this.SILENCE_HANGOVER_MS = 400;    // commit chunk after this much silence
+    this.MIN_SPEECH_MS = 250;          // ignore micro-bursts shorter than this
+    this.MAX_CHUNK_MS = 10000;         // hard chunk cut at 10s
 
     this._stream = null;
     this._audioCtx = null;

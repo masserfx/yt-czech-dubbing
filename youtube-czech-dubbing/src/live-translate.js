@@ -88,7 +88,32 @@ class LiveTranslate {
     this.translator._targetLang = code;
     this.translator._langConfig = getLanguageConfig(code);
     this.tts.setTargetLanguage(code);
+    // Re-derive Edge TTS voice for the new target (if user is on Edge)
+    if (this.tts._ttsEngine === 'edge' && this._edgeGender) {
+      this._applyEdgeVoiceForTarget();
+    }
     if (this._geminiStt) this._geminiStt.setTargetLang(code);
+  }
+
+  /**
+   * Pick Edge / Microsoft Neural voice for current target language by gender.
+   * Without this, "edge-male" / "edge-female" UI options were hard-coded to
+   * Czech voices regardless of target — Swedish target spoke Czech.
+   */
+  setEdgeGender(gender) {
+    this._edgeGender = gender;
+    this._applyEdgeVoiceForTarget();
+  }
+
+  _applyEdgeVoiceForTarget() {
+    const cfg = getLanguageConfig(this.targetLang) || {};
+    const voices = cfg.azureVoices || [];
+    const want = this._edgeGender || 'male';
+    const match = voices.find(v => v.gender === want) || voices[0];
+    if (match?.id) {
+      this.tts._edgeVoice = match.id;
+      console.log('[Live] edge voice for', this.targetLang, want, '→', match.id);
+    }
   }
 
   setMicDevice(deviceId) {
