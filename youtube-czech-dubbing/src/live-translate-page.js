@@ -112,10 +112,38 @@
   async function toggleMic() {
     if (live.stt.isRunning) {
       live.stop();
-    } else {
-      const ok = await live.start();
-      if (!ok) showToast('Nepodařilo se spustit poslouchání');
+      return;
     }
+
+    // Make sure engine config from the UI is what gets used (init() shouldn't
+    // clobber, but be defensive and re-apply right before the start).
+    applyTranslatorEngine();
+    applyTtsEngine();
+
+    // Sanity check: warn early if the picked engine needs a key we don't have.
+    const tEng = translatorSel.value;
+    const ttsEng = ttsSel.value;
+    const key = (apiKeyInput.value || '').trim();
+    if ((tEng === 'gemini' || tEng === 'deepl' || tEng === 'claude') && !key) {
+      showToast(`Chybí ${tEng === 'gemini' ? 'Gemini' : tEng === 'deepl' ? 'DeepL' : 'Anthropic'} API klíč`);
+    }
+    if (ttsEng === 'gemini' && !(key || live.tts._geminiKey)) {
+      showToast('Chybí Gemini API klíč pro TTS — přepínám na systémový hlas');
+      ttsSel.value = 'browser';
+      applyTtsEngine();
+    }
+
+    const ok = await live.start();
+    if (!ok) showToast('Nepodařilo se spustit poslouchání');
+
+    // The orchestrator's init may have re-touched some translator/tts state;
+    // re-apply our explicit choice once more to be safe.
+    applyTranslatorEngine();
+    applyTtsEngine();
+    console.log('[LivePage] start: translator=', translatorSel.value,
+                ' tts=', ttsSel.value,
+                ' geminiKey=', !!live.tts._geminiKey,
+                ' translatorGemini=', !!live.translator._geminiApiKey);
   }
 
   function renderTranscript(entries) {

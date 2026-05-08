@@ -57,12 +57,19 @@ class LiveTranslate {
   }
 
   async init() {
+    // Translator loads its own settings from chrome.storage (DeepL/Claude
+    // keys, Gemini key for translation). The TTS engine configuration is
+    // managed by the page (applyTtsEngine) — DON'T call tts._loadTTSSettings
+    // here, it would clobber the engine/voice/key the user just picked
+    // in the Live UI with whatever YouTube dubbing has stored.
     await this.translator.loadSettings();
-    await this.tts._loadTTSSettings();
     this.translator._targetLang = this.targetLang;
     this.translator._langConfig = getLanguageConfig(this.targetLang);
     this.tts.setTargetLanguage(this.targetLang);
     await this.tts.waitForVoice();
+    console.log('[Live] init done. translator engine=', this.translator._engine,
+                ' tts engine=', this.tts._ttsEngine,
+                ' tts voice=', this.tts._edgeVoice || this.tts._geminiVoice || 'system');
   }
 
   setSourceLang(code) {
@@ -107,6 +114,7 @@ class LiveTranslate {
       this.onInterim?.(text);
     };
     this.stt.onFinal = (text, lang) => {
+      console.log('[Live] STT final:', JSON.stringify(text), 'lang=', lang);
       const entry = {
         id: Date.now() + ':' + Math.random().toString(36).slice(2, 8),
         original: text,
@@ -122,9 +130,11 @@ class LiveTranslate {
       this.onTranscriptChange?.(this.transcript);
       this._translate(entry);
     };
-    this.stt.onError = (msg) => this.onState?.('error', msg);
-    this.stt.onState = (state) => {
-      // Don't override 'speaking' state with STT 'listening' transitions
+    this.stt.onError = (msg) => {
+      console.warn('[Live] STT error:', msg);
+      this.onState?.('error', msg);
+    };
+    this.stt.onStateChange = (state) => {
       if (this._isSpeaking) return;
       this.onState?.(state === 'listening' ? 'listening' : 'idle');
     };
@@ -133,7 +143,7 @@ class LiveTranslate {
   async _translate(entry) {
     const sourceShort = entry.sourceLang.split('-')[0];
     if (sourceShort === this.targetLang) {
-      // Same language — skip translation, still speak it (hearing-aid mode)
+      console.log('[Live] same source/target — skipping translation (hearing-aid mode)');
       entry.translated = entry.original;
       entry.status = 'ready';
       this.onTranscriptChange?.(this.transcript);
@@ -141,12 +151,20 @@ class LiveTranslate {
       return;
     }
     try {
+      console.log('[Live] translating', sourceShort, '→', this.targetLang,
+                  ' engine=', this.translator._engine,
+                  ' text=', JSON.stringify(entry.original.slice(0, 80)));
       const translated = await this.translator.translate(entry.original, sourceShort);
-      entry.translated = translated || entry.original;
+      console.log('[Live] translated:', JSON.stringify((translated || '').slice(0, 80)));
+      if (!translated || !translated.trim()) {
+        throw new Error('Překlad vrátil prázdný výsledek (' + this.translator._engine + ')');
+      }
+      entry.translated = translated;
       entry.status = 'ready';
       this.onTranscriptChange?.(this.transcript);
       this._enqueueSpeak(entry);
     } catch (e) {
+      console.warn('[Live] translation failed:', e?.message || e);
       entry.translated = '';
       entry.status = 'error';
       entry.error = e?.message || String(e);
@@ -176,18 +194,22 @@ class LiveTranslate {
     this.onTranscriptChange?.(this.transcript);
     this.onState?.('speaking');
 
-    // Prefetch next while we play current
     const next = this._speakQueue[0];
     if (next?.translated && this.tts.prefetch) {
       try { this.tts.prefetch(next.translated); } catch (_) {}
     }
 
+    console.log('[Live] speaking via', this.tts._ttsEngine,
+                JSON.stringify(entry.translated.slice(0, 80)));
     try {
       await this.tts.speak(entry.translated);
       entry.status = 'spoken';
+      console.log('[Live] speak done');
     } catch (e) {
+      console.warn('[Live] speak failed:', e?.message || e);
       entry.status = 'error';
       entry.error = e?.message || String(e);
+      this.onState?.('error', `TTS selhalo: ${entry.error}`);
     } finally {
       this._isSpeaking = false;
       this.onTranscriptChange?.(this.transcript);
