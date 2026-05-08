@@ -695,6 +695,13 @@ class DubbingController {
   _startTranscriptPlayback() {
     if (this._transcriptTimer) clearInterval(this._transcriptTimer);
 
+    // Ahead-of-play synth pump + audio persistence (P1 + P2). Without this
+    // every cloud-TTS segment cold-synths inline, video keeps playing while
+    // we wait, dub drifts behind audio. Pump starts synthesizing N segments
+    // ahead so by the time the playback timer reaches each one the WAV is
+    // already in tts._prefetchCache and speak() is instant.
+    this._setupTranscriptAudioCache();
+
     this._transcriptTimer = setInterval(() => {
       if (!this.isActive || !this._transcriptMode) return;
       if (!this.videoElement || this.videoElement.paused) return;
@@ -706,8 +713,70 @@ class DubbingController {
       if (nextIndex !== -1) {
         this._lastSpokenIndex = nextIndex;
         this._speakSegment(this._transcriptSegments[nextIndex]);
+        // Re-target the pump so it stays ~10 segments ahead of playback head
+        this._refillPrefetchPump(nextIndex + 1);
       }
     }, 200);
+  }
+
+  /**
+   * Subscribe to TTS synth-success events so freshly synthesized audio
+   * lands in the persistent cache; pre-warm the in-memory prefetch from
+   * any persisted audio matching the current voice; then start the pump.
+   */
+  async _setupTranscriptAudioCache() {
+    if (!this.tts || !this._transcriptSegments) return;
+
+    const videoId = DubbingCache.getVideoId();
+    const engine = this.tts._ttsEngine;
+    const voice = engine === 'edge' ? this.tts._edgeVoice
+                : engine === 'azure' ? this.tts._azureVoice
+                : engine === 'gemini' ? this.tts._geminiVoice
+                : 'browser';
+
+    // Persist every cold synth (Edge / Azure / Gemini)
+    if (videoId && engine !== 'browser') {
+      this.tts.onSynthSuccess = (text, audioBase64, meta) => {
+        this.cache.saveAudio(videoId, meta.engine, meta.voice, text, audioBase64, meta);
+      };
+
+      // Pre-warm in-memory cache from persisted audio for THIS voice/engine
+      try {
+        const persisted = await this.cache.loadAudioForVideo(videoId, engine, voice);
+        if (persisted.length) {
+          const added = this.tts.prewarmFromCache(persisted.map(p => ({
+            text: p.text,
+            audioBase64: p.audioBase64,
+            rate: p.rate,
+            role: undefined
+          })));
+          console.log(`[CzechDub] Pre-warmed ${added}/${persisted.length} audio segments from cache (${engine}/${voice})`);
+        }
+      } catch (e) {
+        console.warn('[CzechDub] Audio cache pre-warm failed:', e?.message || e);
+      }
+      // Lazy prune; cheap when DB is small
+      this.cache.pruneAudio?.();
+    }
+
+    // Kick off the ahead-of-play pump
+    this._refillPrefetchPump(this._lastSpokenIndex + 1);
+  }
+
+  /**
+   * (Re)start the pre-synth pump from the given segment index. Cancels any
+   * in-flight pump first so seek-back doesn't race with old work.
+   */
+  _refillPrefetchPump(startIndex) {
+    if (!this.tts || !this._transcriptSegments) return;
+    if (this.tts._ttsEngine === 'browser') return; // Web Speech doesn't synth ahead
+    if (typeof this.tts.prefetchSegments !== 'function') return;
+    this.tts.prefetchSegments(this._transcriptSegments, {
+      startIndex,
+      lookahead: 12,        // 12 segments ahead of the playback head
+      concurrency: 2,       // respect free-tier rate limits
+      gapMs: 100
+    });
   }
 
   /**
@@ -797,6 +866,7 @@ class DubbingController {
     this._isStarting = false;
     this._realtimeMode = false;
     this.tts.stop();
+    if (this.tts) this.tts.onSynthSuccess = null;
     this.realtimeClient?.stop?.();
     this.extractor.stopObserving();
 
@@ -1017,6 +1087,8 @@ class DubbingController {
           }
         }
         console.log(`[CzechDub] Seeked to ${currentTime.toFixed(1)}s, resuming from segment ${this._lastSpokenIndex + 1}`);
+        // Re-aim the pre-synth pump at the new playback head
+        this._refillPrefetchPump?.(this._lastSpokenIndex + 1);
       } else {
         this.extractor.onSeek();
         // Clear sentence buffer on seek

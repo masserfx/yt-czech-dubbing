@@ -11,11 +11,17 @@ class DubbingCache {
     this._db = null;
     this._dbName = 'CzechDubCache';
     this._storeName = 'translations';
-    this._version = 1;
+    this._audioStoreName = 'audio';
+    this._version = 2;
+    // Cap audio storage to avoid unbounded growth (typical ~500KB/segment WAV)
+    this._AUDIO_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+    this._AUDIO_MAX_RECORDS = 5000;                    // ~2.5 GB upper bound
   }
 
   /**
    * Open (or create) the IndexedDB database.
+   * v1: translations only
+   * v2: + audio store (synthesized WAV/MP3 base64 per segment)
    */
   async _open() {
     if (this._db) return this._db;
@@ -30,6 +36,12 @@ class DubbingCache {
           store.createIndex('videoId', 'videoId', { unique: false });
           store.createIndex('savedAt', 'savedAt', { unique: false });
         }
+        if (!db.objectStoreNames.contains(this._audioStoreName)) {
+          const audio = db.createObjectStore(this._audioStoreName, { keyPath: 'id' });
+          audio.createIndex('videoId', 'videoId', { unique: false });
+          audio.createIndex('savedAt', 'savedAt', { unique: false });
+          audio.createIndex('voiceKey', 'voiceKey', { unique: false });
+        }
       };
 
       request.onsuccess = (event) => {
@@ -42,6 +54,124 @@ class DubbingCache {
         reject(event.target.error);
       };
     });
+  }
+
+  // ───────────── audio cache (P2) ─────────────
+
+  _audioId(videoId, engine, voice, text) {
+    // Composite key: same sentence under same voice/engine in same video.
+    // Cross-video reuse intentionally not done — keeps eviction per-video clean.
+    return `${videoId}|${engine}|${voice}|${this._hashText(text)}`;
+  }
+
+  _hashText(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h * 31) + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+  }
+
+  /**
+   * Persist a freshly-synthesized audio sample for a segment.
+   */
+  async saveAudio(videoId, engine, voice, text, audioBase64, meta = {}) {
+    if (!videoId || !engine || !voice || !text || !audioBase64) return false;
+    try {
+      const db = await this._open();
+      const tx = db.transaction(this._audioStoreName, 'readwrite');
+      const store = tx.objectStore(this._audioStoreName);
+      store.put({
+        id: this._audioId(videoId, engine, voice, text),
+        videoId,
+        engine,
+        voice,
+        voiceKey: `${engine}|${voice}`,
+        text,
+        rate: meta.rate ?? 1,
+        pitch: meta.pitch ?? 1,
+        audioBase64,
+        savedAt: Date.now()
+      });
+      return new Promise((resolve) => {
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
+    } catch (e) {
+      console.warn('[DubbingCache] saveAudio failed:', e?.message || e);
+      return false;
+    }
+  }
+
+  /**
+   * Load every cached audio sample for a videoId/engine/voice triplet.
+   * Returns array of {text, audioBase64, rate, pitch} suitable for
+   * TTSEngine.prewarmFromCache().
+   */
+  async loadAudioForVideo(videoId, engine, voice) {
+    try {
+      const db = await this._open();
+      const tx = db.transaction(this._audioStoreName, 'readonly');
+      const store = tx.objectStore(this._audioStoreName);
+      const idx = store.index('voiceKey');
+      const range = IDBKeyRange.only(`${engine}|${voice}`);
+      return new Promise((resolve) => {
+        const out = [];
+        const req = idx.openCursor(range);
+        req.onsuccess = (ev) => {
+          const cursor = ev.target.result;
+          if (cursor) {
+            const r = cursor.value;
+            if (r.videoId === videoId) out.push(r);
+            cursor.continue();
+          } else {
+            resolve(out);
+          }
+        };
+        req.onerror = () => resolve([]);
+      });
+    } catch (e) {
+      console.warn('[DubbingCache] loadAudioForVideo failed:', e?.message || e);
+      return [];
+    }
+  }
+
+  /**
+   * Drop audio entries older than maxAgeMs and trim total record count to
+   * audioMaxRecords. Cheap LRU; runs lazily.
+   */
+  async pruneAudio() {
+    try {
+      const db = await this._open();
+      const tx = db.transaction(this._audioStoreName, 'readwrite');
+      const store = tx.objectStore(this._audioStoreName);
+      const idx = store.index('savedAt');
+      const cutoff = Date.now() - this._AUDIO_MAX_AGE_MS;
+      let removed = 0;
+      await new Promise((resolve) => {
+        idx.openCursor(IDBKeyRange.upperBound(cutoff)).onsuccess = (ev) => {
+          const cur = ev.target.result;
+          if (cur) { cur.delete(); removed++; cur.continue(); }
+          else resolve();
+        };
+      });
+      // Hard cap by count (oldest first)
+      const countReq = store.count();
+      await new Promise((resolve) => { countReq.onsuccess = resolve; });
+      if (countReq.result > this._AUDIO_MAX_RECORDS) {
+        const overflow = countReq.result - this._AUDIO_MAX_RECORDS;
+        let trimmed = 0;
+        await new Promise((resolve) => {
+          idx.openCursor().onsuccess = (ev) => {
+            const cur = ev.target.result;
+            if (cur && trimmed < overflow) { cur.delete(); trimmed++; cur.continue(); }
+            else resolve();
+          };
+        });
+        removed += trimmed;
+      }
+      if (removed) console.log(`[DubbingCache] Pruned ${removed} audio entries`);
+    } catch (e) {
+      console.warn('[DubbingCache] pruneAudio failed:', e?.message || e);
+    }
   }
 
   /**

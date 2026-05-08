@@ -15,6 +15,7 @@ class TTSEngine {
     this.pitch = 1.0;
     this.onSpeakStart = null;
     this.onSpeakEnd = null;
+    this.onSynthSuccess = null;  // (text, audioBase64, meta) — fires after a fresh cloud synth
     this.voiceReady = false;
 
     // Language config
@@ -36,11 +37,14 @@ class TTSEngine {
 
     // Prefetch cache — eliminates inter-segment gaps in cloud-TTS engines
     // (Edge / Azure / Gemini) by synthesising the next utterance while the
-    // current one plays. Single-use entries; bounded size.
+    // current one plays. Sized to hold a typical YouTube transcript so the
+    // background pre-synth pump can keep many segments warm at once.
     this._prefetchCache = new Map();
     this._prefetchInflight = new Map();
-    this._PREFETCH_TTL_MS = 30_000;
-    this._PREFETCH_MAX = 12;
+    this._PREFETCH_TTL_MS = 30 * 60 * 1000;  // 30 min — survives pause/seek
+    this._PREFETCH_MAX = 80;
+    // Background pre-synth pump (set by prefetchSegments, cleared on stop)
+    this._prefetchPumpAbort = null;
 
     this._initVoice();
     this._loadTTSSettings();
@@ -283,6 +287,7 @@ class TTSEngine {
       .then(audioBase64 => {
         if (!audioBase64) return;
         this._cachePut(key, audioBase64);
+        this._fireSynthSuccess(text, audioBase64, options);
       })
       .catch(e => {
         console.log('[Dub TTS] prefetch failed for engine=' + this._ttsEngine + ':', e?.message || e);
@@ -300,11 +305,110 @@ class TTSEngine {
     return `${this._ttsEngine}|${voice}|${rate}|${pitch}|${text}`;
   }
 
+  /**
+   * True when text is already in cache (or finishing in-flight) — caller can
+   * skip cold synth.
+   */
+  hasCached(text, options = {}) {
+    if (!text) return false;
+    const key = this._prefetchKey(text, options);
+    if (this._prefetchInflight.has(key)) return true;
+    const entry = this._prefetchCache.get(key);
+    return !!(entry && entry.expires > Date.now());
+  }
+
+  /**
+   * Background pre-synth pump for a list of upcoming utterances.
+   * Walks `segments` in order, calling `prefetch()` with bounded concurrency
+   * so we don't burst free-tier rate limits. Stops cleanly when an abort
+   * controller is fired (used on seek / stop).
+   *
+   * @param {Array<{text:string, role?:string, _ttsRate?:number}>} segments
+   * @param {Object} [opts]
+   * @param {number} [opts.concurrency=2]   how many synths can run in parallel
+   * @param {number} [opts.startIndex=0]    segment index to start from
+   * @param {number} [opts.lookahead=Infinity] cap how many segments ahead
+   * @param {number} [opts.gapMs=80]        cooldown between dispatches
+   * @returns {{cancel: ()=>void, done: Promise<{ok:number,fail:number}>}}
+   */
+  prefetchSegments(segments, opts = {}) {
+    const {
+      concurrency = 2,
+      startIndex = 0,
+      lookahead = Infinity,
+      gapMs = 80
+    } = opts;
+
+    // Cancel any previous pump first
+    this.cancelPrefetchPump();
+
+    const ctrl = { aborted: false };
+    this._prefetchPumpAbort = ctrl;
+
+    let nextIdx = startIndex;
+    const endIdx = Math.min(segments.length, startIndex + lookahead);
+    let ok = 0, fail = 0;
+
+    const worker = async () => {
+      while (!ctrl.aborted) {
+        const i = nextIdx++;
+        if (i >= endIdx) break;
+        const seg = segments[i];
+        if (!seg || !seg.text) continue;
+
+        // Build the same options that speakAs/speak will use, so the cache key matches.
+        const segOpts = seg._ttsRate ? { rate: seg._ttsRate } : {};
+        const opts = seg.role ? this._roleOptions(seg.role, segOpts) : segOpts;
+        if (this.hasCached(seg.text, opts)) continue;
+
+        try {
+          await this.prefetch(seg.text, opts);
+          ok++;
+        } catch (e) {
+          fail++;
+        }
+        if (gapMs) await new Promise(r => setTimeout(r, gapMs));
+      }
+    };
+
+    const workers = Array.from({ length: Math.max(1, concurrency) }, () => worker());
+    const done = Promise.all(workers).then(() => ({ ok, fail }));
+    return {
+      cancel: () => { ctrl.aborted = true; },
+      done
+    };
+  }
+
+  cancelPrefetchPump() {
+    if (this._prefetchPumpAbort) {
+      this._prefetchPumpAbort.aborted = true;
+      this._prefetchPumpAbort = null;
+    }
+  }
+
   _cachePut(key, audioBase64) {
     this._prefetchCache.set(key, { audioBase64, expires: Date.now() + this._PREFETCH_TTL_MS });
     while (this._prefetchCache.size > this._PREFETCH_MAX) {
       const oldest = this._prefetchCache.keys().next().value;
       this._prefetchCache.delete(oldest);
+    }
+  }
+
+  _fireSynthSuccess(text, audioBase64, options) {
+    if (typeof this.onSynthSuccess !== 'function') return;
+    try {
+      const voice = this._ttsEngine === 'edge' ? (options._edgeVoiceOverride || this._edgeVoice)
+                  : this._ttsEngine === 'azure' ? this._azureVoice
+                  : this._ttsEngine === 'gemini' ? this._geminiVoice
+                  : null;
+      this.onSynthSuccess(text, audioBase64, {
+        engine: this._ttsEngine,
+        voice,
+        rate: options.rate ?? this.rate,
+        pitch: options.pitch ?? this.pitch
+      });
+    } catch (e) {
+      console.warn('[Dub TTS] onSynthSuccess hook threw:', e?.message || e);
     }
   }
 
@@ -953,6 +1057,7 @@ class TTSEngine {
       } else {
         audioBase64 = await this._synthEdge(text, options);
         console.log(`[Dub TTS] Edge TTS OK: ${audioBase64?.length} chars`);
+        this._fireSynthSuccess(text, audioBase64, options);
       }
       await this._playBase64Audio(audioBase64, options);
     } catch (e) {
@@ -1000,6 +1105,7 @@ class TTSEngine {
         console.log(`[Dub TTS] Azure prefetch HIT (${audioBase64.length} chars)`);
       } else {
         audioBase64 = await this._synthAzure(text, options);
+        this._fireSynthSuccess(text, audioBase64, options);
       }
       await this._playBase64Audio(audioBase64, options);
     } catch (e) {
@@ -1047,6 +1153,7 @@ class TTSEngine {
       } else {
         audioBase64 = await this._synthGemini(text, options);
         console.log(`[Dub TTS] Gemini TTS OK (${audioBase64?.length} chars)`);
+        this._fireSynthSuccess(text, audioBase64, options);
       }
       await this._playBase64Audio(audioBase64, { ...options, _audioMime: 'audio/wav' });
     } catch (e) {
@@ -1098,6 +1205,29 @@ class TTSEngine {
     this.queue = [];
     if (this._currentAudio) { this._currentAudio.pause(); this._currentAudio = null; }
     if (this._keepAliveInterval) { clearInterval(this._keepAliveInterval); this._keepAliveInterval = null; }
+    this.cancelPrefetchPump();
+  }
+
+  /**
+   * Pre-warm the prefetch cache from a persisted audio map (e.g. dubbing
+   * cache saved on disk). Each entry is keyed by the same string used by
+   * `_prefetchKey` so subsequent speak()s hit the in-memory cache and skip
+   * cloud synth entirely. Caller is responsible for ensuring the audio
+   * matches the current voice / engine / rate.
+   *
+   * @param {Iterable<{text:string, role?:string, rate?:number, audioBase64:string}>} entries
+   */
+  prewarmFromCache(entries) {
+    let added = 0;
+    for (const e of entries) {
+      if (!e || !e.text || !e.audioBase64) continue;
+      const segOpts = e.rate ? { rate: e.rate } : {};
+      const opts = e.role ? this._roleOptions(e.role, segOpts) : segOpts;
+      const key = this._prefetchKey(e.text, opts);
+      this._cachePut(key, e.audioBase64);
+      added++;
+    }
+    return added;
   }
 
   pause() { this.synth.pause(); }
