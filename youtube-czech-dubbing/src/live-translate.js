@@ -92,10 +92,53 @@ class LiveTranslate {
     await this.init();
     this.transcript = [];
     this.onTranscriptChange?.(this.transcript);
-    await this._startLevelMeter();
+    // Skip the parallel getUserMedia VU-meter stream — on Chrome desktop it
+    // can prevent webkitSpeechRecognition's own audio capture from kicking in
+    // (silent failure: onstart never fires). Visual feedback now comes from
+    // STT speech events (see _wireSpeechLevels below).
+    this._wireSpeechLevels();
     const ok = this.stt.start();
     if (ok) this.onState?.('listening');
     return ok;
+  }
+
+  /**
+   * Drive the VU meter from STT speech events instead of a parallel mic
+   * stream. Less precise than RMS but doesn't fight SpeechRecognition for
+   * the mic device. Hooks `onspeechstart` / `onspeechend` on the recognizer.
+   */
+  _wireSpeechLevels() {
+    let interval = null;
+    let target = 0;
+    let displayed = 0;
+    const tick = () => {
+      displayed += (target - displayed) * 0.25;
+      this.onLevel?.(Math.max(0.04, displayed));
+    };
+    // Replace earlier installed handlers
+    const origSpawn = this.stt._spawnRecognition.bind(this.stt);
+    this.stt._spawnRecognition = function () {
+      const rv = origSpawn();
+      if (this._rec) {
+        const prevSS = this._rec.onspeechstart;
+        const prevSE = this._rec.onspeechend;
+        this._rec.onspeechstart = (...a) => {
+          target = 0.85;
+          if (!interval) interval = setInterval(tick, 60);
+          if (prevSS) prevSS(...a);
+        };
+        this._rec.onspeechend = (...a) => {
+          target = 0;
+          setTimeout(() => {
+            if (target === 0) {
+              if (interval) { clearInterval(interval); interval = null; }
+            }
+          }, 600);
+          if (prevSE) prevSE(...a);
+        };
+      }
+      return rv;
+    };
   }
 
   stop() {
@@ -103,7 +146,8 @@ class LiveTranslate {
     this.tts.stop();
     this._speakQueue = [];
     this._isSpeaking = false;
-    this._stopLevelMeter();
+    if (typeof this._stopLevelMeter === 'function') this._stopLevelMeter();
+    this.onLevel?.(0);
     this.onState?.('idle');
   }
 

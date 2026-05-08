@@ -140,18 +140,42 @@ class STTEngine {
       return;
     }
 
+    console.log('[STT] _spawnRecognition() lang=', this.lang,
+                ' continuous=', this.continuous,
+                ' interim=', this.interim,
+                ' origin=', location.origin);
+
     const rec = new Klass();
     rec.lang = this.lang;
     rec.continuous = this.continuous;
     rec.interimResults = this.interim;
     rec.maxAlternatives = 1;
 
+    let startedAt = null;
+    let everFiredOnStart = false;
+    let everFiredAudio = false;
+
     rec.onstart = () => {
+      everFiredOnStart = true;
+      startedAt = Date.now();
       this.isRunning = true;
       this._lastResultAt = Date.now();
       this._scheduleSilenceStallCheck();
       this.onStateChange?.('listening');
+      console.log('[STT] onstart');
     };
+    rec.onaudiostart = () => {
+      everFiredAudio = true;
+      console.log('[STT] onaudiostart  (mic feeding the recognizer)');
+    };
+    rec.onaudioend = () => {
+      console.log('[STT] onaudioend');
+    };
+    rec.onsoundstart = () => console.log('[STT] onsoundstart');
+    rec.onsoundend = () => console.log('[STT] onsoundend');
+    rec.onspeechstart = () => console.log('[STT] onspeechstart');
+    rec.onspeechend = () => console.log('[STT] onspeechend');
+    rec.onnomatch = () => console.log('[STT] onnomatch');
 
     rec.onresult = (event) => {
       this._lastResultAt = Date.now();
@@ -161,26 +185,38 @@ class STTEngine {
         const text = (result[0]?.transcript || '').trim();
         if (!text) continue;
         if (result.isFinal) {
+          console.log('[STT] FINAL:', JSON.stringify(text));
           this.onFinal?.(text, this.lang);
         } else {
           interimChunk = (interimChunk + ' ' + text).trim();
         }
       }
-      if (interimChunk) this.onInterim?.(interimChunk);
+      if (interimChunk) {
+        console.log('[STT] interim:', JSON.stringify(interimChunk.slice(0, 80)));
+        this.onInterim?.(interimChunk);
+      }
     };
 
     rec.onerror = (event) => {
       const code = event.error || 'unknown';
-      // 'no-speech' / 'aborted' are routine on long silences; just restart.
       const transient = code === 'no-speech' || code === 'aborted' || code === 'audio-capture';
+      console.log('[STT] onerror:', code, transient ? '(transient — auto-restart)' : '(fatal-ish)');
       if (!transient) this.onError?.(`STT error: ${code}`);
-      console.log('[STT] error:', code);
+      // 'service-not-allowed' / 'network' often mean Chrome refused cloud STT
+      // for chrome-extension:// origin. Surface a clear hint.
+      if (code === 'service-not-allowed' || code === 'network') {
+        this.onError?.(`Chrome odmítá rozpoznávání řeči v tomto okně (${code}). ` +
+                      `Zkuste otevřít Live v běžném tabu.`);
+      }
     };
 
     rec.onend = () => {
+      const lifetime = startedAt ? (Date.now() - startedAt) : 0;
+      console.log('[STT] onend  lifetime=', lifetime, 'ms',
+                  ' onstart=', everFiredOnStart,
+                  ' audio=', everFiredAudio);
       this.isRunning = false;
       this.onStateChange?.('restarting');
-      // Auto-restart while user wants to keep listening
       if (this._intentToRun) this._scheduleRestart();
       else this.onStateChange?.('idle');
     };
@@ -188,9 +224,23 @@ class STTEngine {
     try {
       rec.start();
       this._rec = rec;
+      console.log('[STT] rec.start() returned (no throw)');
+
+      // Watchdog: if onstart never fires within 2.5s, the recognizer is
+      // silently dead (typical for chrome-extension:// origin on Chrome
+      // desktop). Surface it so the user sees an actionable error.
+      setTimeout(() => {
+        if (!everFiredOnStart && this._rec === rec && this._intentToRun) {
+          console.warn('[STT] WATCHDOG: onstart never fired in 2.5s — recognizer is silent');
+          this.onError?.(
+            'Rozpoznávání řeči se nespustilo (silent fail). ' +
+            'Web Speech API může být v extension okně blokované. ' +
+            'Otevřete Aura Live v běžném Chrome tabu.'
+          );
+        }
+      }, 2500);
     } catch (e) {
       console.warn('[STT] start threw:', e?.message || e);
-      // 'InvalidStateError' fires if rec is still alive — schedule restart instead
       this._scheduleRestart();
     }
   }
