@@ -194,8 +194,12 @@ class ArticlePlayer {
       // Show translated text in tooltip
       this._showTranslation(i, para.translatedText);
 
-      // Speak
+      // Speak (with parallel prefetch for the next paragraph to avoid TTS gaps)
       this._setStatus(`${i + 1}/${this._paragraphs.length} — ${this._langConfig?.uiStrings?.active || 'Dabing aktivní'}`);
+      const nextPara = this._paragraphs[i + 1];
+      if (nextPara && nextPara.translatedText && this._tts && typeof this._tts.prefetch === 'function') {
+        try { this._tts.prefetch(nextPara.translatedText); } catch (_) {}
+      }
       await this._speakAndWait(para.translatedText);
       console.log(`[CzechDub] Article: done speaking ${i + 1}/${this._paragraphs.length}`);
     }

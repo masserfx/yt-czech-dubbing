@@ -13,6 +13,7 @@ class DubbingController {
     this.tts = new TTSEngine();
     this.serviceClient = new ServiceClient();
     this.voicedubClient = new VoiceDubClient();
+    this.realtimeClient = new RealtimeTranslateClient(this.voicedubClient);
     this.cache = new DubbingCache();
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
@@ -31,8 +32,10 @@ class DubbingController {
     // Transcript-based mode
     this._transcriptSegments = null; // translated segments with timestamps
     this._transcriptMode = false;
+    this._realtimeMode = false;
     this._lastSpokenIndex = -1;
     this._transcriptTimer = null;
+    this._realtimeSubtitleText = '';
 
     // Sentence buffer for DOM caption mode — accumulates lines until sentence boundary
     this._sentenceBuffer = '';
@@ -118,6 +121,10 @@ class DubbingController {
       this._targetLang = this.translator._targetLang;
       this._langConfig = this.translator._langConfig;
       this.tts.setTargetLanguage(this._targetLang);
+
+      if (await this._startRealtimeDubbing()) {
+        return true;
+      }
 
       // Wait for TTS voices
       await this.tts.waitForVoice();
@@ -510,6 +517,21 @@ class DubbingController {
     const audioBase64 = typeof item === 'string' ? null : item.audioBase64;
     const itemAge = (typeof item === 'object' && item.createdAt) ? Date.now() - item.createdAt : 0;
 
+    // Prefetch the next queued segment in parallel so by the time current
+    // playback ends the next chunk's audio is already cached. Eliminates the
+    // WebSocket setup gap that caused audible stutter between segments.
+    // Uses default rate; if rate at actual speak time differs the cache
+    // simply misses — no worse than today, but matches in steady state.
+    const next = this._speechQueue[0];
+    if (next && this.tts && typeof this.tts.prefetchAs === 'function') {
+      const nextText = typeof next === 'string' ? next : next.text;
+      const nextSpeaker = typeof next === 'string' ? null : next.speaker;
+      const nextHasAudio = typeof next === 'object' && next.audioBase64;
+      if (nextText && !nextHasAudio) {
+        try { this.tts.prefetchAs(nextText, nextSpeaker); } catch (_) {}
+      }
+    }
+
     try {
       // Reduce video volume while speaking (iOS-aware)
       this._duckVideo(true);
@@ -773,7 +795,9 @@ class DubbingController {
     this._stopping = true;
     this.isActive = false;
     this._isStarting = false;
+    this._realtimeMode = false;
     this.tts.stop();
+    this.realtimeClient?.stop?.();
     this.extractor.stopObserving();
 
     if (this._currentAudio) {
@@ -787,6 +811,7 @@ class DubbingController {
     // Clear transcript mode state
     this._transcriptMode = false;
     this._transcriptSegments = null;
+    this._realtimeSubtitleText = '';
     this._lastSpokenIndex = -1;
     if (this._transcriptTimer) {
       clearInterval(this._transcriptTimer);
@@ -816,8 +841,7 @@ class DubbingController {
     }
 
     // Remove subtitle overlay
-    const overlay = document.getElementById('czech-dub-subtitle');
-    if (overlay) overlay.style.display = 'none';
+    this._clearSubtitle();
 
     this._setStatus('idle', 'Dabing zastaven');
     this._stopping = false;
@@ -881,6 +905,11 @@ class DubbingController {
    * Show a subtitle overlay on the video.
    */
   _showSubtitle(czechText) {
+    if (!czechText) {
+      this._clearSubtitle();
+      return;
+    }
+
     let overlay = document.getElementById('czech-dub-subtitle');
     if (!overlay) {
       overlay = document.createElement('div');
@@ -910,11 +939,28 @@ class DubbingController {
     }, 5000);
   }
 
+  _clearSubtitle() {
+    clearTimeout(this._subtitleTimeout);
+    const overlay = document.getElementById('czech-dub-subtitle');
+    if (!overlay) return;
+    overlay.classList.remove('czech-dub-visible');
+    overlay.style.display = 'none';
+    overlay.textContent = '';
+  }
+
   /**
    * Video event handlers
    */
   _onVideoPause = () => {
     if (this.isActive) {
+      if (this._realtimeMode) {
+        this.realtimeClient?.setMuted?.(true);
+        if (this.videoElement) {
+          this.videoElement.volume = this.originalVolume;
+        }
+        return;
+      }
+
       // Chrome's synth.pause() is unreliable — cancel speech instead
       this.tts.stop();
       if (this._currentAudio) {
@@ -930,6 +976,12 @@ class DubbingController {
 
   _onVideoPlay = () => {
     if (this.isActive) {
+      if (this._realtimeMode) {
+        this.realtimeClient?.setMuted?.(false);
+        this._duckVideo(true);
+        return;
+      }
+
       // Speech was cancelled on pause — playback timer will pick up next segment
       this._isSpeaking = false;
     }
@@ -937,6 +989,12 @@ class DubbingController {
 
   _onVideoSeeked = () => {
     if (this.isActive) {
+      if (this._realtimeMode) {
+        this._realtimeSubtitleText = '';
+        this._clearSubtitle();
+        return;
+      }
+
       this.tts.stop();
       if (this._currentAudio) {
         try { this._currentAudio.pause(); } catch (e) {}
@@ -979,6 +1037,7 @@ class DubbingController {
     this.tts.setRate(this._settings.ttsRate);
     this.tts.setVolume(this._settings.ttsVolume);
     this.tts.setPitch(this._settings.ttsPitch);
+    this.realtimeClient?.setVolume?.(this._settings.ttsVolume);
 
     // Apply TTS engine and voice changes
     if ('ttsEngine' in settings || 'azureTtsVoice' in settings || 'edgeTtsVoice' in settings) {
@@ -991,8 +1050,10 @@ class DubbingController {
     }
 
     // Apply original volume change immediately during playback
-    if (('reducedOriginalVolume' in settings || 'muteOriginal' in settings) && this._isSpeaking && this.videoElement) {
-      if (this._settings.muteOriginal) {
+    if (('reducedOriginalVolume' in settings || 'muteOriginal' in settings) && this.videoElement && (this._isSpeaking || this._realtimeMode)) {
+      if (this._realtimeMode) {
+        this._duckVideo(true);
+      } else if (this._settings.muteOriginal) {
         this.videoElement.volume = 0;
       } else {
         this.videoElement.volume = this._settings.reducedOriginalVolume;
@@ -1015,6 +1076,69 @@ class DubbingController {
     try {
       await chrome.storage.local.set({ czechDubSettings: this._settings });
     } catch (e) {}
+  }
+
+  async _startRealtimeDubbing() {
+    if (!this.voicedubClient.isRealtimePreferred()) return false;
+    if (typeof window !== 'undefined' && window.__CZECHDUB_IOS__) {
+      console.log('[CzechDub] Realtime translate skipped on iOS Safari');
+      return false;
+    }
+    if (!this.realtimeClient?.isSupported?.(this.videoElement)) {
+      console.log('[CzechDub] Realtime translate unsupported in this browser/context');
+      return false;
+    }
+
+    this._setStatus('loading', 'Připojuji live AI překlad...');
+
+    try {
+      this.isActive = true;
+      this.originalVolume = this.videoElement.volume;
+      this._cachedPlayback = false;
+      this._transcriptMode = false;
+      this._realtimeMode = true;
+      this._realtimeSubtitleText = '';
+      this.realtimeClient.setVolume(this._settings.ttsVolume ?? 0.95);
+      this.realtimeClient.setMuted(false);
+
+      await this.realtimeClient.start(this.videoElement, this._targetLang, {
+        onTranslatedText: (text, event) => {
+          if (!this.isActive) return;
+          const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+          if (!normalized) return;
+          this._realtimeSubtitleText = normalized;
+          this._showSubtitle(normalized);
+          if (event?.type === 'session.output_transcript.completed') {
+            this._realtimeSubtitleText = '';
+          }
+        },
+        onStatus: (status, detail) => {
+          if (status === 'error') {
+            console.warn('[CzechDub] Realtime event error:', detail);
+          }
+        },
+      });
+
+      this.videoElement.addEventListener('pause', this._onVideoPause);
+      this.videoElement.addEventListener('play', this._onVideoPlay);
+      this.videoElement.addEventListener('seeked', this._onVideoSeeked);
+      if (!this.videoElement.paused) {
+        this._duckVideo(true);
+      }
+
+      this._setStatus('playing', 'Český dabing aktivní (OpenAI live)');
+      console.log('[CzechDub] Dubbing started - REALTIME mode');
+      return true;
+    } catch (err) {
+      console.warn('[CzechDub] Realtime start failed:', err);
+      this.realtimeClient?.stop?.();
+      this._realtimeMode = false;
+      this.isActive = false;
+      this._duckVideo(false);
+      this._clearSubtitle();
+      this._setStatus('loading', 'Realtime selhal, přepínám na přepis...');
+      return false;
+    }
   }
 
   _sleep(ms) {

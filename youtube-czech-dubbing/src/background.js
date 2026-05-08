@@ -222,6 +222,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'synthesize-gemini-tts') {
+    synthesizeGeminiTTS(msg.text, msg.apiKey, msg.voice, msg.rate, msg.pitch, msg.lang)
+      .then(audioBase64 => sendResponse({ success: true, audioBase64 }))
+      .catch(err => {
+        console.error('[Gemini TTS] Failed:', err.message);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
   // Service mode proxy handlers (B2B)
   if (msg.type === 'service-translate') {
     serviceTranslate(msg.endpoint, msg.authToken, msg.organizationId, msg.text, msg.sourceLang, msg.targetLang, msg.engine)
@@ -254,6 +264,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'voicedub-synthesize') {
     voicedubSynthesize(msg.endpoint, msg.apiKey, msg.payload)
+      .then(data => sendResponse({ success: true, data }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'voicedub-realtime-client-secret') {
+    voicedubRealtimeClientSecret(msg.endpoint, msg.apiKey, msg.payload)
       .then(data => sendResponse({ success: true, data }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -1443,12 +1460,28 @@ async function voicedubVoices(endpoint, apiKey, lang) {
   return data.voices;
 }
 
+async function voicedubRealtimeClientSecret(endpoint, apiKey, payload = {}) {
+  const resp = await fetch(`${endpoint}/v1/realtime/client-secret`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`VoiceDub realtime ${resp.status}: ${errText.substring(0, 200)}`);
+  }
+  return await resp.json();
+}
+
 // --- Gemini Translation ---
 
 async function translateGemini(text, sourceLang, apiKey, targetLang = 'cs', geminiPrompt = null, glossaryInstruction = '') {
   if (!apiKey) throw new Error('No Gemini API key');
 
-  const MODEL = 'gemini-2.5-flash-lite';
+  const MODEL = 'gemini-3.1-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   const baseInstruction = geminiPrompt ||
@@ -1497,7 +1530,7 @@ async function detectSpeakers(lines, apiKey) {
   if (!apiKey) throw new Error('No Gemini API key');
   if (!lines || lines.length === 0) return [];
 
-  const MODEL = 'gemini-2.5-flash-lite';
+  const MODEL = 'gemini-3.1-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   // Send all lines in one request, ask for one letter per line
@@ -1535,12 +1568,112 @@ async function detectSpeakers(lines, apiKey) {
   return roles;
 }
 
+// --- Gemini TTS (gemini-3.1-flash-tts-preview) ---
+// Returns 24 kHz mono PCM s16le audio inline; we wrap it in a WAV header so the
+// extension's <audio> element can play it without Web Audio decoding.
+
+const GEMINI_TTS_MODEL = 'gemini-3.1-flash-tts-preview';
+const GEMINI_TTS_RATE = 24000;
+
+async function synthesizeGeminiTTS(text, apiKey, voice = 'Aoede', rate = 1.0, pitch = 1.0, lang = 'cs-CZ') {
+  if (!apiKey) throw new Error('No Gemini API key');
+  if (!text || !text.trim()) throw new Error('Empty text');
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`;
+
+  // Gemini TTS is style-controlled via natural-language hints. We don't expose
+  // raw rate/pitch knobs, so collapse rate hints to mild prompt nudges.
+  const tone = rate > 1.4 ? 'fluently and clearly, slightly faster pace' :
+               rate < 0.85 ? 'calmly and deliberately, slightly slower pace' :
+               'naturally, in a clear conversational tone';
+  const styleHint = `Read the following ${lang.startsWith('cs') ? 'Czech' : ''} text ${tone}: `;
+
+  const body = {
+    contents: [{ parts: [{ text: styleHint + text }] }],
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: voice }
+        }
+      }
+    }
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Gemini TTS HTTP ${res.status}: ${errText.slice(0, 240)}`);
+  }
+  const data = await res.json();
+  const part = data?.candidates?.[0]?.content?.parts?.[0];
+  const inline = part?.inlineData || part?.inline_data;
+  const pcmBase64 = inline?.data;
+  if (!pcmBase64) {
+    throw new Error('Gemini TTS response missing audio data');
+  }
+  // The mime type is e.g. "audio/L16;rate=24000" — extract sample rate if present.
+  const mime = inline?.mimeType || inline?.mime_type || '';
+  const rateMatch = mime.match(/rate=(\d+)/);
+  const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : GEMINI_TTS_RATE;
+
+  return pcmBase64ToWavBase64(pcmBase64, sampleRate, 1, 16);
+}
+
+/**
+ * Wrap raw PCM bytes (base64) in a minimal RIFF/WAVE header, return as base64.
+ * Lets <audio src="data:audio/wav;base64,..."> play it without Web Audio decode.
+ */
+function pcmBase64ToWavBase64(pcmBase64, sampleRate, channels, bitsPerSample) {
+  // Decode base64 PCM → Uint8Array
+  const binary = atob(pcmBase64);
+  const pcm = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) pcm[i] = binary.charCodeAt(i);
+
+  const byteRate = sampleRate * channels * bitsPerSample / 8;
+  const blockAlign = channels * bitsPerSample / 8;
+  const dataSize = pcm.length;
+  const headerSize = 44;
+  const buffer = new ArrayBuffer(headerSize + dataSize);
+  const view = new DataView(buffer);
+
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);                        // PCM fmt chunk size
+  view.setUint16(20, 1, true);                          // PCM = 1
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  // data sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  // Copy PCM bytes
+  new Uint8Array(buffer, headerSize).set(pcm);
+
+  return arrayBufferToBase64(buffer);
+}
+
+function writeString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
 // --- Gemini AI Chat ---
 
 async function geminiChat(apiKey, systemInstruction, history, message) {
   if (!apiKey) throw new Error('No Gemini API key');
 
-  const MODEL = 'gemini-2.5-flash-lite';
+  const MODEL = 'gemini-3.1-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   const contents = [

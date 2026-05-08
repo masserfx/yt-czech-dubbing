@@ -543,8 +543,31 @@
         <option value="browser">Zuzana — ženský (systémový, zdarma)</option>
         <option value="edge-male">Antonín — mužský (zdarma, bez klíče)</option>
         <option value="edge-female">Vlasta — ženský (zdarma, bez klíče)</option>
+        <option value="gemini">Gemini 3.1 Flash TTS (zdarma, Gemini API klíč)</option>
         <option value="azure">Azure TTS (vlastní nastavení)</option>
       </select>
+    </div>
+
+    <div class="setting-group" id="geminiTtsGroup" style="display: none;">
+      <div class="setting-label"><span>Gemini hlas</span></div>
+      <select id="geminiTtsVoice">
+        <optgroup label="Doporučené pro češtinu">
+          <option value="Aoede">Aoede — vzdušný, přirozený</option>
+          <option value="Sulafat">Sulafat — teplý, příjemný</option>
+          <option value="Kore">Kore — pevný, jasný</option>
+          <option value="Charon">Charon — informativní</option>
+          <option value="Iapetus">Iapetus — čistý</option>
+          <option value="Achird">Achird — přátelský</option>
+        </optgroup>
+        <optgroup label="Další">
+          <option value="Zephyr">Zephyr — jasný</option>
+          <option value="Puck">Puck — nadnesený</option>
+          <option value="Leda">Leda — mladý</option>
+          <option value="Orus">Orus — pevný</option>
+          <option value="Callirrhoe">Callirrhoe — uvolněný</option>
+        </optgroup>
+      </select>
+      <div class="hint">Použije váš existující Gemini API klíč.</div>
     </div>
 
     <div class="setting-group" id="azureTtsGroup" style="display: none;">

@@ -1715,8 +1715,33 @@
           <option value="browser">Zuzana &#x2014; &#x17E;ensk&#xFD; (syst&#xE9;mov&#xFD;, zdarma)</option>
           <option value="edge-male">Anton&#xED;n &#x2014; mu&#x17E;sk&#xFD; (zdarma, bez kl&#xED;&#x10D;e)</option>
           <option value="edge-female">Vlasta &#x2014; &#x17E;ensk&#xFD; (zdarma, bez kl&#xED;&#x10D;e)</option>
+          <option value="gemini">Gemini 3.1 Flash TTS (zdarma, vy&#x17E;aduje Gemini API kl&#xED;&#x10D;)</option>
           <option value="azure">Azure TTS (vlastn&#xED; nastaven&#xED;)</option>
         </select>
+      </div>
+
+      <div class="setting-group" id="geminiTtsGroup" style="display:none;">
+        <div class="setting-label"><span>Gemini hlas</span></div>
+        <select id="geminiTtsVoice">
+          <optgroup label="Doporu&#x10D;en&#xE9; pro &#x10D;e&#x161;tinu">
+            <option value="Aoede">Aoede &#x2014; vzdu&#x161;n&#xFD;, p&#x159;irozen&#xFD;</option>
+            <option value="Sulafat">Sulafat &#x2014; tepl&#xFD;, p&#x159;&#xED;jemn&#xFD;</option>
+            <option value="Kore">Kore &#x2014; pevn&#xFD;, jasn&#xFD;</option>
+            <option value="Charon">Charon &#x2014; informativn&#xED;</option>
+            <option value="Iapetus">Iapetus &#x2014; &#x10D;ist&#xFD;, jasn&#xFD;</option>
+            <option value="Achird">Achird &#x2014; p&#x159;&#xE1;telsk&#xFD;</option>
+          </optgroup>
+          <optgroup label="Dal&#x161;&#xED;">
+            <option value="Zephyr">Zephyr &#x2014; jasn&#xFD;</option>
+            <option value="Puck">Puck &#x2014; nadnesen&#xFD;</option>
+            <option value="Leda">Leda &#x2014; mlad&#xFD;</option>
+            <option value="Orus">Orus &#x2014; pevn&#xFD;</option>
+            <option value="Callirrhoe">Callirrhoe &#x2014; uvoln&#x11B;n&#xFD;</option>
+            <option value="Algieba">Algieba &#x2014; hlubok&#xFD;, plynul&#xFD;</option>
+            <option value="Vindemiatrix">Vindemiatrix &#x2014; jemn&#xFD;</option>
+          </optgroup>
+        </select>
+        <div class="hint">Pou&#x17E;ije v&#xE1;&#x161; existuj&#xED;c&#xED; Gemini API kl&#xED;&#x10D; (free tier).</div>
       </div>
 
       <div class="setting-group" id="azureTtsGroup" style="display:none;">

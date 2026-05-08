@@ -22,15 +22,25 @@ class TTSEngine {
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
 
     // TTS engine settings
-    this._ttsEngine = 'browser'; // 'browser', 'edge', or 'azure'
+    this._ttsEngine = 'browser'; // 'browser', 'edge', 'azure', or 'gemini'
     this._edgeVoice = 'cs-CZ-AntoninNeural';
     this._azureKey = null;
     this._azureRegion = null;
     this._azureVoice = 'cs-CZ-VlastaNeural';
+    this._geminiKey = null;
+    this._geminiVoice = 'Aoede';
     this._currentAudio = null;
 
     // Service mode
     this._serviceClient = null;
+
+    // Prefetch cache — eliminates inter-segment gaps in cloud-TTS engines
+    // (Edge / Azure / Gemini) by synthesising the next utterance while the
+    // current one plays. Single-use entries; bounded size.
+    this._prefetchCache = new Map();
+    this._prefetchInflight = new Map();
+    this._PREFETCH_TTL_MS = 30_000;
+    this._PREFETCH_MAX = 12;
 
     this._initVoice();
     this._loadTTSSettings();
@@ -48,6 +58,8 @@ class TTSEngine {
         this._azureKey = result.popupSettings.azureTtsKey || null;
         this._azureRegion = result.popupSettings.azureTtsRegion || 'westeurope';
         this._azureVoice = result.popupSettings.azureTtsVoice || this._langConfig.azureVoices[0]?.id || 'cs-CZ-VlastaNeural';
+        this._geminiKey = result.popupSettings.geminiApiKey || null;
+        this._geminiVoice = result.popupSettings.geminiTtsVoice || 'Aoede';
         if (result.popupSettings.targetLanguage) {
           this._targetLang = result.popupSettings.targetLanguage;
           this._langConfig = getLanguageConfig(this._targetLang);
@@ -238,7 +250,83 @@ class TTSEngine {
     if (this._ttsEngine === 'azure' && this._azureKey) {
       return this._speakAzure(text, options);
     }
+    if (this._ttsEngine === 'gemini' && this._geminiKey) {
+      return this._speakGemini(text, options);
+    }
     return this._speakBrowser(text, options);
+  }
+
+  /**
+   * Pre-synthesise the next utterance while the current one is still playing.
+   * Eliminates the WebSocket / HTTP setup gap between consecutive segments.
+   * No-op for the browser engine (system speech doesn't expose pre-render).
+   */
+  prefetch(text, options = {}) {
+    if (!text || !text.trim()) return Promise.resolve();
+    if (this._ttsEngine === 'browser') return Promise.resolve();
+    const key = this._prefetchKey(text, options);
+    if (this._prefetchCache.has(key)) return Promise.resolve();
+    if (this._prefetchInflight.has(key)) return this._prefetchInflight.get(key);
+
+    let task;
+    if (this._ttsEngine === 'edge') {
+      task = this._synthEdge(text, options);
+    } else if (this._ttsEngine === 'azure' && this._azureKey) {
+      task = this._synthAzure(text, options);
+    } else if (this._ttsEngine === 'gemini' && this._geminiKey) {
+      task = this._synthGemini(text, options);
+    } else {
+      return Promise.resolve();
+    }
+
+    const wrapped = task
+      .then(audioBase64 => {
+        if (!audioBase64) return;
+        this._cachePut(key, audioBase64);
+      })
+      .catch(e => {
+        console.log('[Dub TTS] prefetch failed for engine=' + this._ttsEngine + ':', e?.message || e);
+      })
+      .finally(() => this._prefetchInflight.delete(key));
+
+    this._prefetchInflight.set(key, wrapped);
+    return wrapped;
+  }
+
+  _prefetchKey(text, options) {
+    const voice = options._edgeVoiceOverride || this._edgeVoice;
+    const rate = options.rate ?? this.rate;
+    const pitch = options.pitch ?? this.pitch;
+    return `${this._ttsEngine}|${voice}|${rate}|${pitch}|${text}`;
+  }
+
+  _cachePut(key, audioBase64) {
+    this._prefetchCache.set(key, { audioBase64, expires: Date.now() + this._PREFETCH_TTL_MS });
+    while (this._prefetchCache.size > this._PREFETCH_MAX) {
+      const oldest = this._prefetchCache.keys().next().value;
+      this._prefetchCache.delete(oldest);
+    }
+  }
+
+  /**
+   * Pop an entry from the prefetch cache (single-use). Awaits any in-flight
+   * synth for the same key so the caller never re-synths a duplicate.
+   */
+  async _cacheTake(key) {
+    const cached = this._prefetchCache.get(key);
+    if (cached && cached.expires > Date.now()) {
+      this._prefetchCache.delete(key);
+      return cached.audioBase64;
+    }
+    if (this._prefetchInflight.has(key)) {
+      await this._prefetchInflight.get(key);
+      const cached2 = this._prefetchCache.get(key);
+      if (cached2) {
+        this._prefetchCache.delete(key);
+        return cached2.audioBase64;
+      }
+    }
+    return null;
   }
 
   /**
@@ -711,6 +799,29 @@ class TTSEngine {
    * Dynamically selects voice and adjusts pitch/rate based on role config.
    * Falls back to default speak() if role is null or engine is not edge.
    */
+  /**
+   * Build the same prosody options speakAs() will use, without speaking.
+   * Used by prefetch + speakAs to share a single cache key.
+   */
+  _roleOptions(role, options = {}) {
+    if (!role) return options;
+    const roleConfig = this._langConfig.voiceRoles?.[role];
+    if (!roleConfig) return options;
+    return {
+      ...options,
+      pitch: (options.pitch ?? this.pitch) * roleConfig.pitch,
+      rate: (options.rate ?? this.rate) * roleConfig.rate
+    };
+  }
+
+  /**
+   * Pre-synthesise the same text speakAs() would speak. Caller passes the
+   * (role-adjusted) options so the cache key matches the eventual speak.
+   */
+  prefetchAs(text, role, options = {}) {
+    return this.prefetch(text, this._roleOptions(role, options));
+  }
+
   speakAs(text, role, options = {}) {
     if (!role || this._ttsEngine !== 'edge') {
       return this.speak(text, options);
@@ -723,11 +834,7 @@ class TTSEngine {
 
     // Respect user's explicit voice choice — keep their voice, only borrow prosody
     // (pitch/rate) from role. Avoids forcing a male voice on a female-voice user.
-    const roleOptions = {
-      ...options,
-      pitch: (options.pitch ?? this.pitch) * roleConfig.pitch,
-      rate: (options.rate ?? this.rate) * roleConfig.rate
-    };
+    const roleOptions = this._roleOptions(role, options);
 
     console.log(`[Dub TTS] speakAs(${role}) voice=${this._edgeVoice} (user pick), pitch=${roleOptions.pitch}, rate=${roleOptions.rate}`);
     return this._speakEdge(text, roleOptions);
@@ -819,27 +926,35 @@ class TTSEngine {
     });
   }
 
+  async _synthEdge(text, options) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'synthesize-edge-tts',
+      text,
+      voice: options._edgeVoiceOverride || this._edgeVoice,
+      rate: options.rate ?? this.rate,
+      pitch: options.pitch ?? this.pitch
+    });
+    if (!response?.success) {
+      throw new Error(response?.error || 'edge-tts failed');
+    }
+    return response.audioBase64;
+  }
+
   async _speakEdge(text, options) {
     let fallback = false;
     try {
       this.isSpeaking = true;
       if (this.onSpeakStart) this.onSpeakStart(text);
 
-      const response = await chrome.runtime.sendMessage({
-        type: 'synthesize-edge-tts',
-        text,
-        voice: options._edgeVoiceOverride || this._edgeVoice,
-        rate: options.rate ?? this.rate,
-        pitch: options.pitch ?? this.pitch
-      });
-
-      if (!response?.success) {
-        console.error('[Dub TTS] Edge TTS FAILED:', response?.error, '→ fallback to Zuzana');
-        fallback = true;
+      const key = this._prefetchKey(text, options);
+      let audioBase64 = await this._cacheTake(key);
+      if (audioBase64) {
+        console.log(`[Dub TTS] Edge TTS prefetch HIT (${audioBase64.length} chars)`);
       } else {
-        console.log(`[Dub TTS] Edge TTS OK: ${response.audioBase64?.length} chars`);
-        await this._playBase64Audio(response.audioBase64, options);
+        audioBase64 = await this._synthEdge(text, options);
+        console.log(`[Dub TTS] Edge TTS OK: ${audioBase64?.length} chars`);
       }
+      await this._playBase64Audio(audioBase64, options);
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.error('[Dub TTS] Edge TTS EXCEPTION → fallback to Zuzana:', e.message);
@@ -856,29 +971,37 @@ class TTSEngine {
     }
   }
 
+  async _synthAzure(text, options) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'synthesize-azure-tts',
+      text,
+      apiKey: this._azureKey,
+      region: this._azureRegion,
+      voice: this._azureVoice,
+      lang: this._langConfig.bcp47,
+      rate: options.rate ?? this.rate,
+      pitch: options.pitch ?? this.pitch
+    });
+    if (!response?.success) {
+      throw new Error(response?.error || 'azure-tts failed');
+    }
+    return response.audioBase64;
+  }
+
   async _speakAzure(text, options) {
     let fallback = false;
     try {
       this.isSpeaking = true;
       if (this.onSpeakStart) this.onSpeakStart(text);
 
-      const response = await chrome.runtime.sendMessage({
-        type: 'synthesize-azure-tts',
-        text,
-        apiKey: this._azureKey,
-        region: this._azureRegion,
-        voice: this._azureVoice,
-        lang: this._langConfig.bcp47,
-        rate: options.rate ?? this.rate,
-        pitch: options.pitch ?? this.pitch
-      });
-
-      if (!response?.success) {
-        console.warn('[Dub TTS] Azure error:', response?.error);
-        fallback = true;
+      const key = this._prefetchKey(text, options);
+      let audioBase64 = await this._cacheTake(key);
+      if (audioBase64) {
+        console.log(`[Dub TTS] Azure prefetch HIT (${audioBase64.length} chars)`);
       } else {
-        await this._playBase64Audio(response.audioBase64, options);
+        audioBase64 = await this._synthAzure(text, options);
       }
+      await this._playBase64Audio(audioBase64, options);
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.warn('[Dub TTS] Azure TTS failed, falling back to browser:', e);
@@ -895,8 +1018,56 @@ class TTSEngine {
     }
   }
 
+  async _synthGemini(text, options) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'synthesize-gemini-tts',
+      text,
+      apiKey: this._geminiKey,
+      voice: this._geminiVoice,
+      rate: options.rate ?? this.rate,
+      pitch: options.pitch ?? this.pitch,
+      lang: this._langConfig.bcp47
+    });
+    if (!response?.success) {
+      throw new Error(response?.error || 'gemini-tts failed');
+    }
+    return response.audioBase64;
+  }
+
+  async _speakGemini(text, options) {
+    let fallback = false;
+    try {
+      this.isSpeaking = true;
+      if (this.onSpeakStart) this.onSpeakStart(text);
+
+      const key = this._prefetchKey(text, options);
+      let audioBase64 = await this._cacheTake(key);
+      if (audioBase64) {
+        console.log(`[Dub TTS] Gemini prefetch HIT (${audioBase64.length} chars)`);
+      } else {
+        audioBase64 = await this._synthGemini(text, options);
+        console.log(`[Dub TTS] Gemini TTS OK (${audioBase64?.length} chars)`);
+      }
+      await this._playBase64Audio(audioBase64, { ...options, _audioMime: 'audio/wav' });
+    } catch (e) {
+      if (e.message?.includes('Extension context invalidated')) return;
+      console.warn('[Dub TTS] Gemini TTS failed, falling back to browser:', e?.message || e);
+      fallback = true;
+    } finally {
+      if (!fallback) {
+        this.isSpeaking = false;
+        this._currentAudio = null;
+        if (this.onSpeakEnd) this.onSpeakEnd(text);
+      }
+    }
+    if (fallback) {
+      return this._speakBrowser(text, options);
+    }
+  }
+
   async _playBase64Audio(audioBase64, options) {
-    const audio = new Audio(`data:audio/mp3;base64,${audioBase64}`);
+    const mime = options?._audioMime || 'audio/mp3';
+    const audio = new Audio(`data:${mime};base64,${audioBase64}`);
     audio.volume = options.volume ?? this.volume;
     this._currentAudio = audio;
 

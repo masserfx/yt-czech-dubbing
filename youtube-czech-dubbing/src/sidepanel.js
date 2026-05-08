@@ -301,6 +301,11 @@ function bindEvents() {
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      
+      // Initialize news feed when tab is clicked
+      if (tab.dataset.tab === 'news' && window.initNewsFeed) {
+        window.initNewsFeed();
+      }
     });
   });
 
@@ -1152,6 +1157,12 @@ async function loadSettings() {
       }
       document.getElementById('ttsEngine').value = displayEngine;
       document.getElementById('azureTtsGroup').style.display = s.ttsEngine === 'azure' ? 'block' : 'none';
+      const gtg = document.getElementById('geminiTtsGroup');
+      if (gtg) gtg.style.display = s.ttsEngine === 'gemini' ? 'block' : 'none';
+    }
+    if (s.geminiTtsVoice) {
+      const gv = document.getElementById('geminiTtsVoice');
+      if (gv) gv.value = s.geminiTtsVoice;
     }
     if (s.azureTtsKey) document.getElementById('azureTtsKey').value = s.azureTtsKey;
     if (s.azureTtsRegion) document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
@@ -1161,6 +1172,9 @@ async function loadSettings() {
     if (typeof s.voicedubMode === 'boolean') {
       document.getElementById('voicedubMode').checked = s.voicedubMode;
       document.getElementById('voicedubConfigGroup').style.display = s.voicedubMode ? 'block' : 'none';
+    }
+    if (typeof s.voicedubRealtimeMode === 'boolean') {
+      document.getElementById('voicedubRealtimeMode').checked = s.voicedubRealtimeMode;
     }
     if (s.voicedubApiKey) document.getElementById('voicedubApiKey').value = s.voicedubApiKey;
     if (s.voicedubEndpoint) document.getElementById('voicedubEndpoint').value = s.voicedubEndpoint;
@@ -1208,7 +1222,9 @@ function saveSettings() {
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
+    geminiTtsVoice: document.getElementById('geminiTtsVoice')?.value || 'Aoede',
     voicedubMode: document.getElementById('voicedubMode').checked,
+    voicedubRealtimeMode: document.getElementById('voicedubRealtimeMode').checked,
     voicedubApiKey: document.getElementById('voicedubApiKey').value,
     voicedubEndpoint: document.getElementById('voicedubEndpoint').value,
     aiBackend: document.getElementById('aiBackend').value,
@@ -1227,8 +1243,8 @@ function bindSettingsEvents() {
   const autoSave = () => saveSettings();
   const ids = ['targetLanguage', 'translatorEngine', 'anthropicApiKey', 'deeplApiKey',
     'geminiApiKey', 'ttsVolume', 'ttsRate', 'originalVolume', 'muteOriginal',
-    'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice',
-    'voicedubMode', 'voicedubApiKey', 'voicedubEndpoint',
+    'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'geminiTtsVoice',
+    'voicedubMode', 'voicedubRealtimeMode', 'voicedubApiKey', 'voicedubEndpoint',
     'aiBackend', 'ollamaUrl', 'ollamaModel'];
   // Toggle VoiceDub config group visibility on checkbox change
   const voicedubModeEl = document.getElementById('voicedubMode');
@@ -1255,6 +1271,8 @@ function bindSettingsEvents() {
   document.getElementById('ttsEngine').addEventListener('change', (e) => {
     const v = e.target.value;
     document.getElementById('azureTtsGroup').style.display = v === 'azure' ? 'block' : 'none';
+    const gtg = document.getElementById('geminiTtsGroup');
+    if (gtg) gtg.style.display = v === 'gemini' ? 'block' : 'none';
     // Notify content script about TTS engine change
     const settings = { ttsEngine: (v === 'edge-male' || v === 'edge-female') ? 'edge' : v };
     if (v === 'edge-male') settings.edgeTtsVoice = 'cs-CZ-AntoninNeural';

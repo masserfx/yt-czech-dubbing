@@ -168,6 +168,13 @@ function updateSetting(setting, value) {
         settings.edgeTtsVoice = 'cs-CZ-VlastaNeural';
       }
       document.getElementById('azureTtsGroup').style.display = value === 'azure' ? 'block' : 'none';
+      {
+        const g = document.getElementById('geminiTtsGroup');
+        if (g) g.style.display = value === 'gemini' ? 'block' : 'none';
+      }
+      break;
+    case 'geminiTtsVoice':
+      settings.geminiTtsVoice = value;
       break;
     case 'azureTtsKey':
       settings.azureTtsKey = value;
@@ -200,6 +207,9 @@ function updateSetting(setting, value) {
     case 'voicedubMode':
       settings.voicedubMode = value;
       document.getElementById('voicedubConfigGroup').style.display = value ? 'block' : 'none';
+      break;
+    case 'voicedubRealtimeMode':
+      settings.voicedubRealtimeMode = value;
       break;
     case 'voicedubApiKey':
       settings.voicedubApiKey = value;
@@ -322,6 +332,7 @@ function saveSettings() {
       if (v === 'edge-female') return 'cs-CZ-VlastaNeural';
       return 'cs-CZ-AntoninNeural';
     })(),
+    geminiTtsVoice: document.getElementById('geminiTtsVoice')?.value || 'Aoede',
     azureTtsKey: document.getElementById('azureTtsKey').value,
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
@@ -331,6 +342,7 @@ function saveSettings() {
     serviceAuthToken: document.getElementById('serviceAuthToken').value,
     serviceOrganizationId: document.getElementById('serviceOrganizationId').value,
     voicedubMode: document.getElementById('voicedubMode').checked,
+    voicedubRealtimeMode: document.getElementById('voicedubRealtimeMode').checked,
     voicedubApiKey: document.getElementById('voicedubApiKey').value,
     voicedubEndpoint: document.getElementById('voicedubEndpoint').value
   };
@@ -387,6 +399,12 @@ async function loadSettings() {
         }
         document.getElementById('ttsEngine').value = displayEngine;
         document.getElementById('azureTtsGroup').style.display = s.ttsEngine === 'azure' ? 'block' : 'none';
+        const gtg = document.getElementById('geminiTtsGroup');
+        if (gtg) gtg.style.display = s.ttsEngine === 'gemini' ? 'block' : 'none';
+      }
+      if (s.geminiTtsVoice) {
+        const gv = document.getElementById('geminiTtsVoice');
+        if (gv) gv.value = s.geminiTtsVoice;
       }
       if (s.azureTtsKey) {
         document.getElementById('azureTtsKey').value = s.azureTtsKey;
@@ -418,6 +436,9 @@ async function loadSettings() {
       if (typeof s.voicedubMode === 'boolean') {
         document.getElementById('voicedubMode').checked = s.voicedubMode;
         document.getElementById('voicedubConfigGroup').style.display = s.voicedubMode ? 'block' : 'none';
+      }
+      if (typeof s.voicedubRealtimeMode === 'boolean') {
+        document.getElementById('voicedubRealtimeMode').checked = s.voicedubRealtimeMode;
       }
       if (s.voicedubApiKey) {
         document.getElementById('voicedubApiKey').value = s.voicedubApiKey;
@@ -531,6 +552,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // VoiceDub B2B API
   document.getElementById('voicedubMode').addEventListener('change', (e) => updateSetting('voicedubMode', e.target.checked));
+  document.getElementById('voicedubRealtimeMode').addEventListener('change', (e) => updateSetting('voicedubRealtimeMode', e.target.checked));
   document.getElementById('voicedubApiKey').addEventListener('change', (e) => updateSetting('voicedubApiKey', e.target.value));
   document.getElementById('voicedubEndpoint').addEventListener('change', (e) => updateSetting('voicedubEndpoint', e.target.value));
 
