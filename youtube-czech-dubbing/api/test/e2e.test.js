@@ -96,6 +96,32 @@ function installFetchMock() {
         arrayBuffer: async () => new Uint8Array([0xff, 0xfb, 0x90, 0x00]).buffer,
       };
     }
+    if (u.includes('/v1/realtime/translations/client_secrets')) {
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          value: 'rt_secret_demo',
+          expires_at: 1770000000,
+        }),
+      };
+    }
+    if (u.includes('/v1/realtime/client_secrets')) {
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          value: 'rt_whisper_secret_demo',
+          expires_at: 1770000000,
+          session: {
+            type: 'transcription',
+            audio: {
+              input: {
+                transcription: { model: 'gpt-realtime-whisper' },
+              },
+            },
+          },
+        }),
+      };
+    }
     throw new Error('Unexpected fetch: ' + u);
   };
   return () => { globalThis.fetch = orig; };
@@ -173,6 +199,41 @@ test('e2e: POST /v1/dub URL path → 202 pending', async () => {
   assert.equal(res.status, 202);
   const data = await res.json();
   assert.equal(data.status, 'pending');
+});
+
+test('e2e: POST /v1/realtime/client-secret → vrátí OpenAI realtime secret', async () => {
+  const restoreFetch = installFetchMock();
+  const req = new Request('http://x/v1/realtime/client-secret', {
+    method: 'POST',
+    headers: { Authorization: devBearer, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_language: 'cs' }),
+  });
+  const res = await worker.fetch(req, makeEnv({ OPENAI_API_KEY: 'fake-openai' }), {});
+  restoreFetch();
+
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.value, 'rt_secret_demo');
+  assert.equal(data.target_language, 'cs');
+  assert.equal(data.model, 'gpt-realtime-translate');
+});
+
+test('e2e: POST /v1/realtime/client-secret mode=transcription → vrátí OpenAI realtime whisper secret', async () => {
+  const restoreFetch = installFetchMock();
+  const req = new Request('http://x/v1/realtime/client-secret', {
+    method: 'POST',
+    headers: { Authorization: devBearer, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'transcription', source_language: 'en-US' }),
+  });
+  const res = await worker.fetch(req, makeEnv({ OPENAI_API_KEY: 'fake-openai' }), {});
+  restoreFetch();
+
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.value, 'rt_whisper_secret_demo');
+  assert.equal(data.mode, 'transcription');
+  assert.equal(data.source_language, 'en');
+  assert.equal(data.model, 'gpt-realtime-whisper');
 });
 
 test('e2e: POST /v1/dub missing target_language → 400', async () => {

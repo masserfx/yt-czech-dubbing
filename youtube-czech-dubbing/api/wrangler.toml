@@ -10,6 +10,9 @@ ENVIRONMENT = "staging"
 #   GEMINI_API_KEY        — Gemini překlad (aistudio.google.com)
 #   DEEPL_API_KEY         — DeepL fallback (free tier: suffix :fx)
 #   OPENAI_API_KEY        — OpenAI fallback (GPT-4o-mini)
+#   OPENAI_REALTIME_TRANSLATE_MODEL — optional override, default gpt-realtime-translate
+#   OPENAI_REALTIME_TRANSCRIPTION_MODEL — optional override, default gpt-realtime-whisper
+#   OPENAI_REALTIME_TRANSCRIPTION_DELAY — minimal|low|medium|high|xhigh, default low
 #   AZURE_SPEECH_KEY      — Azure Neural TTS
 #   AZURE_SPEECH_REGION   — např. "westeurope"
 #   API_SIGNING_SECRET    — pro HMAC API klíče

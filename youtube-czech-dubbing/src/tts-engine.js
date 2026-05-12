@@ -327,7 +327,7 @@ class TTSEngine {
    * so we don't burst free-tier rate limits. Stops cleanly when an abort
    * controller is fired (used on seek / stop).
    *
-   * @param {Array<{text:string, role?:string, _ttsRate?:number}>} segments
+   * @param {Array<{text:string, role?:string, speaker?:string, _ttsRate?:number}>} segments
    * @param {Object} [opts]
    * @param {number} [opts.concurrency=2]   how many synths can run in parallel
    * @param {number} [opts.startIndex=0]    segment index to start from
@@ -362,7 +362,8 @@ class TTSEngine {
 
         // Build the same options that speakAs/speak will use, so the cache key matches.
         const segOpts = seg._ttsRate ? { rate: seg._ttsRate } : {};
-        const opts = seg.role ? this._roleOptions(seg.role, segOpts) : segOpts;
+        const role = seg.speaker || seg.role;
+        const opts = role ? this._roleOptions(role, segOpts) : segOpts;
         if (this.hasCached(seg.text, opts)) continue;
 
         try {
@@ -452,7 +453,12 @@ class TTSEngine {
    * Fallback: native speechSynthesis (only works on some iOS versions/pages)
    */
   async _speakIOSAudio(text, options) {
-    if (this.onSpeakStart) this.onSpeakStart(text);
+    let didSpeakStart = false;
+    const markSpeakStart = () => {
+      if (didSpeakStart) return;
+      didSpeakStart = true;
+      if (this.onSpeakStart) this.onSpeakStart(text);
+    };
     this.isSpeaking = true;
     try {
       const lang = (this._langConfig?.bcp47 || 'cs-CZ').split('-')[0];
@@ -487,7 +493,9 @@ class TTSEngine {
           console.warn('[Dub TTS iOS BG] exception:', e?.message || String(e));
         }
 
+        if (options?._shouldPlay && !options._shouldPlay()) return;
         if (base64) {
+          markSpeakStart();
           await this._playBase64DataUrl(
             base64,
             options.volume ?? this.volume ?? 0.95,
@@ -496,7 +504,9 @@ class TTSEngine {
         } else {
           // Last resort: native speechSynthesis (usually no-op on iOS content-script,
           // but at least won't block the queue).
+          if (options?._shouldPlay && !options._shouldPlay()) return;
           console.warn('[Dub TTS iOS] all TTS paths failed — trying native synth');
+          markSpeakStart();
           await this._speakIOSNative(chunk, options);
         }
       }
@@ -951,11 +961,14 @@ class TTSEngine {
   async _speakService(text, options) {
     try {
       this.isSpeaking = true;
-      if (this.onSpeakStart) this.onSpeakStart(text);
 
       const audioBase64 = await this._serviceClient.synthesize(text, this._targetLang, this._azureVoice);
       if (audioBase64) {
-        await this._playBase64Audio(audioBase64, options);
+        if (options?._shouldPlay && !options._shouldPlay()) return;
+        await this._playBase64Audio(audioBase64, {
+          ...options,
+          _onPlaybackStart: () => this.onSpeakStart?.(text),
+        });
         return;
       }
       // Fallback to browser TTS
@@ -972,6 +985,10 @@ class TTSEngine {
 
   _speakBrowser(text, options) {
     return new Promise((resolve) => {
+      if (options?._shouldPlay && !options._shouldPlay()) {
+        resolve();
+        return;
+      }
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = this._langConfig.bcp47;
 
@@ -1052,7 +1069,6 @@ class TTSEngine {
     let fallback = false;
     try {
       this.isSpeaking = true;
-      if (this.onSpeakStart) this.onSpeakStart(text);
 
       const key = this._prefetchKey(text, options);
       let audioBase64 = await this._cacheTake(key);
@@ -1063,7 +1079,11 @@ class TTSEngine {
         console.log(`[Dub TTS] Edge TTS OK: ${audioBase64?.length} chars`);
         this._fireSynthSuccess(text, audioBase64, options);
       }
-      await this._playBase64Audio(audioBase64, options);
+      if (options?._shouldPlay && !options._shouldPlay()) return;
+      await this._playBase64Audio(audioBase64, {
+        ...options,
+        _onPlaybackStart: () => this.onSpeakStart?.(text),
+      });
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.error('[Dub TTS] Edge TTS EXCEPTION → fallback to Zuzana:', e.message);
@@ -1101,7 +1121,6 @@ class TTSEngine {
     let fallback = false;
     try {
       this.isSpeaking = true;
-      if (this.onSpeakStart) this.onSpeakStart(text);
 
       const key = this._prefetchKey(text, options);
       let audioBase64 = await this._cacheTake(key);
@@ -1111,7 +1130,11 @@ class TTSEngine {
         audioBase64 = await this._synthAzure(text, options);
         this._fireSynthSuccess(text, audioBase64, options);
       }
-      await this._playBase64Audio(audioBase64, options);
+      if (options?._shouldPlay && !options._shouldPlay()) return;
+      await this._playBase64Audio(audioBase64, {
+        ...options,
+        _onPlaybackStart: () => this.onSpeakStart?.(text),
+      });
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.warn('[Dub TTS] Azure TTS failed, falling back to browser:', e);
@@ -1148,7 +1171,6 @@ class TTSEngine {
     let fallback = false;
     try {
       this.isSpeaking = true;
-      if (this.onSpeakStart) this.onSpeakStart(text);
 
       const key = this._prefetchKey(text, options);
       let audioBase64 = await this._cacheTake(key);
@@ -1159,7 +1181,12 @@ class TTSEngine {
         console.log(`[Dub TTS] Gemini TTS OK (${audioBase64?.length} chars)`);
         this._fireSynthSuccess(text, audioBase64, options);
       }
-      await this._playBase64Audio(audioBase64, { ...options, _audioMime: 'audio/wav' });
+      if (options?._shouldPlay && !options._shouldPlay()) return;
+      await this._playBase64Audio(audioBase64, {
+        ...options,
+        _audioMime: 'audio/wav',
+        _onPlaybackStart: () => this.onSpeakStart?.(text),
+      });
     } catch (e) {
       if (e.message?.includes('Extension context invalidated')) return;
       console.warn('[Dub TTS] Gemini TTS failed, falling back to browser:', e?.message || e);
@@ -1178,8 +1205,20 @@ class TTSEngine {
 
   async _playBase64Audio(audioBase64, options) {
     const mime = options?._audioMime || 'audio/mp3';
-    const audio = new Audio(`data:${mime};base64,${audioBase64}`);
+    const onPlaybackStart = typeof options?._onPlaybackStart === 'function'
+      ? options._onPlaybackStart
+      : null;
+    // Reuse the user-gesture-unlocked element if Aura Live web has primed one.
+    // iOS Safari rejects play() on freshly-constructed Audio elements; a primed
+    // element keeps its play permission across subsequent src swaps.
+    const unlocked = (typeof window !== 'undefined' && window.__auraUnlockedAudio) || null;
+    const audio = unlocked || new Audio();
+    if (unlocked) {
+      try { audio.pause(); audio.currentTime = 0; } catch (_) {}
+    }
+    audio.src = `data:${mime};base64,${audioBase64}`;
     audio.volume = options.volume ?? this.volume;
+    audio.muted = false;
     // Route to a specific output device when picked (e.g. AirPods speaker)
     if (this._outputSinkId && typeof audio.setSinkId === 'function') {
       try { await audio.setSinkId(this._outputSinkId); }
@@ -1188,9 +1227,19 @@ class TTSEngine {
     this._currentAudio = audio;
 
     await new Promise((resolve) => {
+      let started = false;
+      const markStarted = () => {
+        if (started) return;
+        started = true;
+        onPlaybackStart?.();
+      };
+      audio.onplaying = markStarted;
       audio.onended = resolve;
       audio.onerror = () => { console.warn('[Dub TTS] Audio playback error'); resolve(); };
-      audio.play().catch(() => resolve());
+      audio.play().then(markStarted).catch((e) => {
+        console.warn('[Dub TTS] play() rejected:', e?.message || e);
+        resolve();
+      });
     });
   }
 

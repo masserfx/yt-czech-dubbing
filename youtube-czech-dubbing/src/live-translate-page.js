@@ -11,7 +11,8 @@
       sourceSel, targetSel, settingsToggle, settingsEl, micDeviceSel,
       outputDeviceSel, sttEngineSel,
       translatorSel, ttsSel, geminiVoiceSel, geminiVoiceGroup,
-      apiKeyGroup, apiKeyLabel, apiKeyInput, toast, headerStatus;
+      apiKeyGroup, apiKeyLabel, apiKeyInput, openaiKeyGroup,
+      openaiApiKeyInput, toast, headerStatus;
 
   document.addEventListener('DOMContentLoaded', init);
   if (document.readyState !== 'loading') init();
@@ -40,6 +41,8 @@
     apiKeyGroup = document.getElementById('apiKeyGroup');
     apiKeyLabel = document.getElementById('apiKeyLabel');
     apiKeyInput = document.getElementById('apiKeyInput');
+    openaiKeyGroup = document.getElementById('openaiKeyGroup');
+    openaiApiKeyInput = document.getElementById('openaiApiKeyInput');
     toast = document.getElementById('toast');
     headerStatus = document.getElementById('headerStatus');
 
@@ -68,12 +71,59 @@
     micBtn.addEventListener('click', toggleMic);
     sourceSel.addEventListener('change', () => { live.setSourceLang(sourceSel.value); savePrefs(); });
     targetSel.addEventListener('change', () => { live.setTargetLang(targetSel.value); savePrefs(); });
+
+    // Swap source ↔ target. Source uses BCP-47 (en-US), target uses short
+    // codes (en) — convert in both directions.
+    const btnSwap = document.getElementById('btnSwap');
+    if (btnSwap) {
+      btnSwap.addEventListener('click', () => {
+        const SHORT_TO_BCP47 = {
+          en: 'en-US', cs: 'cs-CZ', sk: 'sk-SK', pl: 'pl-PL', hu: 'hu-HU',
+          de: 'de-DE', fr: 'fr-FR', es: 'es-ES', it: 'it-IT', nl: 'nl-NL',
+          sv: 'sv-SE', da: 'da-DK', nb: 'nb-NO', fi: 'fi-FI', pt: 'pt-PT',
+          ru: 'ru-RU', uk: 'uk-UA', tr: 'tr-TR', ja: 'ja-JP', ko: 'ko-KR',
+          zh: 'zh-CN', ar: 'ar-SA', hi: 'hi-IN'
+        };
+        const oldSourceShort = (sourceSel.value || '').split('-')[0];
+        const oldTargetShort = targetSel.value;
+        const newSourceBcp = SHORT_TO_BCP47[oldTargetShort] || (oldTargetShort + '-' + oldTargetShort.toUpperCase());
+
+        const hasOpt = (sel, val) => [...sel.options].some(o => o.value === val);
+
+        // Apply if both options exist; otherwise notify the user.
+        const sourceOk = hasOpt(sourceSel, newSourceBcp);
+        const targetOk = hasOpt(targetSel, oldSourceShort);
+        if (!sourceOk || !targetOk) {
+          showToast(`Nelze prohodit směr — některý z jazyků není v opačném dropdownu (${!sourceOk ? newSourceBcp : oldSourceShort}).`);
+          return;
+        }
+        sourceSel.value = newSourceBcp;
+        targetSel.value = oldSourceShort;
+        sourceSel.dispatchEvent(new Event('change'));
+        targetSel.dispatchEvent(new Event('change'));
+        // Visual feedback
+        btnSwap.classList.add('flash');
+        setTimeout(() => btnSwap.classList.remove('flash'), 600);
+      });
+    }
     settingsToggle.addEventListener('click', () => {
       settingsEl.classList.toggle('open');
       if (settingsEl.classList.contains('open') && micDeviceSel.options.length <= 1) {
         loadMicDevices();
       }
     });
+
+    // Theme toggle. Inline pre-paint script in HTML <head> already applied
+    // any saved value; this just flips it and persists. Default is dark.
+    const btnTheme = document.getElementById('btnTheme');
+    if (btnTheme) {
+      btnTheme.addEventListener('click', () => {
+        const cur = document.documentElement.getAttribute('data-theme');
+        const next = cur === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        try { localStorage.setItem('auraTheme', next); } catch (_) {}
+      });
+    }
     micDeviceSel.addEventListener('change', () => { live.setMicDevice(micDeviceSel.value || null); savePrefs(); });
     if (outputDeviceSel) {
       outputDeviceSel.addEventListener('change', () => {
@@ -84,6 +134,7 @@
     if (sttEngineSel) {
       sttEngineSel.addEventListener('change', () => {
         live.setSttEngine(sttEngineSel.value);
+        updateOpenAIKeyVisibility();
         savePrefs();
       });
     }
@@ -96,9 +147,16 @@
       applyTtsEngine();
       live.setGeminiKey(apiKeyInput.value);
     });
+    if (openaiApiKeyInput) {
+      openaiApiKeyInput.addEventListener('change', () => {
+        savePrefs();
+        updateOpenAIKeyVisibility();
+      });
+    }
 
     applyTranslatorEngine();
     applyTtsEngine();
+    updateOpenAIKeyVisibility();
     requestWakeLock();
   }
 
@@ -129,11 +187,61 @@
     }
   }
 
+  // iOS Safari requires TTS / audio playback to be unlocked inside a
+  // user-gesture handler — otherwise speechSynthesis is silent and
+  // HTMLAudioElement.play() rejects with NotAllowedError. Call this from
+  // the START click. Idempotent.
+  let _audioUnlocked = false;
+  function unlockAudioOnIOS() {
+    if (_audioUnlocked) return;
+    _audioUnlocked = true;
+    try {
+      // 1. Prime speechSynthesis with a near-silent utterance so the engine
+      //    is "user-gesture authorized" for subsequent calls outside gesture.
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      u.rate = 1;
+      window.speechSynthesis.speak(u);
+    } catch (_) {}
+    try {
+      // 2. Pre-create a shared <audio> element and play 1 frame of silence
+      //    to lift the auto-play lock for cloud TTS (data:/blob: playback).
+      let a = window.__auraUnlockedAudio;
+      if (!a) {
+        a = document.createElement('audio');
+        a.setAttribute('playsinline', '');
+        a.setAttribute('webkit-playsinline', '');
+        a.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0';
+        document.body.appendChild(a);
+        window.__auraUnlockedAudio = a;
+      }
+      // 0.1s of silent WAV (44.1kHz mono, 1 sample of 0)
+      a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=';
+      a.volume = 1.0;
+      a.muted = false;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (_) {}
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) {
+        const ctx = window.__auraAudioCtx || new Ctx();
+        window.__auraAudioCtx = ctx;
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      }
+    } catch (_) {}
+    console.log('[LivePage] audio unlocked for iOS Safari');
+  }
+
   async function toggleMic() {
-    if (live.stt.isRunning) {
+    if (live.isRunning()) {
       live.stop();
       return;
     }
+
+    // Unlock audio NOW — we're inside the click handler, which is the only
+    // moment iOS Safari accepts speechSynthesis.speak() and audio.play().
+    unlockAudioOnIOS();
 
     // Make sure engine config from the UI is what gets used (init() shouldn't
     // clobber, but be defensive and re-apply right before the start).
@@ -151,6 +259,10 @@
       showToast('Chybí Gemini API klíč pro TTS — přepínám na systémový hlas');
       ttsSel.value = 'browser';
       applyTtsEngine();
+    }
+    if (sttEngineSel?.value === 'openai' && !(openaiApiKeyInput?.value || '').trim()) {
+      showToast('Chybí OpenAI API klíč pro Realtime Whisper');
+      return;
     }
 
     const ok = await live.start();
@@ -303,23 +415,31 @@
     }
   }
 
+  function updateOpenAIKeyVisibility() {
+    if (!openaiKeyGroup) return;
+    openaiKeyGroup.style.display = sttEngineSel?.value === 'openai' ? 'flex' : 'none';
+  }
+
   const PREFS_KEY = 'liveTranslatePrefs';
 
   async function restorePrefs() {
     try {
-      const r = await chrome.storage.local.get(PREFS_KEY);
+      const r = await chrome.storage.local.get([PREFS_KEY, 'popupSettings']);
       const p = r[PREFS_KEY] || {};
+      const popupSettings = r.popupSettings || {};
       if (p.sourceLang) sourceSel.value = p.sourceLang;
       if (p.targetLang) targetSel.value = p.targetLang;
       if (p.translatorEngine) translatorSel.value = p.translatorEngine;
       if (p.ttsEngine) ttsSel.value = p.ttsEngine;
       if (p.geminiVoice) geminiVoiceSel.value = p.geminiVoice;
       if (p.apiKey) apiKeyInput.value = p.apiKey;
+      if (openaiApiKeyInput) openaiApiKeyInput.value = p.openaiApiKey || popupSettings.openaiApiKey || '';
       if (p.sttEngine && sttEngineSel) sttEngineSel.value = p.sttEngine;
       live.setSourceLang(sourceSel.value);
       live.setTargetLang(targetSel.value);
       live.setSttEngine(sttEngineSel?.value || 'webspeech');
       live.setGeminiKey(apiKeyInput.value);
+      updateOpenAIKeyVisibility();
       // Apply persisted output sink even before user opens settings drawer
       if (p.outputDeviceId) live.tts.setOutputDevice(p.outputDeviceId);
     } catch (_) {}
@@ -327,6 +447,8 @@
 
   async function savePrefs() {
     try {
+      const openaiApiKey = (openaiApiKeyInput?.value || '').trim();
+      const { popupSettings } = await chrome.storage.local.get('popupSettings');
       await chrome.storage.local.set({
         [PREFS_KEY]: {
           sourceLang: sourceSel.value,
@@ -336,8 +458,13 @@
           sttEngine: sttEngineSel?.value || 'webspeech',
           geminiVoice: geminiVoiceSel.value,
           apiKey: apiKeyInput.value,
+          openaiApiKey,
           micDeviceId: micDeviceSel?.value || '',
           outputDeviceId: outputDeviceSel?.value || ''
+        },
+        popupSettings: {
+          ...(popupSettings || {}),
+          openaiApiKey,
         }
       });
     } catch (_) {}
@@ -394,7 +521,7 @@
       }
     } catch (_) {}
     document.addEventListener('visibilitychange', async () => {
-      if (document.visibilityState === 'visible' && live.stt?.isRunning) {
+      if (document.visibilityState === 'visible' && live.isRunning()) {
         try { wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
       }
     });

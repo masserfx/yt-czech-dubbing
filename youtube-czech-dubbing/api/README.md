@@ -4,28 +4,21 @@ REST API pro automatický překlad a dabing videa. Běží na **Cloudflare Worke
 
 ## Architektura
 
-```
-┌─────────────┐
-│   Client    │
-└──────┬──────┘
-       │ POST /v1/dub   (translate + synthesize)
-       │ POST /v1/synthesize  (TTS-only, cached)
-       │ GET  /v1/usage       (tenant stats)
-       ▼
-┌──────────────────────┐     ┌──────────────────┐
-│ Cloudflare Worker    │────►│  Gemini 2.5 Flash│  překlad
-│  /v1/dub             │     │  DeepL / OpenAI  │  fallback
-│  /v1/synthesize      │     └──────────────────┘
-│  /v1/voices          │     ┌──────────────────┐
-│  /v1/jobs/{id}       │────►│  Azure Neural TTS│  syntéza
-│  /v1/usage           │     └──────────────────┘
-│  /v1/health          │              │
-└──────┬───────────────┘              ▼
-       │                         ┌─────────┐
-       ├──► D1 (jobs, usage)     │   R2    │
-       ├──► R2 (audio + TTS cache)│  audio  │
-       ├──► KV (API keys + RL)   └─────────┘
-       └──► Queue (long jobs)
+```text
+Client
+  -> POST /v1/dub
+  -> POST /v1/synthesize
+  -> POST /v1/realtime/client-secret
+  -> GET  /v1/usage
+
+Cloudflare Worker
+  -> Gemini 2.5 Flash / DeepL / OpenAI for batch translation
+  -> Azure Neural TTS for /v1/dub and /v1/synthesize audio output
+  -> OpenAI Realtime for live speech translation sessions
+  -> D1 (jobs, usage)
+  -> R2 (audio + TTS cache)
+  -> KV (API keys + rate limits)
+  -> Queue (long jobs)
 ```
 
 ## Endpoints
@@ -86,6 +79,54 @@ Body fields:
 - `disable_watermark` — per-segment bypass pro live dubbing (session-level disclosure na klientu)
 
 Response: `{ audio_base64, voice_id, cached: boolean, duration_seconds, characters }`
+
+### `POST /v1/realtime/client-secret`
+Vrátí krátkodobý OpenAI client secret pro browser-side `gpt-realtime-translate`.
+Používej ho pro live audio překlad; `/v1/dub` zůstává batch transcript/TTS pipeline.
+
+```bash
+curl -X POST http://localhost:8787/v1/realtime/client-secret \
+  -H "Authorization: Bearer vd_test_abc123xyz" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_language": "cs"
+  }'
+```
+
+Response:
+```json
+{
+  "value": "rt_cs_...",
+  "expires_at": 1770000000,
+  "target_language": "cs",
+  "model": "gpt-realtime-translate"
+}
+```
+
+Pro realtime STT fallback pošli `mode: "transcription"`. Backend vytvoří GA
+Realtime transcription session s `gpt-realtime-whisper` a vrátí ephemeral secret
+použitelný pro WebRTC `/v1/realtime/calls`.
+
+```bash
+curl -X POST http://localhost:8787/v1/realtime/client-secret \
+  -H "Authorization: Bearer vd_test_abc123xyz" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mode": "transcription",
+    "source_language": "en-US"
+  }'
+```
+
+Response:
+```json
+{
+  "value": "ek_...",
+  "expires_at": 1770000000,
+  "mode": "transcription",
+  "source_language": "en",
+  "model": "gpt-realtime-whisper"
+}
+```
 
 ### `GET /v1/jobs/{id}`
 Status úlohy.

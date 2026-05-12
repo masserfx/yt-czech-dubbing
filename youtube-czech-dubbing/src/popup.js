@@ -145,6 +145,9 @@ function updateSetting(setting, value) {
     case 'muteOriginal':
       settings.muteOriginal = value;
       break;
+    case 'showSubtitles':
+      settings.showSubtitles = value;
+      break;
     case 'translatorEngine':
       settings.translatorEngine = value;
       document.getElementById('apiKeyGroup').style.display = value === 'claude' ? 'block' : 'none';
@@ -216,6 +219,12 @@ function updateSetting(setting, value) {
       break;
     case 'voicedubEndpoint':
       settings.voicedubEndpoint = value;
+      break;
+    case 'openaiRealtimeMode':
+      settings.openaiRealtimeMode = value;
+      break;
+    case 'openaiApiKey':
+      settings.openaiApiKey = value;
       break;
   }
 
@@ -319,6 +328,7 @@ function saveSettings() {
     ttsPitch: document.getElementById('ttsPitch').value,
     originalVolume: document.getElementById('originalVolume').value,
     muteOriginal: document.getElementById('muteOriginal').checked,
+    showSubtitles: document.getElementById('showSubtitles').checked,
     targetLanguage: document.getElementById('targetLanguage').value,
     translatorEngine: document.getElementById('translatorEngine').value,
     anthropicApiKey: document.getElementById('anthropicApiKey').value,
@@ -341,6 +351,8 @@ function saveSettings() {
     serviceApiEndpoint: document.getElementById('serviceApiEndpoint').value,
     serviceAuthToken: document.getElementById('serviceAuthToken').value,
     serviceOrganizationId: document.getElementById('serviceOrganizationId').value,
+    openaiRealtimeMode: document.getElementById('openaiRealtimeMode').checked,
+    openaiApiKey: document.getElementById('openaiApiKey').value,
     voicedubMode: document.getElementById('voicedubMode').checked,
     voicedubRealtimeMode: document.getElementById('voicedubRealtimeMode').checked,
     voicedubApiKey: document.getElementById('voicedubApiKey').value,
@@ -379,6 +391,9 @@ async function loadSettings() {
       }
       if (s.muteOriginal !== undefined) {
         document.getElementById('muteOriginal').checked = s.muteOriginal;
+      }
+      if (s.showSubtitles !== undefined) {
+        document.getElementById('showSubtitles').checked = s.showSubtitles === true;
       }
       if (s.translatorEngine) {
         document.getElementById('translatorEngine').value = s.translatorEngine;
@@ -432,6 +447,12 @@ async function loadSettings() {
       }
       if (s.serviceOrganizationId) {
         document.getElementById('serviceOrganizationId').value = s.serviceOrganizationId;
+      }
+      if (typeof s.openaiRealtimeMode === 'boolean') {
+        document.getElementById('openaiRealtimeMode').checked = s.openaiRealtimeMode;
+      }
+      if (s.openaiApiKey) {
+        document.getElementById('openaiApiKey').value = s.openaiApiKey;
       }
       if (typeof s.voicedubMode === 'boolean') {
         document.getElementById('voicedubMode').checked = s.voicedubMode;
@@ -530,6 +551,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Checkbox
   document.getElementById('muteOriginal').addEventListener('change', (e) => updateSetting('muteOriginal', e.target.checked));
+  document.getElementById('showSubtitles').addEventListener('change', (e) => updateSetting('showSubtitles', e.target.checked));
 
   // API keys
   document.getElementById('anthropicApiKey').addEventListener('change', (e) => updateSetting('anthropicApiKey', e.target.value));
@@ -551,6 +573,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('serviceOrganizationId').addEventListener('change', (e) => updateSetting('serviceOrganizationId', e.target.value));
 
   // VoiceDub B2B API
+  document.getElementById('openaiRealtimeMode').addEventListener('change', (e) => updateSetting('openaiRealtimeMode', e.target.checked));
+  document.getElementById('openaiApiKey').addEventListener('change', (e) => updateSetting('openaiApiKey', e.target.value));
   document.getElementById('voicedubMode').addEventListener('change', (e) => updateSetting('voicedubMode', e.target.checked));
   document.getElementById('voicedubRealtimeMode').addEventListener('change', (e) => updateSetting('voicedubRealtimeMode', e.target.checked));
   document.getElementById('voicedubApiKey').addEventListener('change', (e) => updateSetting('voicedubApiKey', e.target.value));

@@ -299,6 +299,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'openai-realtime-client-secret') {
+    openAIRealtimeClientSecret(msg.apiKey, msg.payload)
+      .then(data => sendResponse({ success: true, data }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   // Usage stats
   if (msg.type === 'get-usage-stats') {
     getUsageStats()
@@ -1497,6 +1504,133 @@ async function voicedubRealtimeClientSecret(endpoint, apiKey, payload = {}) {
     throw new Error(`VoiceDub realtime ${resp.status}: ${errText.substring(0, 200)}`);
   }
   return await resp.json();
+}
+
+// --- OpenAI Realtime BYOK client secrets ---
+
+async function openAIRealtimeClientSecret(apiKey, payload = {}) {
+  apiKey = apiKey || await loadStoredOpenAIApiKey();
+  if (!apiKey) throw new Error('No OpenAI API key');
+  const mode = normalizeRealtimeMode(payload.mode);
+  if (mode === 'transcription') {
+    return openAIRealtimeTranscriptionSecret(apiKey, payload);
+  }
+  return openAIRealtimeTranslationSecret(apiKey, payload);
+}
+
+async function loadStoredOpenAIApiKey() {
+  try {
+    const { popupSettings, liveTranslatePrefs } = await chrome.storage.local.get(['popupSettings', 'liveTranslatePrefs']);
+    return (liveTranslatePrefs?.openaiApiKey || popupSettings?.openaiApiKey || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+async function openAIRealtimeTranslationSecret(apiKey, payload = {}) {
+  const targetLanguage = normalizeRealtimeLanguage(payload.target_language || payload.targetLanguage || 'cs');
+  if (!targetLanguage) throw new Error('Invalid target_language');
+
+  const session = {
+    model: payload.model || 'gpt-realtime-translate',
+    audio: {
+      output: {
+        language: targetLanguage,
+      },
+    },
+  };
+
+  const resp = await fetch('https://api.openai.com/v1/realtime/translations/client_secrets', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ session }),
+  });
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`OpenAI realtime translation ${resp.status}: ${text.slice(0, 300)}`);
+  const data = parseJSON(text, 'OpenAI realtime translation returned invalid JSON');
+  const value = data.value || data.client_secret?.value;
+  if (!value) throw new Error('OpenAI realtime translation returned no client secret');
+  return {
+    value,
+    expires_at: data.expires_at || data.client_secret?.expires_at || null,
+    mode: 'translation',
+    target_language: targetLanguage,
+    model: data.session?.model || session.model,
+  };
+}
+
+async function openAIRealtimeTranscriptionSecret(apiKey, payload = {}) {
+  const sourceLanguage = normalizeRealtimeLanguage(payload.source_language || payload.sourceLanguage || payload.language || 'en');
+  if (!sourceLanguage) throw new Error('Invalid source_language');
+  const sourceIso = sourceLanguage.split('-')[0].toLowerCase();
+
+  const transcription = {
+    model: payload.model || 'gpt-realtime-whisper',
+    language: sourceIso,
+  };
+
+  const session = {
+    type: 'transcription',
+    audio: {
+      input: {
+        format: {
+          type: 'audio/pcm',
+          rate: 24000,
+        },
+        transcription,
+        noise_reduction: {
+          type: 'near_field',
+        },
+      },
+    },
+  };
+
+  const resp = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      expires_after: { anchor: 'created_at', seconds: 600 },
+      session,
+    }),
+  });
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`OpenAI realtime transcription ${resp.status}: ${text.slice(0, 300)}`);
+  const data = parseJSON(text, 'OpenAI realtime transcription returned invalid JSON');
+  const value = data.value || data.client_secret?.value;
+  if (!value) throw new Error('OpenAI realtime transcription returned no client secret');
+  return {
+    value,
+    expires_at: data.expires_at || data.client_secret?.expires_at || null,
+    mode: 'transcription',
+    source_language: sourceIso,
+    model: data.session?.audio?.input?.transcription?.model || transcription.model,
+  };
+}
+
+function normalizeRealtimeMode(value) {
+  const mode = String(value || 'translation').trim().toLowerCase();
+  if (mode === 'transcription' || mode === 'transcribe') return 'transcription';
+  return 'translation';
+}
+
+function normalizeRealtimeLanguage(value) {
+  const lang = String(value || '').trim();
+  if (!/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(lang)) return null;
+  return lang;
+}
+
+function parseJSON(text, message) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(message);
+  }
 }
 
 // --- Gemini Translation ---

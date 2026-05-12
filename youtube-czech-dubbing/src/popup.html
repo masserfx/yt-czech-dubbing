@@ -499,6 +499,11 @@
       <label for="muteOriginal">Úplně ztlumit originální zvuk</label>
     </div>
 
+    <div class="checkbox-group">
+      <input type="checkbox" id="showSubtitles">
+      <label for="showSubtitles">Zobrazovat české titulky přes video</label>
+    </div>
+
     <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
       <div class="setting-label"><span>Jazyk dabingu / Dubbing language</span></div>
       <select id="targetLanguage">
@@ -664,6 +669,22 @@
   </div>
   </div>
 
+    <!-- OpenAI Realtime API (direct BYOK) -->
+    <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
+      <details open>
+        <summary style="font-size:12px; color:var(--text-muted); cursor:pointer; user-select:none;">OpenAI Realtime API (vlastní klíč, bez VoiceDub)</summary>
+        <div style="margin-top:8px;">
+          <div class="checkbox-group" style="margin-bottom:8px;">
+            <input type="checkbox" id="openaiRealtimeMode">
+            <label for="openaiRealtimeMode">Použít gpt-realtime-translate pro live audio dabing</label>
+          </div>
+          <div class="setting-label"><span>OpenAI API klíč</span></div>
+          <input type="password" id="openaiApiKey" placeholder="sk-proj-...">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Klíč z platform.openai.com. Nepoužívá VoiceDub server; OpenAI účtuje podle vašeho účtu/kreditů.</div>
+        </div>
+      </details>
+    </div>
+
     <!-- VoiceDub B2B API (unified /v1/dub) -->
     <div class="setting-group" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
       <details>
@@ -680,11 +701,11 @@
             <div class="setting-label" style="margin-top:6px;"><span>Endpoint (výchozí: staging)</span></div>
             <input type="text" id="voicedubEndpoint" placeholder="https://voicedub-api.masserfx.workers.dev"
              >
-            <div class="checkbox-group" style="margin-top:8px;">
+            <div class="checkbox-group" style="display:none;margin-top:8px;">
               <input type="checkbox" id="voicedubRealtimeMode">
-              <label for="voicedubRealtimeMode">OpenAI Realtime Translate (live audio, experimentální)</label>
+              <label for="voicedubRealtimeMode">Legacy VoiceDub realtime</label>
             </div>
-            <div style="font-size:10px;color:var(--accent-bright);margin-top:4px;">AI Act čl. 50 watermark default ON. Enterprise tier může disable v payloadu.</div>
+            <div style="font-size:10px;color:var(--accent-bright);margin-top:4px;">Realtime přes VoiceDub je deprecated; použijte OpenAI Realtime výše.</div>
           </div>
           <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">Náhrada za lokální překlad + TTS. Staging zdarma 500k znaků/měs (Azure F0).</div>
         </div>

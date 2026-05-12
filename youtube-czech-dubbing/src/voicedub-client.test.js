@@ -119,3 +119,31 @@ test('VoiceDubClient: createRealtimeClientSecret() posílá správnou message', 
   assert.equal(captured.payload.target_language, 'cs');
   assert.equal(out.value, 'rt_secret');
 });
+
+test('VoiceDubClient: createRealtimeTranscriptionClientSecret() posílá správnou message', async () => {
+  let captured;
+  installChromeMock({
+    settings: {
+      voicedubMode: true,
+      voicedubApiKey: 'vd_live_' + 'E'.repeat(22),
+      voicedubEndpoint: 'https://api.example.com',
+    },
+    sendResponse: (msg) => {
+      captured = msg;
+      return {
+        success: true,
+        data: { value: 'rt_whisper_secret', expires_at: 1770000000, model: 'gpt-realtime-whisper' },
+      };
+    },
+  });
+  await import('./voicedub-client.js');
+  const c = new globalThis.window.VoiceDubClient();
+  await c.loadConfig();
+  const out = await c.createRealtimeTranscriptionClientSecret('en-US');
+
+  assert.equal(captured.type, 'voicedub-realtime-client-secret');
+  assert.equal(captured.endpoint, 'https://api.example.com');
+  assert.equal(captured.payload.mode, 'transcription');
+  assert.equal(captured.payload.source_language, 'en-US');
+  assert.equal(out.value, 'rt_whisper_secret');
+});

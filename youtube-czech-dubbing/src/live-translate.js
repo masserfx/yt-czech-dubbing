@@ -23,11 +23,13 @@
 class LiveTranslate {
   constructor() {
     // Default to Web Speech API (free, low-latency); can be swapped to
-    // Gemini-audio at runtime via setSttEngine('gemini') when Web Speech
+    // Gemini-audio or OpenAI Realtime Whisper at runtime when Web Speech
     // misbehaves in chrome-extension:// origin.
     this.sttEngineName = 'webspeech';
     this.stt = new STTEngine();
     this._geminiStt = null; // lazy-instantiated
+    this._openaiStt = null; // lazy-instantiated
+    this._openaiRealtimeClient = null;
     this.translator = new Translator();
     this.tts = new TTSEngine();
 
@@ -58,7 +60,9 @@ class LiveTranslate {
   }
 
   static isSupported() {
-    return STTEngine.isSupported();
+    return STTEngine.isSupported()
+      || (typeof GeminiAudioSTT !== 'undefined' && GeminiAudioSTT.isSupported?.())
+      || (typeof OpenAIRealtimeSTT !== 'undefined' && OpenAIRealtimeSTT.isSupported?.());
   }
 
   async init() {
@@ -81,6 +85,7 @@ class LiveTranslate {
     this.sourceLang = code;
     this.stt.setLang(code);
     if (this._geminiStt) this._geminiStt.setLang(code);
+    if (this._openaiStt) this._openaiStt.setLang(code);
   }
 
   setTargetLang(code) {
@@ -119,23 +124,27 @@ class LiveTranslate {
   setMicDevice(deviceId) {
     this.stt.setDeviceId(deviceId);
     if (this._geminiStt) this._geminiStt.setDeviceId(deviceId);
+    if (this._openaiStt) this._openaiStt.setDeviceId(deviceId);
   }
 
   /**
    * Switch STT engine. 'webspeech' uses Web Speech API (default, free,
    * low-latency on https:// origins). 'gemini' uses MediaRecorder + Gemini
-   * audio input — bypasses chrome-extension:// origin refusal, also handles
-   * STT + translation in one call.
+   * audio input. 'openai' uses Realtime Whisper via direct OpenAI API.
    */
   setSttEngine(name) {
-    if (name !== 'webspeech' && name !== 'gemini') return;
+    if (name !== 'webspeech' && name !== 'gemini' && name !== 'openai') return;
     if (this.sttEngineName === name) return;
     if (this.stt.isRunning) this.stt.stop();
     if (this._geminiStt?.isRunning) this._geminiStt.stop();
+    if (this._openaiStt?.isRunning) this._openaiStt.stop();
     this.sttEngineName = name;
     if (name === 'gemini' && !this._geminiStt) {
       this._geminiStt = new GeminiAudioSTT();
       this._wireGeminiStt();
+    }
+    if (name === 'openai' && !this._openaiStt) {
+      this._ensureOpenAIStt();
     }
     console.log('[Live] STT engine →', name);
   }
@@ -146,9 +155,13 @@ class LiveTranslate {
 
   /** Pick the active STT instance based on current engine name. */
   _activeStt() {
-    return this.sttEngineName === 'gemini' && this._geminiStt
-      ? this._geminiStt
-      : this.stt;
+    if (this.sttEngineName === 'gemini' && this._geminiStt) return this._geminiStt;
+    if (this.sttEngineName === 'openai' && this._openaiStt) return this._openaiStt;
+    return this.stt;
+  }
+
+  isRunning() {
+    return !!(this.stt.isRunning || this._geminiStt?.isRunning || this._openaiStt?.isRunning);
   }
 
   async start() {
@@ -166,6 +179,18 @@ class LiveTranslate {
       const key = this.tts._geminiKey || this.translator._geminiApiKey;
       this._geminiStt.setApiKey(key);
       const ok = await this._geminiStt.start();
+      if (ok) this.onState?.('listening');
+      return ok;
+    }
+
+    if (this.sttEngineName === 'openai') {
+      const openaiStt = this._ensureOpenAIStt();
+      if (!openaiStt) {
+        this.onState?.('error', 'OpenAI Realtime Whisper není v tomto buildu dostupný');
+        return false;
+      }
+      openaiStt.setLang(this.sourceLang);
+      const ok = await openaiStt.start();
       if (ok) this.onState?.('listening');
       return ok;
     }
@@ -221,6 +246,7 @@ class LiveTranslate {
   stop() {
     this.stt.stop();
     if (this._geminiStt?.isRunning) this._geminiStt.stop();
+    if (this._openaiStt?.isRunning) this._openaiStt.stop();
     this.tts.stop();
     this._speakQueue = [];
     this._isSpeaking = false;
@@ -268,26 +294,43 @@ class LiveTranslate {
     };
   }
 
+  _ensureOpenAIStt() {
+    if (typeof OpenAIRealtimeSTT === 'undefined') return null;
+    if (!this._openaiRealtimeClient && typeof OpenAIRealtimeClient !== 'undefined') {
+      this._openaiRealtimeClient = new OpenAIRealtimeClient();
+    }
+    if (!this._openaiStt) {
+      this._openaiStt = new OpenAIRealtimeSTT(this._openaiRealtimeClient);
+      this._wireOpenAIStt();
+    }
+    return this._openaiStt;
+  }
+
+  _wireOpenAIStt() {
+    if (!this._openaiStt) return;
+    this._openaiStt.onLevel = (rms) => this.onLevel?.(rms);
+    this._openaiStt.onInterim = (text) => this.onInterim?.(text);
+    this._openaiStt.onError = (msg) => {
+      console.warn('[Live] OpenAI STT error:', msg);
+      this.onState?.('error', msg);
+    };
+    this._openaiStt.onStateChange = (state) => {
+      if (this._isSpeaking) return;
+      this.onState?.(state === 'listening' ? 'listening' : 'idle');
+    };
+    this._openaiStt.onFinal = (text, lang) => {
+      console.log('[Live] OpenAI STT final:', JSON.stringify(text), 'lang=', lang);
+      this._handleTranscriptFinal(text, lang);
+    };
+  }
+
   _wireSTT() {
     this.stt.onInterim = (text) => {
       this.onInterim?.(text);
     };
     this.stt.onFinal = (text, lang) => {
       console.log('[Live] STT final:', JSON.stringify(text), 'lang=', lang);
-      const entry = {
-        id: Date.now() + ':' + Math.random().toString(36).slice(2, 8),
-        original: text,
-        sourceLang: lang,
-        translated: '',
-        status: 'translating',
-        at: Date.now()
-      };
-      this.transcript.unshift(entry);
-      if (this.transcript.length > this.MAX_TRANSCRIPT) {
-        this.transcript.length = this.MAX_TRANSCRIPT;
-      }
-      this.onTranscriptChange?.(this.transcript);
-      this._translate(entry);
+      this._handleTranscriptFinal(text, lang);
     };
     this.stt.onError = (msg) => {
       console.warn('[Live] STT error:', msg);
@@ -297,6 +340,23 @@ class LiveTranslate {
       if (this._isSpeaking) return;
       this.onState?.(state === 'listening' ? 'listening' : 'idle');
     };
+  }
+
+  _handleTranscriptFinal(text, lang) {
+    const entry = {
+      id: Date.now() + ':' + Math.random().toString(36).slice(2, 8),
+      original: text,
+      sourceLang: lang || this.sourceLang,
+      translated: '',
+      status: 'translating',
+      at: Date.now()
+    };
+    this.transcript.unshift(entry);
+    if (this.transcript.length > this.MAX_TRANSCRIPT) {
+      this.transcript.length = this.MAX_TRANSCRIPT;
+    }
+    this.onTranscriptChange?.(this.transcript);
+    this._translate(entry);
   }
 
   async _translate(entry) {

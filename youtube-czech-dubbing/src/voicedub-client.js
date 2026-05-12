@@ -143,6 +143,29 @@ class VoiceDubClient {
       return null;
     }
   }
+
+  async createRealtimeTranscriptionClientSecret(sourceLanguage) {
+    if (!this.isEnabled()) return null;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'voicedub-realtime-client-secret',
+        endpoint: this._endpoint,
+        apiKey: this._apiKey,
+        payload: {
+          mode: 'transcription',
+          source_language: sourceLanguage,
+        },
+      });
+      if (response?.success && response.data?.value) return response.data;
+      if (response?.error) console.warn('[VoiceDub] Realtime transcription secret error:', response.error);
+      return null;
+    } catch (e) {
+      if (!/Extension context invalidated/.test(e.message || '')) {
+        console.warn('[VoiceDub] Realtime transcription secret failed:', e);
+      }
+      return null;
+    }
+  }
 }
 
 // Export pro content scripts + sidepanel.

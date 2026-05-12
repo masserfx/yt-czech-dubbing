@@ -1834,6 +1834,11 @@
         <label for="muteOriginal" data-i18n="muteOrig">Úplně ztlumit originál</label>
       </div>
 
+      <div class="checkbox-group">
+        <input type="checkbox" id="showSubtitles">
+        <label for="showSubtitles">Zobrazovat české titulky přes video</label>
+      </div>
+
       <div class="setting-divider"></div>
 
       <div class="setting-group">
@@ -1905,6 +1910,17 @@
       <div class="setting-divider"></div>
 
       <div class="setting-group">
+        <div class="setting-label">OpenAI Realtime API (vlastní klíč, bez VoiceDub)</div>
+        <div class="checkbox-group" style="margin-top:6px;">
+          <input type="checkbox" id="openaiRealtimeMode">
+          <label for="openaiRealtimeMode">Použít gpt-realtime-translate pro live audio dabing</label>
+        </div>
+        <div class="setting-label" style="margin-top:8px;"><span>OpenAI API klíč</span></div>
+        <input type="password" id="openaiApiKey" placeholder="sk-proj-...">
+        <div class="hint" style="margin-top:6px;">Přímé OpenAI API. Klíč zůstává v lokálním nastavení rozšíření; OpenAI účtuje podle vašeho účtu/kreditů.</div>
+      </div>
+
+      <div class="setting-group">
         <div class="setting-label">VoiceDub B2B API (staging)</div>
         <div class="checkbox-group" style="margin-top:6px;">
           <input type="checkbox" id="voicedubMode">
@@ -1915,9 +1931,9 @@
           <input type="password" id="voicedubApiKey" placeholder="vd_live_... nebo vd_test_...">
           <div class="setting-label" style="margin-top:8px;"><span>Endpoint (výchozí: staging)</span></div>
           <input type="text" id="voicedubEndpoint" placeholder="https://voicedub-api.masserfx.workers.dev">
-          <div class="checkbox-group" style="margin-top:10px;">
+          <div class="checkbox-group" style="display:none;margin-top:10px;">
             <input type="checkbox" id="voicedubRealtimeMode">
-            <label for="voicedubRealtimeMode">OpenAI Realtime Translate (live audio, experimentální)</label>
+            <label for="voicedubRealtimeMode">Legacy VoiceDub realtime</label>
           </div>
           <div class="hint" style="color:var(--accent-bright);margin-top:6px;">AI Act čl. 50 watermark default ON.</div>
         </div>

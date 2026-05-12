@@ -678,9 +678,14 @@
           if (typeof player.toggleSubtitles === 'function') {
             player.toggleSubtitles();
             console.log('[CzechDub:PageScript] Disabled visual captions');
+          } else if (typeof player.setOption === 'function') {
+            player.setOption('captions', 'track', {});
+            console.log('[CzechDub:PageScript] Cleared caption track');
           }
         }
       }
+      var ccButton = document.querySelector('.ytp-subtitles-button[aria-pressed="true"]');
+      if (ccButton) ccButton.click();
     } catch (e) {
       console.warn('[CzechDub:PageScript] Could not disable captions:', e);
     }

@@ -1156,6 +1156,7 @@ async function loadSettings() {
       document.getElementById('origVolValue').textContent = s.originalVolume + '%';
     }
     if (s.muteOriginal !== undefined) document.getElementById('muteOriginal').checked = s.muteOriginal;
+    if (s.showSubtitles !== undefined) document.getElementById('showSubtitles').checked = s.showSubtitles === true;
     if (s.ttsEngine) {
       let displayEngine = s.ttsEngine;
       if (s.ttsEngine === 'edge') {
@@ -1175,6 +1176,12 @@ async function loadSettings() {
     if (s.azureTtsKey) document.getElementById('azureTtsKey').value = s.azureTtsKey;
     if (s.azureTtsRegion) document.getElementById('azureTtsRegion').value = s.azureTtsRegion;
     if (s.azureTtsVoice) document.getElementById('azureTtsVoice').value = s.azureTtsVoice;
+
+    // OpenAI Realtime direct API
+    if (typeof s.openaiRealtimeMode === 'boolean') {
+      document.getElementById('openaiRealtimeMode').checked = s.openaiRealtimeMode;
+    }
+    if (s.openaiApiKey) document.getElementById('openaiApiKey').value = s.openaiApiKey;
 
     // VoiceDub B2B API
     if (typeof s.voicedubMode === 'boolean') {
@@ -1218,6 +1225,7 @@ function saveSettings() {
     ttsRate: document.getElementById('ttsRate').value,
     originalVolume: document.getElementById('originalVolume').value,
     muteOriginal: document.getElementById('muteOriginal').checked,
+    showSubtitles: document.getElementById('showSubtitles').checked,
     ttsEngine: (() => {
       const v = document.getElementById('ttsEngine').value;
       return (v === 'edge-male' || v === 'edge-female') ? 'edge' : v;
@@ -1231,6 +1239,8 @@ function saveSettings() {
     azureTtsRegion: document.getElementById('azureTtsRegion').value,
     azureTtsVoice: document.getElementById('azureTtsVoice').value,
     geminiTtsVoice: document.getElementById('geminiTtsVoice')?.value || 'Aoede',
+    openaiRealtimeMode: document.getElementById('openaiRealtimeMode').checked,
+    openaiApiKey: document.getElementById('openaiApiKey').value,
     voicedubMode: document.getElementById('voicedubMode').checked,
     voicedubRealtimeMode: document.getElementById('voicedubRealtimeMode').checked,
     voicedubApiKey: document.getElementById('voicedubApiKey').value,
@@ -1251,7 +1261,8 @@ function bindSettingsEvents() {
   const autoSave = () => saveSettings();
   const ids = ['targetLanguage', 'translatorEngine', 'anthropicApiKey', 'deeplApiKey',
     'geminiApiKey', 'ttsVolume', 'ttsRate', 'originalVolume', 'muteOriginal',
-    'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'geminiTtsVoice',
+    'showSubtitles', 'ttsEngine', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'geminiTtsVoice',
+    'openaiRealtimeMode', 'openaiApiKey',
     'voicedubMode', 'voicedubRealtimeMode', 'voicedubApiKey', 'voicedubEndpoint',
     'aiBackend', 'ollamaUrl', 'ollamaModel'];
   // Toggle VoiceDub config group visibility on checkbox change
@@ -1262,6 +1273,9 @@ function bindSettingsEvents() {
   ids.forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('change', autoSave);
+    if (id === 'showSubtitles') {
+      el.addEventListener('change', () => sendToTab({ type: 'update-settings', settings: { showSubtitles: el.checked } }));
+    }
     if (el.type === 'range') el.addEventListener('input', () => {
       if (id === 'ttsVolume') document.getElementById('volumeValue').textContent = el.value + '%';
       if (id === 'ttsRate') document.getElementById('rateValue').textContent = (parseInt(el.value) / 100).toFixed(1) + 'x';

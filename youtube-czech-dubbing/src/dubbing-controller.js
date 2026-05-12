@@ -13,7 +13,8 @@ class DubbingController {
     this.tts = new TTSEngine();
     this.serviceClient = new ServiceClient();
     this.voicedubClient = new VoiceDubClient();
-    this.realtimeClient = new RealtimeTranslateClient(this.voicedubClient);
+    this.openaiRealtimeClient = new OpenAIRealtimeClient();
+    this.realtimeClient = new RealtimeTranslateClient(this.openaiRealtimeClient);
     this.cache = new DubbingCache();
     this._targetLang = DEFAULT_LANGUAGE;
     this._langConfig = getLanguageConfig(DEFAULT_LANGUAGE);
@@ -36,6 +37,10 @@ class DubbingController {
     this._lastSpokenIndex = -1;
     this._transcriptTimer = null;
     this._realtimeSubtitleText = '';
+    this._subtitleHoldToken = 0;
+    this._playbackGeneration = 0;
+    this._syncPause = null;
+    this._ignoreNextPlayForSync = false;
 
     // Sentence buffer for DOM caption mode — accumulates lines until sentence boundary
     this._sentenceBuffer = '';
@@ -48,7 +53,8 @@ class DubbingController {
       ttsVolume: 0.95,
       ttsPitch: 1.0,
       reducedOriginalVolume: 0.15,
-      muteOriginal: false
+      muteOriginal: false,
+      showSubtitles: false
     };
   }
 
@@ -95,9 +101,11 @@ class DubbingController {
 
       // Load settings
       await this._loadSettings();
+      this._setNativeCaptionsHidden(true);
       await this.translator.loadSettings();
       await this.serviceClient.loadConfig();
       await this.voicedubClient.loadConfig();
+      await this.openaiRealtimeClient.loadConfig();
 
       // Load per-channel glossary (Pro feature — idempotent if no channel)
       if (this.translator.glossary) {
@@ -112,8 +120,8 @@ class DubbingController {
       this.translator._serviceClient = this.serviceClient;
       this.tts._serviceClient = this.serviceClient;
 
-      if (this.voicedubClient.isEnabled()) {
-        console.log('[CzechDub] VoiceDub B2B API enabled — primary path');
+      if (this.voicedubClient.isEnabled() || this.openaiRealtimeClient.isRealtimePreferred()) {
+        console.log('[CzechDub] AI dubbing provider enabled');
         this._showAIDisclosure();
       }
 
@@ -202,6 +210,7 @@ class DubbingController {
       }
 
       if (transcriptData && transcriptData.segments.length > 0) {
+        this.extractor.disableCaptions?.();
         let translated;
         let sourceLang = transcriptData.sourceLang;
         const isCzech = sourceLang === this._targetLang;
@@ -231,6 +240,8 @@ class DubbingController {
         // Check if stopped during translation
         if (!this._isStarting) {
           this.isActive = false;
+          this.extractor.disableCaptions?.();
+          this._setNativeCaptionsHidden(false);
           return false;
         }
 
@@ -270,6 +281,8 @@ class DubbingController {
       // Check captions availability (may already be enabled from step 1)
       if (!hasCaptions) {
         this._setStatus('error', 'Titulky nejsou k dispozici pro toto video');
+        this.extractor.disableCaptions?.();
+        this._setNativeCaptionsHidden(false);
         return false;
       }
 
@@ -288,6 +301,7 @@ class DubbingController {
 
     } catch (err) {
       console.error('[CzechDub] Start failed:', err);
+      this._setNativeCaptionsHidden(false);
       this._setStatus('error', `Chyba: ${err.message}`);
       return false;
     }
@@ -498,6 +512,7 @@ class DubbingController {
     if (!this.isActive) return;
 
     this._isSpeaking = true;
+    const generation = this._playbackGeneration;
     const item = this._speechQueue.shift();
 
     // Skip stale items to prevent playing content that's too far behind video.
@@ -536,14 +551,11 @@ class DubbingController {
       // Reduce video volume while speaking (iOS-aware)
       this._duckVideo(true);
 
-      // Show subtitle overlay
-      this._showSubtitle(text);
-
       if (audioBase64) {
         // Catch up: faster playback when dub is lagging behind video.
         const playRate = itemAge > 1500 ? 1.6 : itemAge > 500 ? 1.45 : 1.3;
         console.log(`[CzechDub] VoiceDub audio (rate=${playRate}, age=${itemAge}ms): "${text.substring(0, 60)}"`);
-        await this._playAudioBase64(audioBase64, playRate);
+        await this._playAudioBase64(audioBase64, playRate, text, generation);
       } else {
         // Dynamic playback rate: catch up when dub is behind video.
         // Baseline 1.10 because Czech is ~15% longer than English — even "on-time"
@@ -555,7 +567,10 @@ class DubbingController {
         const speakRate = Math.min(1.7, 1.1 + ageBoost + queueBoost);
         const speakerTag = speaker ? `[${speaker}]` : '';
         console.log(`[CzechDub] TTS${speakerTag} (rate=${speakRate.toFixed(2)}, age=${itemAge}ms, q=${queueLen}): "${text.substring(0, 60)}"${speaker ? '' : `, voice=${this.tts.czechVoice?.name}`}`);
-        await this.tts.speakAs(text, speaker, { rate: speakRate });
+        await this._speakWithSubtitle(text, speaker, {
+          rate: speakRate,
+          _shouldPlay: () => this._isCurrentPlayback(generation),
+        });
       }
 
     } catch (e) {
@@ -563,6 +578,7 @@ class DubbingController {
     } finally {
       // Always restore volume — even if stopped (isActive=false)
       this._duckVideo(false);
+      this._clearSubtitle();
       this._isSpeaking = false;
 
       // Process next in queue
@@ -633,8 +649,9 @@ class DubbingController {
 
       const words = seg.text.split(/\s+/);
       const estimatedDuration = words.length / (baseWordsPerSec * baseRate);
-      // Tolerate 50% overflow: prefer slight desync over truncated sentences.
-      const availableTime = seg.duration * 1.5;
+      // Keep dub close to picture. Earlier versions tolerated 50% overflow,
+      // which sounded natural but let Czech speech drift far behind the scene.
+      const availableTime = Math.max(1.2, seg.duration * 1.1);
 
       if (estimatedDuration > availableTime) {
         const requiredRate = (words.length / baseWordsPerSec) / availableTime;
@@ -786,15 +803,18 @@ class DubbingController {
   _findNextSegment(currentTime) {
     if (!this._transcriptSegments) return -1;
 
+    const leadSeconds = 0.85;
+    const maxLagSeconds = 1.25;
+
     for (let i = this._lastSpokenIndex + 1; i < this._transcriptSegments.length; i++) {
       const seg = this._transcriptSegments[i];
-      const segEnd = seg.start + (seg.duration || 5);
-      // Speak if current time is within the segment's time range
-      if (currentTime >= seg.start - 0.5 && currentTime <= segEnd) {
+      if (currentTime > seg.start + maxLagSeconds) {
+        continue;
+      }
+      if (currentTime >= seg.start - leadSeconds) {
         return i;
       }
-      // Skip segments we've already passed
-      if (seg.start > currentTime + 2) break;
+      if (seg.start > currentTime + leadSeconds) break;
     }
     return -1;
   }
@@ -806,22 +826,27 @@ class DubbingController {
     if (!this.isActive) return;
 
     this._isSpeaking = true;
+    const generation = this._playbackGeneration;
     const czechText = segment.text;
 
     try {
       // Reduce video volume (iOS-aware)
       this._duckVideo(true);
 
-      this._showSubtitle(czechText);
-
       // Use per-segment rate if timing optimization calculated one, otherwise default
       const segRate = segment._ttsRate || this._settings.ttsRate || 1.1;
+      const ttsOptions = this._ttsOptionsForSegment(segment, segRate);
       if (segment._ttsRate) {
         this.tts.setRate(segRate);
       }
 
       const speakerTag = segment.speaker ? `[${segment.speaker}]` : '';
       console.log(`[CzechDub] TTS[${segment.start.toFixed(1)}s @${segRate.toFixed(1)}x]${speakerTag}: "${czechText.substring(0, 100)}" (orig: "${(segment.originalText || '').substring(0, 80)}")`);
+
+      const pauseForSync = this._shouldPauseForTtsPrep(czechText, ttsOptions);
+      if (pauseForSync) {
+        this._pauseVideoForDubbingSync(generation, `TTS prep @${segment.start.toFixed(1)}s`);
+      }
 
       let played = false;
       if (this.voicedubClient.isEnabled()) {
@@ -831,15 +856,20 @@ class DubbingController {
           language: this._targetLang,
           speed: ssmlSpeed,
         });
+        if (!this._isCurrentPlayback(generation)) return;
         if (result?.audioBase64) {
           console.log(`[CzechDub] VoiceDub TTS (cached=${result.cached}): "${czechText.substring(0, 60)}"`);
-          await this._playAudioBase64(result.audioBase64);
+          await this._playAudioBase64(result.audioBase64, segRate, czechText, generation);
           played = true;
         }
       }
 
       if (!played) {
-        await this.tts.speakAs(czechText, segment.speaker);
+        await this._speakWithSubtitle(czechText, segment.speaker, {
+          ...ttsOptions,
+          _shouldPlay: () => this._isCurrentPlayback(generation),
+          _onSubtitleStart: () => this._resumeVideoAfterDubbingSync(generation),
+        });
       }
 
       // Restore default rate if we changed it
@@ -851,7 +881,9 @@ class DubbingController {
       console.warn('[CzechDub] TTS error:', e);
     } finally {
       // Always restore volume — even if stopped (isActive=false)
+      this._resumeVideoAfterDubbingSync(generation);
       this._duckVideo(false);
+      this._clearSubtitle();
       this._isSpeaking = false;
     }
   }
@@ -865,15 +897,13 @@ class DubbingController {
     this.isActive = false;
     this._isStarting = false;
     this._realtimeMode = false;
+    this._bumpPlaybackGeneration();
     this.tts.stop();
     if (this.tts) this.tts.onSynthSuccess = null;
     this.realtimeClient?.stop?.();
     this.extractor.stopObserving();
 
-    if (this._currentAudio) {
-      try { this._currentAudio.pause(); } catch (e) {}
-      this._currentAudio = null;
-    }
+    this._cancelCurrentAudio();
 
     this._speechQueue = [];
     this._isSpeaking = false;
@@ -912,6 +942,8 @@ class DubbingController {
 
     // Remove subtitle overlay
     this._clearSubtitle();
+    this.extractor.disableCaptions?.();
+    this._setNativeCaptionsHidden(false);
 
     this._setStatus('idle', 'Dabing zastaven');
     this._stopping = false;
@@ -959,7 +991,7 @@ class DubbingController {
   _showAIDisclosure() {
     const banner = document.createElement('div');
     banner.id = 'czech-dub-ai-disclosure';
-    banner.textContent = '🤖 Dabing vygenerovaný umělou inteligencí (VoiceDub)';
+    banner.textContent = 'Dabing vygenerovaný umělou inteligencí';
     Object.assign(banner.style, {
       position: 'fixed', top: '70px', right: '16px', zIndex: '2147483647',
       background: 'rgba(0,0,0,0.82)', color: '#fff', padding: '10px 14px',
@@ -974,8 +1006,8 @@ class DubbingController {
   /**
    * Show a subtitle overlay on the video.
    */
-  _showSubtitle(czechText) {
-    if (!czechText) {
+  _showSubtitle(czechText, options = {}) {
+    if (!this._settings.showSubtitles || !czechText) {
       this._clearSubtitle();
       return;
     }
@@ -999,14 +1031,20 @@ class DubbingController {
     mainDiv.textContent = czechText;
 
     overlay.textContent = '';
+    overlay.dataset.mode = options.mode || '';
     overlay.appendChild(mainDiv);
     overlay.style.display = 'block';
     overlay.classList.add('czech-dub-visible');
 
     clearTimeout(this._subtitleTimeout);
-    this._subtitleTimeout = setTimeout(() => {
-      overlay.classList.remove('czech-dub-visible');
-    }, 5000);
+    const autoHideMs = options.autoHideMs;
+    if (autoHideMs && autoHideMs > 0) {
+      const token = ++this._subtitleHoldToken;
+      this._subtitleTimeout = setTimeout(() => {
+        if (token !== this._subtitleHoldToken) return;
+        this._clearSubtitle();
+      }, autoHideMs);
+    }
   }
 
   _clearSubtitle() {
@@ -1016,6 +1054,126 @@ class DubbingController {
     overlay.classList.remove('czech-dub-visible');
     overlay.style.display = 'none';
     overlay.textContent = '';
+    this._subtitleHoldToken++;
+  }
+
+  _formatRealtimeSubtitle(text) {
+    const compact = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!compact) return '';
+
+    const maxChars = 170;
+    if (compact.length <= maxChars) return compact;
+
+    const sentenceParts = compact.match(/[^.!?…]+[.!?…]*/g) || [];
+    let out = '';
+    for (let i = sentenceParts.length - 1; i >= 0; i--) {
+      const part = sentenceParts[i].trim();
+      if (!part) continue;
+      const next = out ? `${part} ${out}` : part;
+      if (next.length > maxChars && out) break;
+      out = next;
+      if (out.length >= 90) break;
+    }
+
+    if (out && out.length <= maxChars) return out;
+
+    const tail = compact.slice(-maxChars);
+    return tail.replace(/^[^\s]+\s+/, '').trim() || tail.trim();
+  }
+
+  _setNativeCaptionsHidden(hidden) {
+    try {
+      document.documentElement.classList.toggle('czech-dub-hide-native-captions', !!hidden);
+    } catch (_) {}
+  }
+
+  _isCurrentPlayback(generation) {
+    return this.isActive && generation === this._playbackGeneration;
+  }
+
+  _bumpPlaybackGeneration() {
+    this._playbackGeneration++;
+    this._syncPause = null;
+    this._clearSubtitle();
+  }
+
+  _ttsOptionsForSegment(segment, rate) {
+    const base = rate ? { rate } : {};
+    const role = segment?.speaker || segment?.role || null;
+    if (role && this.tts?._ttsEngine === 'edge' && typeof this.tts._roleOptions === 'function') {
+      return this.tts._roleOptions(role, base);
+    }
+    return base;
+  }
+
+  _hasReadyTtsAudio(text, options) {
+    if (!this.tts || this.tts._ttsEngine === 'browser') return true;
+    if (typeof this.tts._prefetchKey !== 'function' || !this.tts._prefetchCache) return false;
+    const key = this.tts._prefetchKey(text, options || {});
+    const entry = this.tts._prefetchCache.get(key);
+    return !!(entry && entry.expires > Date.now());
+  }
+
+  _shouldPauseForTtsPrep(text, options) {
+    if (!this.videoElement || this.videoElement.paused) return false;
+    if (typeof window !== 'undefined' && window.__CZECHDUB_IOS__) return false;
+    if (this.voicedubClient?.isEnabled?.()) return true;
+    if (!this.tts || this.tts._ttsEngine === 'browser') return false;
+    return !this._hasReadyTtsAudio(text, options);
+  }
+
+  _pauseVideoForDubbingSync(generation, reason) {
+    if (!this.videoElement || this.videoElement.paused || !this._isCurrentPlayback(generation)) return;
+    this._syncPause = { generation, reason };
+    try {
+      console.log('[CzechDub] Pausing video for dub sync:', reason);
+      this.videoElement.pause();
+    } catch (e) {
+      this._syncPause = null;
+    }
+  }
+
+  _resumeVideoAfterDubbingSync(generation) {
+    if (!this._syncPause || this._syncPause.generation !== generation) return;
+    this._syncPause = null;
+    if (!this.videoElement || !this.videoElement.paused || !this._isCurrentPlayback(generation)) return;
+    try {
+      this._ignoreNextPlayForSync = true;
+      const p = this.videoElement.play();
+      if (p?.catch) p.catch((e) => console.warn('[CzechDub] resume after dub sync failed:', e?.message || e));
+      setTimeout(() => { this._ignoreNextPlayForSync = false; }, 250);
+    } catch (e) {
+      this._ignoreNextPlayForSync = false;
+      console.warn('[CzechDub] resume after dub sync threw:', e?.message || e);
+    }
+  }
+
+  async _speakWithSubtitle(text, speaker, options = {}) {
+    const previousStart = this.tts.onSpeakStart;
+    const previousEnd = this.tts.onSpeakEnd;
+    const expected = String(text || '').trim();
+    const isStillCurrent = () => !options._shouldPlay || options._shouldPlay();
+    const startHandler = (spokenText) => {
+      previousStart?.(spokenText);
+      if (isStillCurrent() && String(spokenText || '').trim() === expected) {
+        this._showSubtitle(text);
+        options._onSubtitleStart?.();
+      }
+    };
+    const endHandler = (spokenText) => {
+      previousEnd?.(spokenText);
+      if (isStillCurrent() && String(spokenText || '').trim() === expected) {
+        this._clearSubtitle();
+      }
+    };
+    this.tts.onSpeakStart = startHandler;
+    this.tts.onSpeakEnd = endHandler;
+    try {
+      await this.tts.speakAs(text, speaker, options);
+    } finally {
+      if (this.tts.onSpeakStart === startHandler) this.tts.onSpeakStart = previousStart;
+      if (this.tts.onSpeakEnd === endHandler) this.tts.onSpeakEnd = previousEnd;
+    }
   }
 
   /**
@@ -1023,6 +1181,7 @@ class DubbingController {
    */
   _onVideoPause = () => {
     if (this.isActive) {
+      if (this._syncPause) return;
       if (this._realtimeMode) {
         this.realtimeClient?.setMuted?.(true);
         if (this.videoElement) {
@@ -1032,10 +1191,9 @@ class DubbingController {
       }
 
       // Chrome's synth.pause() is unreliable — cancel speech instead
+      this._bumpPlaybackGeneration();
       this.tts.stop();
-      if (this._currentAudio) {
-        try { this._currentAudio.pause(); } catch (e) {}
-      }
+      this._cancelCurrentAudio();
       this._isSpeaking = false;
       // Restore volume while paused
       if (this.videoElement) {
@@ -1046,6 +1204,10 @@ class DubbingController {
 
   _onVideoPlay = () => {
     if (this.isActive) {
+      if (this._ignoreNextPlayForSync) {
+        this._ignoreNextPlayForSync = false;
+        return;
+      }
       if (this._realtimeMode) {
         this.realtimeClient?.setMuted?.(false);
         this._duckVideo(true);
@@ -1059,17 +1221,14 @@ class DubbingController {
 
   _onVideoSeeked = () => {
     if (this.isActive) {
+      this._bumpPlaybackGeneration();
       if (this._realtimeMode) {
         this._realtimeSubtitleText = '';
-        this._clearSubtitle();
         return;
       }
 
       this.tts.stop();
-      if (this._currentAudio) {
-        try { this._currentAudio.pause(); } catch (e) {}
-        this._currentAudio = null;
-      }
+      this._cancelCurrentAudio();
       this._speechQueue = [];
       this._isSpeaking = false;
 
@@ -1110,6 +1269,9 @@ class DubbingController {
     this.tts.setVolume(this._settings.ttsVolume);
     this.tts.setPitch(this._settings.ttsPitch);
     this.realtimeClient?.setVolume?.(this._settings.ttsVolume);
+    if ('showSubtitles' in settings && !this._settings.showSubtitles) {
+      this._clearSubtitle();
+    }
 
     // Apply TTS engine and voice changes
     if ('ttsEngine' in settings || 'azureTtsVoice' in settings || 'edgeTtsVoice' in settings) {
@@ -1137,9 +1299,12 @@ class DubbingController {
 
   async _loadSettings() {
     try {
-      const result = await chrome.storage.local.get('czechDubSettings');
+      const result = await chrome.storage.local.get(['czechDubSettings', 'popupSettings']);
       if (result.czechDubSettings) {
         Object.assign(this._settings, result.czechDubSettings);
+      }
+      if (typeof result.popupSettings?.showSubtitles === 'boolean') {
+        this._settings.showSubtitles = result.popupSettings.showSubtitles;
       }
     } catch (e) {}
   }
@@ -1151,7 +1316,7 @@ class DubbingController {
   }
 
   async _startRealtimeDubbing() {
-    if (!this.voicedubClient.isRealtimePreferred()) return false;
+    if (!this.openaiRealtimeClient.isRealtimePreferred()) return false;
     if (typeof window !== 'undefined' && window.__CZECHDUB_IOS__) {
       console.log('[CzechDub] Realtime translate skipped on iOS Safari');
       return false;
@@ -1179,9 +1344,17 @@ class DubbingController {
           const normalized = String(text || '').replace(/\s+/g, ' ').trim();
           if (!normalized) return;
           this._realtimeSubtitleText = normalized;
-          this._showSubtitle(normalized);
-          if (event?.type === 'session.output_transcript.completed') {
+          const captionText = this._formatRealtimeSubtitle(normalized);
+          this._showSubtitle(captionText, { autoHideMs: 1800, mode: 'realtime' });
+          const finalTranscript =
+            event?.final ||
+            event?.type === 'response.output_audio_transcript.done' ||
+            event?.type === 'response.output_text.done' ||
+            event?.type === 'response.content_part.done' ||
+            event?.type === 'session.output_transcript.completed';
+          if (finalTranscript) {
             this._realtimeSubtitleText = '';
+            this._showSubtitle(captionText, { autoHideMs: 1200, mode: 'realtime' });
           }
         },
         onStatus: (status, detail) => {
@@ -1221,13 +1394,28 @@ class DubbingController {
    * Play audio from base64-encoded MP3 (VoiceDub response).
    * Content script runs in DOM context, so URL.createObjectURL + Audio work here.
    */
-  _playAudioBase64(b64, playbackRate = 1.3) {
+  _cancelCurrentAudio() {
+    if (this._currentAudioResolve) {
+      const resolve = this._currentAudioResolve;
+      this._currentAudioResolve = null;
+      try { this._currentAudio?.pause(); } catch (_) {}
+      resolve();
+      return;
+    }
+    if (this._currentAudio) {
+      try { this._currentAudio.pause(); } catch (_) {}
+      this._currentAudio = null;
+    }
+  }
+
+  _playAudioBase64(b64, playbackRate = 1.3, subtitleText = '', generation = this._playbackGeneration) {
     return new Promise((resolve) => {
       let url;
       let finished = false;
       const finish = () => {
         if (finished) return;
         finished = true;
+        if (subtitleText) this._clearSubtitle();
         if (url) URL.revokeObjectURL(url);
         if (this._currentAudioResolve === finish) this._currentAudioResolve = null;
         if (this._currentAudio === audio) this._currentAudio = null;
@@ -1248,7 +1436,21 @@ class DubbingController {
         };
         this._currentAudio = audio;
         this._currentAudioResolve = finish;
-        audio.play().catch((e) => {
+        if (!this._isCurrentPlayback(generation)) {
+          finish();
+          return;
+        }
+        let started = false;
+        const markStarted = () => {
+          if (started) return;
+          started = true;
+          if (subtitleText && this._isCurrentPlayback(generation)) {
+            this._showSubtitle(subtitleText);
+            this._resumeVideoAfterDubbingSync(generation);
+          }
+        };
+        audio.onplaying = markStarted;
+        audio.play().then(markStarted).catch((e) => {
           console.warn('[CzechDub] audio.play() rejected:', e.message);
           finish();
         });

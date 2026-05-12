@@ -177,6 +177,17 @@
         langSelect.value = savedLang;
         settingsPanel.appendChild(langSelect);
 
+        const subtitleLabel = document.createElement('label');
+        subtitleLabel.className = 'czech-dub-checkbox';
+        const subtitleCheckbox = document.createElement('input');
+        subtitleCheckbox.type = 'checkbox';
+        subtitleCheckbox.id = 'czech-dub-show-subtitles';
+        const subtitleText = document.createElement('span');
+        subtitleText.textContent = 'Zobrazovat české titulky přes video';
+        subtitleLabel.appendChild(subtitleCheckbox);
+        subtitleLabel.appendChild(subtitleText);
+        settingsPanel.appendChild(subtitleLabel);
+
         const engineLabel = document.createElement('label');
         engineLabel.textContent = 'Překladač';
         settingsPanel.appendChild(engineLabel);
@@ -266,6 +277,7 @@
           if (s.anthropicApiKey) apiKeyInput.value = s.anthropicApiKey;
           if (s.deeplApiKey) deeplKeyInput.value = s.deeplApiKey;
           if (s.geminiApiKey) geminiKeyInput.value = s.geminiApiKey;
+          subtitleCheckbox.checked = s.showSubtitles === true;
           if (s.translatorEngine === 'claude') apiKeyGroup.classList.add('visible');
           if (s.translatorEngine === 'deepl') deeplKeyGroup.classList.add('visible');
           if (s.translatorEngine === 'gemini') geminiKeyGroup.classList.add('visible');
@@ -274,6 +286,16 @@
             apiKeyGroup.classList.toggle('visible', engineSelect.value === 'claude');
             deeplKeyGroup.classList.toggle('visible', engineSelect.value === 'deepl');
             geminiKeyGroup.classList.toggle('visible', engineSelect.value === 'gemini');
+          });
+        });
+
+        subtitleCheckbox.addEventListener('change', () => {
+          const showSubtitles = subtitleCheckbox.checked;
+          controller.updateSettings({ showSubtitles });
+          chrome.storage.local.get('popupSettings', (result) => {
+            const s = result.popupSettings || {};
+            s.showSubtitles = showSubtitles;
+            chrome.storage.local.set({ popupSettings: s });
           });
         });
 
@@ -299,7 +321,9 @@
             s.deeplApiKey = deeplKey;
             s.geminiApiKey = geminiKey;
             s.targetLanguage = targetLang;
+            s.showSubtitles = subtitleCheckbox.checked;
             chrome.storage.local.set({ popupSettings: s }, () => {
+              controller.updateSettings({ showSubtitles: subtitleCheckbox.checked });
               settingsPanel.classList.remove('open');
               console.log('[CzechDub] Settings saved: lang=' + targetLang + ', engine=' + engine);
             });

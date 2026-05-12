@@ -87,6 +87,11 @@ class CaptionExtractor {
     });
   }
 
+  disableCaptions() {
+    if (typeof window !== 'undefined' && window.__CZECHDUB_FORCE_DOM_CAPTIONS__) return;
+    window.postMessage({ type: 'CZECH_DUB_DISABLE_CAPTIONS' }, 'https://www.youtube.com');
+  }
+
   /**
    * Start observing YouTube's caption DOM.
    * Uses the "emit on disappear" strategy.
